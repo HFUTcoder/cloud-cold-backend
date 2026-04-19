@@ -71,7 +71,7 @@ public class AgentServiceImpl implements AgentService {
         switch (mode) {
             case AgentModeConstant.FAST:
                 return reactAgent.stream(question);
-            case AgentModeConstant.EXPERT:
+            case AgentModeConstant.THINKING:
                 return planExecuteAgent.stream(question);
             default:
                 return reactAgent.stream(question);

@@ -35,7 +35,7 @@ public class SimpleReactAgent {
     public SimpleReactAgent(String name, ChatModel chatModel, List<ToolCallback> tools, String systemPrompt, int maxRounds, ChatMemory chatMemory) {
         this.name = name;
         this.chatModel = chatModel;
-        this.tools = tools;
+        this.tools = tools == null ? Collections.emptyList() : new ArrayList<>(tools);
         this.systemPrompt = systemPrompt;
         this.maxRounds = maxRounds;
         this.chatMemory = chatMemory;
@@ -298,11 +298,19 @@ public class SimpleReactAgent {
     }
 
     private void mergeToolCall(RoundState state, AssistantMessage.ToolCall incoming) {
+        if (incoming == null) {
+            return;
+        }
 
         for (int i = 0; i < state.toolCalls.size(); i++) {
             AssistantMessage.ToolCall existing = state.toolCalls.get(i);
+            if (existing == null) {
+                continue;
+            }
 
-            if (existing.id().equals(incoming.id())) {
+            String existingId = existing.id();
+            String incomingId = incoming.id();
+            if (existingId != null && incomingId != null && existingId.equals(incomingId)) {
 
                 String mergedArgs = Objects.toString(existing.arguments(), "") + Objects.toString(incoming.arguments(), "");
 
@@ -469,7 +477,7 @@ public class SimpleReactAgent {
     public static class Builder {
         private String name;
         private ChatModel chatModel;
-        private List<ToolCallback> tools;
+        private List<ToolCallback> tools = new ArrayList<>();
         private String systemPrompt = "";
         private int maxRounds;
         private ChatMemory chatMemory;
@@ -490,12 +498,12 @@ public class SimpleReactAgent {
         }
 
         public Builder tools(ToolCallback... tools) {
-            this.tools = Arrays.asList(tools);
+            this.tools = tools == null ? new ArrayList<>() : new ArrayList<>(Arrays.asList(tools));
             return this;
         }
 
         public Builder tools(List<ToolCallback> tools) {
-            this.tools = tools;
+            this.tools = tools == null ? new ArrayList<>() : new ArrayList<>(tools);
             return this;
         }
 
