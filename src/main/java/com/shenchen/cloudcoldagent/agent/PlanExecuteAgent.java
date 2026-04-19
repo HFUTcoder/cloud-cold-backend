@@ -23,6 +23,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
@@ -191,24 +192,24 @@ public class PlanExecuteAgent {
                 while (maxRounds <= 0 || state.getRound() < maxRounds) {
                     state.nextRound();
                     log.info("===== Plan-Execute Round {} =====", state.getRound());
-                    emitStep(sink, "Plan-Execute Round " + state.getRound(), "开始规划与执行");
+                    emitStep(sink, "round", "Plan-Execute Round " + state.getRound(), "开始规划与执行");
 
                     // 1.生成计划
                     List<PlanTask> plan = generatePlan(state);
                     String planText = "【Execution Plan】\n" + plan;
                     log.info(planText);
                     state.add(new AssistantMessage(planText));
-                    emitStep(sink, "Execution Plan", renderPlanForDisplay(plan));
+                    emitStep(sink, "plan", "Execution Plan", renderPlanForDisplay(plan));
 
                     if (plan.isEmpty() || plan.stream().allMatch(t -> t.id() == null)) {
                         log.info("===== No execution needed, direct answer =====");
-                        emitStep(sink, "Execution", "当前无需执行工具任务，进入总结阶段。");
+                        emitStep(sink, "execution", "Execution", "当前无需执行工具任务，进入总结阶段。");
                         break;
                     }
 
                     // 2.执行
                     Map<String, TaskResult> results = executePlan(plan, state);
-                    emitStep(sink, "Task Result", renderTaskResultsForDisplay(results));
+                    emitStep(sink, "task", "Task Result", renderTaskResultsForDisplay(results));
 
                     // 3.批判
                     CritiqueResult critique = critique(state);
@@ -216,7 +217,7 @@ public class PlanExecuteAgent {
 
                     if (critique.passed()) {
                         log.info("===== Goal satisfied, finish =====");
-                        emitStep(sink, "Critique", "目标已满足，进入总结阶段。");
+                        emitStep(sink, "critique", "Critique", "目标已满足，进入总结阶段。");
                         break;
                     }
 
@@ -227,24 +228,24 @@ public class PlanExecuteAgent {
 
                     if (isOnlyMissingSummary) {
                         log.info("===== 数据已收集完毕，直接进入总结阶段 =====");
-                        emitStep(sink, "Critique", "已收集到足够数据，直接生成最终总结。");
+                        emitStep(sink, "critique", "Critique", "已收集到足够数据，直接生成最终总结。");
                         break;
                     }
 
                     log.info("===== critique Goal not satisfied, continue round =====,\n reason is {} ", critique.feedback);
                     state.add(new AssistantMessage(critiqueText));
-                    emitStep(sink, "Critique Feedback", critique.feedback());
+                    emitStep(sink, "critique", "Critique Feedback", critique.feedback());
 
                     // 4. 压缩context
                     compressIfNeeded(state);
                 }
                 if (state.round == maxRounds) {
                     log.info("===== Max rounds reached, force finish =====");
-                    emitStep(sink, "Plan-Execute", "达到最大轮次，强制进入总结阶段。");
+                    emitStep(sink, "round", "Plan-Execute", "达到最大轮次，强制进入总结阶段。");
                 }
 
                 // 5.总结输出
-                emitStep(sink, "Final Answer", "正在生成最终答案...");
+                emitStep(sink, "final", "Final Answer", "正在生成最终答案...");
                 String answer = summarize(state);
                 sink.tryEmitNext(answer);
                 finalAnswerBuffer.append(answer);
@@ -270,15 +271,15 @@ public class PlanExecuteAgent {
                 });
     }
 
-    private void emitStep(Sinks.Many<String> sink, String title, String content) {
+    private void emitStep(Sinks.Many<String> sink, String type, String title, String content) {
         if (sink == null || StringUtils.isBlank(content)) {
             return;
         }
         String block = """
-                [思考过程] %s
+                [思考过程][%s] %s
                 %s
                 
-                """.formatted(title, content);
+                """.formatted(type, title, content);
         sink.tryEmitNext(block);
     }
 
@@ -299,19 +300,18 @@ public class PlanExecuteAgent {
         if (results == null || results.isEmpty()) {
             return "本轮无工具执行结果。";
         }
+        AtomicInteger stepIndex = new AtomicInteger(1);
         return results.values().stream()
                 .sorted(Comparator.comparing(TaskResult::taskId, Comparator.nullsLast(String::compareTo)))
-                .map(result -> """
-                        - taskId: %s
-                          success: %s
-                          output: %s
-                          error: %s
-                        """.formatted(
-                        result.taskId(),
-                        result.success(),
-                        StringUtils.defaultIfBlank(result.output(), "N/A"),
-                        StringUtils.defaultIfBlank(result.error(), "N/A")
-                ).trim())
+                .map(result -> {
+                    int idx = stepIndex.getAndIncrement();
+                    if (result.success()) {
+                        String output = StringUtils.defaultIfBlank(result.output(), "未返回有效内容");
+                        return "- 步骤 %s 执行结果：%s".formatted(idx, output);
+                    }
+                    String error = StringUtils.defaultIfBlank(result.error(), "执行失败");
+                    return "- 步骤 %s 执行失败：%s".formatted(idx, error);
+                })
                 .collect(Collectors.joining("\n"));
     }
 
