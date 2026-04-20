@@ -22,4 +22,9 @@ public class AgentCallRequest implements Serializable {
      */
     private String mode;
 
+    /**
+     * 会话 id（可选，不传则使用默认会话）
+     */
+    private String conversationId;
+
 }

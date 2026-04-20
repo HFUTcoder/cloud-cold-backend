@@ -250,10 +250,6 @@ public class PlanExecuteAgent {
                 sink.tryEmitNext(answer);
                 finalAnswerBuffer.append(answer);
 
-                if (useMemory) {
-                    chatMemory.add(conversationId, new AssistantMessage(answer));
-                }
-
                 hasSentFinalResult.set(true);
                 sink.tryEmitComplete();
             } catch (Exception e) {

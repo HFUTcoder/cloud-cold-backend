@@ -15,5 +15,5 @@ public interface AgentService {
      * @param agentCallRequest 代理调用请求
      * @return 响应流
      */
-    Flux<String> call(AgentCallRequest agentCallRequest);
+    Flux<String> call(AgentCallRequest agentCallRequest, Long userId);
 }
