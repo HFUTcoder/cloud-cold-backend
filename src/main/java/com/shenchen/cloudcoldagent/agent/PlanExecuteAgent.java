@@ -31,15 +31,9 @@ import reactor.core.scheduler.Schedulers;
 
 
 @Slf4j
-public class PlanExecuteAgent {
-
-    private final ChatModel chatModel;
-    private final List<ToolCallback> tools;
+public class PlanExecuteAgent extends BaseAgent {
 
     // plan-execute 总轮数
-    private final int maxRounds;
-
-    // context 压缩阈值
     private final int contextCharLimit;
 
     // 控制工具并发调用上限
@@ -50,8 +44,6 @@ public class PlanExecuteAgent {
 
     private PlanExecutePromptsFactory planExecutePrompts;
 
-    private ChatMemory chatMemory;
-
     public PlanExecuteAgent(ChatModel chatModel,
                             List<ToolCallback> tools,
                             int maxRounds,
@@ -59,14 +51,11 @@ public class PlanExecuteAgent {
                             int maxToolRetries,
                             PlanExecutePromptsFactory planExecutePrompts,
                             ChatMemory chatMemory) {
-        this.chatModel = chatModel;
-        this.tools = tools;
-        this.maxRounds = maxRounds;
+        super(chatModel, tools, maxRounds, chatMemory);
         this.contextCharLimit = contextCharLimit;
         this.maxToolRetries = maxToolRetries;
         this.toolSemaphore = new Semaphore(3);
         this.planExecutePrompts = planExecutePrompts;
-        this.chatMemory = chatMemory;
     }
 
     public static Builder builder() {
@@ -160,13 +149,13 @@ public class PlanExecuteAgent {
     }
 
     public Flux<String> streamInternal(String conversationId, String question) {
-        boolean useMemory = conversationId != null && chatMemory != null;
+        boolean useMemory = useMemory(conversationId);
 
         OverAllState state = new OverAllState(conversationId, question);
 
         // 加载历史记忆到上下文messages中
         if (useMemory) {
-            List<Message> history = chatMemory.get(conversationId);
+            List<Message> history = getMemoryMessages(conversationId);
             if (!CollectionUtils.isEmpty(history)) {
                 history.forEach(state::add);
             }
@@ -177,7 +166,7 @@ public class PlanExecuteAgent {
 
         // 当前问题存入memory
         if (useMemory) {
-            chatMemory.add(conversationId, new UserMessage(question));
+            addUserMemory(conversationId, question);
         }
 
         Sinks.Many<String> sink = Sinks.many().unicast().onBackpressureBuffer();
@@ -195,7 +184,7 @@ public class PlanExecuteAgent {
                     emitStep(sink, "round", "Plan-Execute Round " + state.getRound(), "开始规划与执行");
 
                     // 1.生成计划
-                    List<PlanTask> plan = generatePlan(state);
+                    List<PlanTask> plan = filterRepeatedTasks(generatePlan(state), state);
                     String planText = "【Execution Plan】\n" + plan;
                     log.info(planText);
                     state.add(new AssistantMessage(planText));
@@ -313,12 +302,12 @@ public class PlanExecuteAgent {
 
     public String callInternal(String conversationId, String question) {
 
-        boolean useMemory = conversationId != null && chatMemory != null;
+        boolean useMemory = useMemory(conversationId);
 
         OverAllState state = new OverAllState(conversationId, question);
 
         if (useMemory) {
-            List<Message> history = chatMemory.get(conversationId);
+            List<Message> history = getMemoryMessages(conversationId);
             if (!CollectionUtils.isEmpty(history)) {
                 history.forEach(state::add);
             }
@@ -327,7 +316,7 @@ public class PlanExecuteAgent {
         state.add(new UserMessage(question));
 
         if (useMemory) {
-            chatMemory.add(conversationId, new UserMessage(question));
+            addUserMemory(conversationId, question);
         }
 
         // 【新增】用于判断是否已经执行过工具
@@ -337,7 +326,7 @@ public class PlanExecuteAgent {
             state.nextRound();
             log.info("===== Plan-Execute Round {} =====", state.getRound());
 
-            List<PlanTask> plan = generatePlan(state);
+            List<PlanTask> plan = filterRepeatedTasks(generatePlan(state), state);
             log.info("【Execution Plan】\n\n" + plan);
             state.add(new AssistantMessage("【Execution Plan】\n" + plan));
 
@@ -398,11 +387,15 @@ public class PlanExecuteAgent {
                         
                             ## 可用工具说明（仅用于规划参考）
                             %s
+
+                            ## 已执行任务摘要（避免重复规划）
+                            %s
                         
                             ## 输出format
                             %s
                         
-                        """.formatted(LocalDateTime.now(ZoneId.of("Asia/Shanghai")), state.round, toolDesc, converter.getFormat())
+                        """.formatted(LocalDateTime.now(ZoneId.of("Asia/Shanghai")), state.round, toolDesc,
+                        renderExecutedTaskHistory(state), converter.getFormat())
                         + PlanExecutePromptsFactory.buildPrompts(planExecutePrompts).getPlanPrompt()),
                 new UserMessage("【对话历史】\n\n" + renderMessages(state.getMessages()))
         ));
@@ -411,6 +404,38 @@ public class PlanExecuteAgent {
 
         List<PlanTask> planTasks = converter.convert(json);
         return planTasks;
+    }
+
+    private List<PlanTask> filterRepeatedTasks(List<PlanTask> plan, OverAllState state) {
+        if (plan == null || plan.isEmpty()) {
+            return List.of();
+        }
+
+        List<PlanTask> filtered = new ArrayList<>();
+        Set<String> currentRoundKeys = new HashSet<>();
+
+        for (PlanTask task : plan) {
+            if (task == null || StringUtils.isBlank(task.id()) || StringUtils.isBlank(task.instruction())) {
+                continue;
+            }
+
+            String taskKey = buildTaskKey(task);
+            if (!currentRoundKeys.add(taskKey)) {
+                log.info("===== Skip duplicated task in same round =====, taskId: {}, instruction: {}", task.id(), task.instruction());
+                continue;
+            }
+
+            if (state.hasAttempted(taskKey)) {
+                ExecutedTaskSnapshot snapshot = state.getExecutedTask(taskKey);
+                log.info("===== Skip repeated task across rounds =====, taskId: {}, instruction: {}, previousRound: {}, success: {}",
+                        task.id(), task.instruction(), snapshot == null ? null : snapshot.round(), snapshot != null && snapshot.success());
+                continue;
+            }
+
+            filtered.add(task);
+        }
+
+        return filtered;
     }
 
     private String renderToolDescriptions() {
@@ -459,6 +484,7 @@ public class PlanExecuteAgent {
                             }
                             TaskResult result = executeWithRetry(task, dependencySnapshot);
                             results.put(task.id(), result);
+                            state.recordTask(buildTaskKey(task), task, result);
 
                             if (result.success() && result.output() != null) {
                                 accumulatedResults.put(task.id(), result.output());
@@ -569,6 +595,42 @@ public class PlanExecuteAgent {
         return sb.toString();
     }
 
+    private String renderExecutedTaskHistory(OverAllState state) {
+        if (state == null || state.getExecutedTasks().isEmpty()) {
+            return "暂无已执行任务。";
+        }
+
+        return state.getExecutedTasks().values().stream()
+                .sorted(Comparator.comparingInt(ExecutedTaskSnapshot::round))
+                .map(snapshot -> "- round: %s, success: %s, instruction: %s".formatted(
+                        snapshot.round(),
+                        snapshot.success(),
+                        snapshot.instruction()))
+                .collect(Collectors.joining("\n"));
+    }
+
+    private String buildTaskKey(PlanTask task) {
+        String instruction = task == null ? "" : StringUtils.defaultString(task.instruction());
+        String normalized = instruction
+                .replace("调用", "")
+                .replace("工具", "")
+                .replace("执行", "")
+                .replace("查询", "")
+                .replace("搜索", "")
+                .replace("根据", "")
+                .replace("，", "")
+                .replace(",", "")
+                .replace("。", "")
+                .replace(".", "")
+                .replace("：", "")
+                .replace(":", "")
+                .replaceAll("\\s+", "");
+
+        char[] chars = normalized.toCharArray();
+        Arrays.sort(chars);
+        return new String(chars);
+    }
+
 
     private CritiqueResult critique(OverAllState state) {
 
@@ -649,9 +711,7 @@ public class PlanExecuteAgent {
 
         String answer = chatModel.call(prompt).getResult().getOutput().getText();
         // 追加记忆
-        if (state.conversationId != null && chatMemory != null) {
-            chatMemory.add(state.conversationId, new AssistantMessage(answer));
-        }
+        addAssistantMemory(state.conversationId, answer);
         return answer;
     }
 
@@ -677,6 +737,7 @@ public class PlanExecuteAgent {
         private final String conversationId;
         private final String question;
         private final List<Message> messages = new ArrayList<>();
+        private final Map<String, ExecutedTaskSnapshot> executedTasks = new LinkedHashMap<>();
         private int round = 0;
 
         public OverAllState(String conversationId, String question) {
@@ -701,6 +762,28 @@ public class PlanExecuteAgent {
         public void clearMessages() {
             messages.clear();
         }
+
+        public void recordTask(String taskKey, PlanTask task, TaskResult result) {
+            if (StringUtils.isBlank(taskKey) || task == null || result == null) {
+                return;
+            }
+            executedTasks.put(taskKey, new ExecutedTaskSnapshot(
+                    task.id(),
+                    task.instruction(),
+                    result.success(),
+                    result.output(),
+                    result.error(),
+                    round
+            ));
+        }
+
+        public boolean hasAttempted(String taskKey) {
+            return executedTasks.containsKey(taskKey);
+        }
+
+        public ExecutedTaskSnapshot getExecutedTask(String taskKey) {
+            return executedTasks.get(taskKey);
+        }
     }
 
 
@@ -709,5 +792,13 @@ public class PlanExecuteAgent {
             boolean success,
             String output,
             String error) { }
+
+    public record ExecutedTaskSnapshot(
+            String taskId,
+            String instruction,
+            boolean success,
+            String output,
+            String error,
+            int round) { }
 
 }

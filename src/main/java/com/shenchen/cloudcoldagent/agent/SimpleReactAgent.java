@@ -21,24 +21,17 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Slf4j
-public class SimpleReactAgent {
+public class SimpleReactAgent extends BaseAgent {
 
     private final String REACT_AGENT_SYSTEM_PROMPT = DefaultPrompts.REACT_AGENT_SYSTEM_PROMPT;
     private final String name;
-    private final ChatModel chatModel;
-    private final List<ToolCallback> tools;
     private final String systemPrompt;
     private ChatClient chatClient;
-    private int maxRounds;
-    private ChatMemory chatMemory;
 
     public SimpleReactAgent(String name, ChatModel chatModel, List<ToolCallback> tools, String systemPrompt, int maxRounds, ChatMemory chatMemory) {
+        super(chatModel, tools, maxRounds, chatMemory);
         this.name = name;
-        this.chatModel = chatModel;
-        this.tools = tools == null ? Collections.emptyList() : new ArrayList<>(tools);
         this.systemPrompt = systemPrompt;
-        this.maxRounds = maxRounds;
-        this.chatMemory = chatMemory;
 
         initChatClient();
 
@@ -78,14 +71,14 @@ public class SimpleReactAgent {
 
     public String callInternal(String conversationId, String question) {
         List<Message> messages = Collections.synchronizedList(new ArrayList<>());
-        boolean useMemory = conversationId != null && chatMemory != null;
+        boolean useMemory = useMemory(conversationId);
 
         messages.add(new SystemMessage(REACT_AGENT_SYSTEM_PROMPT));
         messages.add(new SystemMessage(systemPrompt));
 
         // ===== 加载历史记忆 =====
         if (useMemory) {
-            List<Message> history = chatMemory.get(conversationId);
+            List<Message> history = getMemoryMessages(conversationId);
             if (history != null && !history.isEmpty()) {
                 messages.addAll(history);
             }
@@ -95,7 +88,7 @@ public class SimpleReactAgent {
 
         // 添加记忆
         if (useMemory) {
-            chatMemory.add(conversationId, new UserMessage(question));
+            addUserMemory(conversationId, question);
         }
 
         int round = 0;
@@ -114,7 +107,7 @@ public class SimpleReactAgent {
 
                 String finalText = chatClient.prompt().messages(messages).call().content();
                 if (useMemory) {
-                    chatMemory.add(conversationId, new AssistantMessage(finalText));
+                    addAssistantMemory(conversationId, finalText);
                 }
                 return finalText;
             }
@@ -132,7 +125,7 @@ public class SimpleReactAgent {
             // ===== 没有工具调用，视为最终答案 =====
             if (!chatResponse.chatResponse().hasToolCalls()) {
                 if (useMemory) {
-                    chatMemory.add(conversationId, new AssistantMessage(aiText));
+                    addAssistantMemory(conversationId, aiText);
                 }
                 return aiText;
             }
@@ -206,14 +199,14 @@ public class SimpleReactAgent {
 
     public Flux<String> streamInternal(String conversationId, String question) {
         List<Message> messages = Collections.synchronizedList(new ArrayList<>());
-        boolean useMemory = conversationId != null && chatMemory != null;
+        boolean useMemory = useMemory(conversationId);
 
         messages.add(new SystemMessage(REACT_AGENT_SYSTEM_PROMPT));
         messages.add(new SystemMessage(systemPrompt));
 
         // ===== 加载历史记忆 =====
         if (useMemory) {
-            List<Message> history = chatMemory.get(conversationId);
+            List<Message> history = getMemoryMessages(conversationId);
             if (history != null && !history.isEmpty()) {
                 messages.addAll(history);
             }
@@ -223,7 +216,7 @@ public class SimpleReactAgent {
 
         // 添加记忆
         if (useMemory) {
-            chatMemory.add(conversationId, new UserMessage(question));
+            addUserMemory(conversationId, question);
         }
 
         Sinks.Many<String> sink = Sinks.many().unicast().onBackpressureBuffer();
@@ -339,7 +332,7 @@ public class SimpleReactAgent {
             hasSentFinalResult.set(true);
 
             if (useMemory) {
-                chatMemory.add(conversationId, new AssistantMessage(finalText));
+                addAssistantMemory(conversationId, finalText);
             }
             return;
         }
@@ -396,7 +389,7 @@ public class SimpleReactAgent {
                     hasSentFinalResult.set(true);
                     sink.tryEmitComplete();
                     if (useMemory) {
-                        chatMemory.add(conversationId, new AssistantMessage(stringBuilder.toString()));
+                        addAssistantMemory(conversationId, stringBuilder.toString());
                     }
                 })
                 .doOnError(err -> {

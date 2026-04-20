@@ -20,11 +20,8 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * 基于 MySQL（MyBatis Flex）的 ChatMemoryRepository 实现。
+ * 基于 MySQL 的 ChatMemoryRepository 实现。
  *
- * 说明：
- * - Spring AI 1.1.x 的 MessageWindowChatMemory 支持通过 builder.chatMemoryRepository(...) 注入持久化仓库。
- * - 该实现将消息写入 chat_memory_history 表，并按 createTime 顺序读取。
  */
 @Slf4j
 @Component

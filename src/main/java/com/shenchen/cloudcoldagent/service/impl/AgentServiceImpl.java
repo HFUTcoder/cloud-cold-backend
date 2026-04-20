@@ -8,8 +8,7 @@ import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.model.dto.agent.AgentCallRequest;
 import com.shenchen.cloudcoldagent.service.AgentService;
 import com.shenchen.cloudcoldagent.service.ChatConversationService;
-import com.shenchen.cloudcoldagent.tool.SearchService;
-import com.shenchen.cloudcoldagent.tool.WeatherService;
+import com.shenchen.cloudcoldagent.tool.SearchTool;
 import jakarta.annotation.PostConstruct;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.ChatMemoryRepository;
@@ -37,6 +36,9 @@ public class AgentServiceImpl implements AgentService {
     @Autowired
     private ChatConversationService chatConversationService;
 
+    @Autowired
+    private SearchTool searchTool;
+
     private ToolCallback[] toolCallbacks;
 
     private ChatMemory chatMemory;
@@ -48,8 +50,7 @@ public class AgentServiceImpl implements AgentService {
     @PostConstruct
     public void init() {
         toolCallbacks = ToolCallbacks.from(
-                new WeatherService(),
-                new SearchService()
+                searchTool
         );
         chatMemory = MessageWindowChatMemory.builder()
                 .chatMemoryRepository(chatMemoryRepository)

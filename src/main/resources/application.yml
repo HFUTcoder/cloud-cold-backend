@@ -20,14 +20,6 @@ spring:
       port: 6379
       database: 0
       timeout: 5s
-  ai:
-    openai:
-      base-url: https://dashscope.aliyuncs.com/compatible-mode/
-      chat:
-        options:
-          model: qwen-turbo
-          temperature: 0.7
-          maxTokens: 5000
 
 server:
   port: 8080
@@ -51,3 +43,8 @@ knife4j:
 mybatis-flex:
   configuration:
     map-underscore-to-camel-case: false
+
+cloudcold:
+  search:
+    mock:
+      enabled: true
