@@ -13,6 +13,7 @@ import lombok.NoArgsConstructor;
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 @Builder
@@ -32,6 +33,17 @@ public class ChatConversation implements Serializable {
     private String conversationId;
 
     private String title;
+
+    /**
+     * 会话强制绑定的 skill 名称列表（JSON 数组字符串）
+     */
+    private String selectedSkills;
+
+    /**
+     * 反序列化后的 skill 名称列表，仅用于接口返回。
+     */
+    @Column(ignore = true)
+    private List<String> selectedSkillList;
 
     private LocalDateTime lastActiveTime;
 

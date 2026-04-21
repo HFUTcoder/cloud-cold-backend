@@ -41,6 +41,7 @@ create table if not exists chat_memory_history
     index idx_conversationId_isDelete (conversationId, isDelete)
 ) comment '聊天历史记忆' collate = utf8mb4_unicode_ci;
 
+
 -- 会话表（用于管理用户的会话列表）
 create table if not exists chat_conversation
 (
@@ -48,6 +49,7 @@ create table if not exists chat_conversation
     userId         bigint                               not null comment '用户 id',
     conversationId varchar(64)                          not null comment '会话 id',
     title          varchar(255)                         null comment '会话标题（可选）',
+    selectedSkills text                                 null comment '会话强制绑定的 skill 名称列表（JSON 数组）',
     lastActiveTime datetime   default CURRENT_TIMESTAMP not null comment '最后活跃时间',
     createTime     datetime   default CURRENT_TIMESTAMP not null comment '创建时间',
     updateTime     datetime   default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',

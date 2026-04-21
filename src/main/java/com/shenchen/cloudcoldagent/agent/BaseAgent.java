@@ -1,5 +1,6 @@
 package com.shenchen.cloudcoldagent.agent;
 
+import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -18,12 +19,14 @@ public abstract class BaseAgent {
 
     protected final ChatModel chatModel;
     protected final List<ToolCallback> tools;
+    protected final List<Advisor> advisors;
     protected final int maxRounds;
     protected final ChatMemory chatMemory;
 
-    protected BaseAgent(ChatModel chatModel, List<ToolCallback> tools, int maxRounds, ChatMemory chatMemory) {
+    protected BaseAgent(ChatModel chatModel, List<ToolCallback> tools, List<Advisor> advisors, int maxRounds, ChatMemory chatMemory) {
         this.chatModel = chatModel;
         this.tools = tools == null ? Collections.emptyList() : new ArrayList<>(tools);
+        this.advisors = advisors == null ? Collections.emptyList() : new ArrayList<>(advisors);
         this.maxRounds = maxRounds;
         this.chatMemory = chatMemory;
     }

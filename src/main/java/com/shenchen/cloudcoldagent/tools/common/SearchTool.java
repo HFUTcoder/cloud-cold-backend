@@ -1,12 +1,13 @@
-package com.shenchen.cloudcoldagent.tool;
+package com.shenchen.cloudcoldagent.tools.common;
 
 import com.alibaba.cloud.ai.toolcalling.common.interfaces.SearchService;
+import com.shenchen.cloudcoldagent.tools.BaseTool;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.stereotype.Service;
+import org.springframework.stereotype.Component;
 
-@Service
+@Component
 public class SearchTool extends BaseTool {
 
     private static final String TOOL_NAME = "search";

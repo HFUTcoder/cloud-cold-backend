@@ -1,0 +1,37 @@
+package com.shenchen.cloudcoldagent.service;
+
+import com.shenchen.cloudcoldagent.model.vo.SkillMetadataVO;
+import com.shenchen.cloudcoldagent.model.vo.SkillResourceContentVO;
+import com.shenchen.cloudcoldagent.model.vo.SkillResourceListVO;
+
+import java.io.IOException;
+import java.util.List;
+
+public interface SkillService {
+
+    /**
+     * 查询所有 skill 的轻量元数据列表，仅用于渐进式披露阶段。
+     */
+    List<SkillMetadataVO> listSkillMetadata();
+
+    /**
+     * 查询单个 skill 的轻量元数据。
+     */
+    SkillMetadataVO getSkillMetadata(String skillName);
+
+    /**
+     * 读取 skill 详细内容。
+     */
+    String readSkillContent(String skillName) throws IOException;
+
+    /**
+     * 读取 skill 内部资源内容。
+     */
+    SkillResourceContentVO readSkillResource(String skillName, String resourceType, String resourcePath,
+                                            Integer startLine, Integer endLine) throws IOException;
+
+    /**
+     * 列出 skill 内部可读取的资源清单。
+     */
+    SkillResourceListVO listSkillResources(String skillName) throws IOException;
+}

@@ -1,9 +1,10 @@
 package com.shenchen.cloudcoldagent.agent;
 
-import com.shenchen.cloudcoldagent.prompt.PlanExecutePromptsFactory;
+import com.shenchen.cloudcoldagent.prompts.PlanExecutePromptsFactory;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -46,12 +47,13 @@ public class PlanExecuteAgent extends BaseAgent {
 
     public PlanExecuteAgent(ChatModel chatModel,
                             List<ToolCallback> tools,
+                            List<Advisor> advisors,
                             int maxRounds,
                             int contextCharLimit,
                             int maxToolRetries,
                             PlanExecutePromptsFactory planExecutePrompts,
                             ChatMemory chatMemory) {
-        super(chatModel, tools, maxRounds, chatMemory);
+        super(chatModel, tools, advisors, maxRounds, chatMemory);
         this.contextCharLimit = contextCharLimit;
         this.maxToolRetries = maxToolRetries;
         this.toolSemaphore = new Semaphore(3);
@@ -65,6 +67,7 @@ public class PlanExecuteAgent extends BaseAgent {
     public static class Builder {
         private ChatModel chatModel;
         private List<ToolCallback> tools = new ArrayList<>();
+        private List<Advisor> advisors = new ArrayList<>();
 
         // 默认迭代5轮
         private int maxRounds = 5;
@@ -99,6 +102,16 @@ public class PlanExecuteAgent extends BaseAgent {
             return this;
         }
 
+        public Builder advisors(List<Advisor> advisors) {
+            this.advisors = advisors == null ? new ArrayList<>() : new ArrayList<>(advisors);
+            return this;
+        }
+
+        public Builder advisors(Advisor... advisors) {
+            this.advisors = advisors == null ? new ArrayList<>() : new ArrayList<>(Arrays.asList(advisors));
+            return this;
+        }
+
         public Builder maxRounds(int maxRounds) {
             this.maxRounds = maxRounds;
             return this;
@@ -121,16 +134,20 @@ public class PlanExecuteAgent extends BaseAgent {
 
         public PlanExecuteAgent build() {
             Objects.requireNonNull(chatModel, "chatModel must not be null");
-            return new PlanExecuteAgent(chatModel, tools, maxRounds, contextCharLimit, maxToolRetries, planExecutePrompts, chatMemory);
+            return new PlanExecuteAgent(chatModel, tools, advisors, maxRounds, contextCharLimit, maxToolRetries, planExecutePrompts, chatMemory);
         }
     }
 
     public String call(String question) {
-        return callInternal(null, question);
+        return callInternal(null, question, null);
     }
 
     public String call(String conversationId, String question) {
-        return callInternal(conversationId, question);
+        return callInternal(conversationId, question, null);
+    }
+
+    public String call(String conversationId, String question, String runtimeSystemPrompt) {
+        return callInternal(conversationId, question, runtimeSystemPrompt);
     }
 
     /**
@@ -140,18 +157,26 @@ public class PlanExecuteAgent extends BaseAgent {
      * @return
      */
     public Flux<String> stream(String question) {
-        return streamInternal(null, question);
+        return streamInternal(null, question, null);
     }
 
     // 带会话记忆
     public Flux<String> stream(String conversationId, String question) {
-        return streamInternal(conversationId, question);
+        return streamInternal(conversationId, question, null);
     }
 
-    public Flux<String> streamInternal(String conversationId, String question) {
+    public Flux<String> stream(String conversationId, String question, String runtimeSystemPrompt) {
+        return streamInternal(conversationId, question, runtimeSystemPrompt);
+    }
+
+    public Flux<String> streamInternal(String conversationId, String question, String runtimeSystemPrompt) {
         boolean useMemory = useMemory(conversationId);
 
         OverAllState state = new OverAllState(conversationId, question);
+
+        if (runtimeSystemPrompt != null && !runtimeSystemPrompt.isBlank()) {
+            state.add(new SystemMessage(runtimeSystemPrompt));
+        }
 
         // 加载历史记忆到上下文messages中
         if (useMemory) {
@@ -197,7 +222,7 @@ public class PlanExecuteAgent extends BaseAgent {
                     }
 
                     // 2.执行
-                    Map<String, TaskResult> results = executePlan(plan, state);
+                    Map<String, TaskResult> results = executePlan(plan, state, runtimeSystemPrompt);
                     emitStep(sink, "task", "Task Result", renderTaskResultsForDisplay(results));
 
                     // 3.批判
@@ -218,6 +243,12 @@ public class PlanExecuteAgent extends BaseAgent {
                     if (isOnlyMissingSummary) {
                         log.info("===== 数据已收集完毕，直接进入总结阶段 =====");
                         emitStep(sink, "critique", "Critique", "已收集到足够数据，直接生成最终总结。");
+                        break;
+                    }
+
+                    if (shouldStopAfterSkillResourceExhausted(state)) {
+                        log.info("===== Skill resources exhausted, stop retrying and summarize =====");
+                        emitStep(sink, "critique", "Critique", "已确认 skill 可读资源已穷尽，停止无效重试并直接总结。");
                         break;
                     }
 
@@ -300,11 +331,15 @@ public class PlanExecuteAgent extends BaseAgent {
                 .collect(Collectors.joining("\n"));
     }
 
-    public String callInternal(String conversationId, String question) {
+    public String callInternal(String conversationId, String question, String runtimeSystemPrompt) {
 
         boolean useMemory = useMemory(conversationId);
 
         OverAllState state = new OverAllState(conversationId, question);
+
+        if (runtimeSystemPrompt != null && !runtimeSystemPrompt.isBlank()) {
+            state.add(new SystemMessage(runtimeSystemPrompt));
+        }
 
         if (useMemory) {
             List<Message> history = getMemoryMessages(conversationId);
@@ -336,7 +371,7 @@ public class PlanExecuteAgent extends BaseAgent {
             }
 
             // 2.执行
-            Map<String, TaskResult> results = executePlan(plan, state);
+            Map<String, TaskResult> results = executePlan(plan, state, runtimeSystemPrompt);
             hasExecutedTools = (results != null && !results.isEmpty());
 
             // 3.批判
@@ -354,6 +389,11 @@ public class PlanExecuteAgent extends BaseAgent {
 
             if (isOnlyMissingSummary) {
                 log.info("===== 数据已收集完毕，跳过规划直接总结 =====");
+                break;
+            }
+
+            if (shouldStopAfterSkillResourceExhausted(state)) {
+                log.info("===== Skill resources exhausted, stop retrying and summarize =====");
                 break;
             }
 
@@ -384,6 +424,19 @@ public class PlanExecuteAgent extends BaseAgent {
                             当前时间是：%s。
                         
                             当前是迭代的第 %s 轮次。
+
+                            ## Skill 资源规划约束（必须严格遵守）
+                            1. 如果任务涉及读取某个 skill 下的 references 或 scripts 资源，而你还不知道具体文件名，必须先规划调用 `list_skill_resources`。
+                            2. 在没有拿到 `list_skill_resources` 的真实结果前，禁止直接规划 `read_skill_resource` 去猜测 `resourcePath`。
+                            3. 禁止生成这类模糊或猜测式参数：
+                               - `references`
+                               - `scripts`
+                               - `references/文件名`
+                               - `scripts/文件名`
+                               - `文件路径`
+                               - `文件内容`
+                            4. 只有当 `list_skill_resources` 已返回真实文件清单后，才允许规划 `read_skill_resource`，并且 `resourcePath` 必须使用清单里出现过的真实相对路径。
+                            5. 如果清单明确显示某类资源为空，例如 `scripts: 无`，则后续禁止再规划该类资源读取任务。
                         
                             ## 可用工具说明（仅用于规划参考）
                             %s
@@ -455,7 +508,7 @@ public class PlanExecuteAgent extends BaseAgent {
     }
 
 
-    private Map<String, TaskResult> executePlan(List<PlanTask> plan, OverAllState state) {
+    private Map<String, TaskResult> executePlan(List<PlanTask> plan, OverAllState state, String runtimeSystemPrompt) {
 
         Map<String, TaskResult> results = new ConcurrentHashMap<>();
 
@@ -482,7 +535,7 @@ public class PlanExecuteAgent extends BaseAgent {
                             if (task == null || StringUtils.isBlank(task.id())) {
                                 return;
                             }
-                            TaskResult result = executeWithRetry(task, dependencySnapshot);
+                            TaskResult result = executeWithRetry(task, dependencySnapshot, runtimeSystemPrompt);
                             results.put(task.id(), result);
                             state.recordTask(buildTaskKey(task), task, result);
 
@@ -534,7 +587,7 @@ public class PlanExecuteAgent extends BaseAgent {
     }
 
 
-    private TaskResult executeWithRetry(PlanTask task, String dependencySnapshot) {
+    private TaskResult executeWithRetry(PlanTask task, String dependencySnapshot, String runtimeSystemPrompt) {
 
         int attempt = 0;
         Throwable lastError = null;
@@ -545,11 +598,12 @@ public class PlanExecuteAgent extends BaseAgent {
                 SimpleReactAgent agent = SimpleReactAgent.builder()
                         .chatModel(chatModel)
                         .tools(tools)
+                        .advisors(advisors)
                         .maxRounds(5)
                         .systemPrompt(PlanExecutePromptsFactory.buildPrompts(planExecutePrompts).getExecutePrompt())
                         .build();
 
-                String result = agent.call("""
+                String result = agent.call(null, """
                         【Available Results】
                         %s
                         
@@ -558,7 +612,7 @@ public class PlanExecuteAgent extends BaseAgent {
                         """.formatted(
                         dependencySnapshot.isBlank() ? "NONE" : dependencySnapshot,
                         task.instruction
-                ));
+                ), runtimeSystemPrompt);
 
                 return new TaskResult(task.id(), true, result, null);
             } catch (Exception e) {
@@ -607,6 +661,113 @@ public class PlanExecuteAgent extends BaseAgent {
                         snapshot.success(),
                         snapshot.instruction()))
                 .collect(Collectors.joining("\n"));
+    }
+
+    private boolean shouldStopAfterSkillResourceExhausted(OverAllState state) {
+        if (state == null || state.getExecutedTasks().isEmpty()) {
+            return false;
+        }
+
+        SkillResourceInventory inventory = buildSkillResourceInventory(state);
+        if (!inventory.hasInventory()) {
+            return false;
+        }
+
+        if (!inventory.scriptsKnownEmpty()) {
+            return false;
+        }
+
+        if (!inventory.mainRead() && inventory.referenceFiles().isEmpty()) {
+            return false;
+        }
+
+        boolean allReferencesRead = inventory.referenceFiles().isEmpty()
+                || inventory.referenceFiles().stream().allMatch(inventory::hasReadReference);
+
+        if (!allReferencesRead) {
+            return false;
+        }
+
+        log.info("===== Skill inventory indicates no more script resources to read, mainRead={}, referenceFiles={}, readReferences={} =====",
+                inventory.mainRead(), inventory.referenceFiles(), inventory.readReferenceFiles());
+        return true;
+    }
+
+    private SkillResourceInventory buildSkillResourceInventory(OverAllState state) {
+        Set<String> referenceFiles = new LinkedHashSet<>();
+        Set<String> scriptFiles = new LinkedHashSet<>();
+        Set<String> readReferenceFiles = new LinkedHashSet<>();
+        boolean listed = false;
+        boolean scriptsKnownEmpty = false;
+        boolean mainRead = false;
+
+        for (ExecutedTaskSnapshot snapshot : state.getExecutedTasks().values()) {
+            if (snapshot == null || !snapshot.success() || StringUtils.isBlank(snapshot.output())) {
+                continue;
+            }
+
+            String output = snapshot.output();
+            if (output.contains("mainFile: SKILL.md")) {
+                listed = true;
+                referenceFiles.addAll(extractSectionItems(output, "references:", "scripts:"));
+                List<String> scripts = extractSectionItems(output, "scripts:", null);
+                scriptFiles.addAll(scripts);
+                scriptsKnownEmpty = scripts.isEmpty();
+            }
+
+            if (output.contains("resourceType: reference")) {
+                String referencePath = extractFieldValue(output, "resourcePath:");
+                if (StringUtils.isNotBlank(referencePath)) {
+                    readReferenceFiles.add(referencePath);
+                }
+            }
+
+            if (output.contains("skillName:") && output.contains("content:") && !output.contains("resourceType:")) {
+                mainRead = true;
+            }
+        }
+
+        return new SkillResourceInventory(listed, scriptsKnownEmpty, mainRead, referenceFiles, scriptFiles, readReferenceFiles);
+    }
+
+    private List<String> extractSectionItems(String text, String sectionStart, String nextSectionStart) {
+        if (StringUtils.isBlank(text) || StringUtils.isBlank(sectionStart)) {
+            return List.of();
+        }
+
+        int startIndex = text.indexOf(sectionStart);
+        if (startIndex < 0) {
+            return List.of();
+        }
+        int contentStart = startIndex + sectionStart.length();
+        int endIndex = StringUtils.isBlank(nextSectionStart) ? text.length() : text.indexOf(nextSectionStart, contentStart);
+        if (endIndex < 0) {
+            endIndex = text.length();
+        }
+
+        String section = text.substring(contentStart, endIndex).trim();
+        if (section.isEmpty() || section.equals("- 无")) {
+            return List.of();
+        }
+
+        return Arrays.stream(section.split("\\R"))
+                .map(String::trim)
+                .filter(line -> line.startsWith("- "))
+                .map(line -> line.substring(2).trim())
+                .filter(StringUtils::isNotBlank)
+                .toList();
+    }
+
+    private String extractFieldValue(String text, String fieldName) {
+        if (StringUtils.isBlank(text) || StringUtils.isBlank(fieldName)) {
+            return null;
+        }
+        return Arrays.stream(text.split("\\R"))
+                .map(String::trim)
+                .filter(line -> line.startsWith(fieldName))
+                .map(line -> line.substring(fieldName.length()).trim())
+                .findFirst()
+                .orElse(null);
     }
 
     private String buildTaskKey(PlanTask task) {
@@ -800,5 +961,22 @@ public class PlanExecuteAgent extends BaseAgent {
             String output,
             String error,
             int round) { }
+
+    private record SkillResourceInventory(
+            boolean listed,
+            boolean scriptsKnownEmpty,
+            boolean mainRead,
+            Set<String> referenceFiles,
+            Set<String> scriptFiles,
+            Set<String> readReferenceFiles) {
+
+        boolean hasInventory() {
+            return listed;
+        }
+
+        boolean hasReadReference(String path) {
+            return readReferenceFiles.contains(path);
+        }
+    }
 
 }

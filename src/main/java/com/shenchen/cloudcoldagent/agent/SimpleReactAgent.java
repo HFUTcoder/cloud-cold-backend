@@ -1,9 +1,10 @@
 package com.shenchen.cloudcoldagent.agent;
 
-import com.shenchen.cloudcoldagent.prompt.DefaultPrompts;
+import com.shenchen.cloudcoldagent.prompts.DefaultPrompts;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientResponse;
+import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.*;
 import org.springframework.ai.chat.model.ChatModel;
@@ -28,8 +29,9 @@ public class SimpleReactAgent extends BaseAgent {
     private final String systemPrompt;
     private ChatClient chatClient;
 
-    public SimpleReactAgent(String name, ChatModel chatModel, List<ToolCallback> tools, String systemPrompt, int maxRounds, ChatMemory chatMemory) {
-        super(chatModel, tools, maxRounds, chatMemory);
+    public SimpleReactAgent(String name, ChatModel chatModel, List<ToolCallback> tools, List<Advisor> advisors,
+                            String systemPrompt, int maxRounds, ChatMemory chatMemory) {
+        super(chatModel, tools, advisors, maxRounds, chatMemory);
         this.name = name;
         this.systemPrompt = systemPrompt;
 
@@ -48,7 +50,11 @@ public class SimpleReactAgent extends BaseAgent {
                     .build();
 
             ChatClient.Builder builder = ChatClient.builder(chatModel);
-            this.chatClient = builder.defaultOptions(toolOptions).defaultToolCallbacks(tools).build();
+            builder.defaultOptions(toolOptions).defaultToolCallbacks(tools);
+            if (!advisors.isEmpty()) {
+                builder.defaultAdvisors(advisors);
+            }
+            this.chatClient = builder.build();
         } catch (Exception e) {
             throw new RuntimeException("ChatClient 初始化失败：" + e.getMessage(), e);
         }
@@ -61,20 +67,27 @@ public class SimpleReactAgent extends BaseAgent {
      * @return
      */
     public String call(String question) {
-        return callInternal(null, question);
+        return callInternal(null, question, null);
     }
 
     // 带会话记忆
     public String call(String conversationId, String question) {
-        return callInternal(conversationId, question);
+        return callInternal(conversationId, question, null);
     }
 
-    public String callInternal(String conversationId, String question) {
+    public String call(String conversationId, String question, String runtimeSystemPrompt) {
+        return callInternal(conversationId, question, runtimeSystemPrompt);
+    }
+
+    public String callInternal(String conversationId, String question, String runtimeSystemPrompt) {
         List<Message> messages = Collections.synchronizedList(new ArrayList<>());
         boolean useMemory = useMemory(conversationId);
 
         messages.add(new SystemMessage(REACT_AGENT_SYSTEM_PROMPT));
         messages.add(new SystemMessage(systemPrompt));
+        if (runtimeSystemPrompt != null && !runtimeSystemPrompt.isBlank()) {
+            messages.add(new SystemMessage(runtimeSystemPrompt));
+        }
 
         // ===== 加载历史记忆 =====
         if (useMemory) {
@@ -188,21 +201,27 @@ public class SimpleReactAgent extends BaseAgent {
      * @return
      */
     public Flux<String> stream(String question) {
-        return streamInternal(null, question);
+        return streamInternal(null, question, null);
     }
 
     // 带会话记忆
     public Flux<String> stream(String conversationId, String question) {
-        return streamInternal(conversationId, question);
+        return streamInternal(conversationId, question, null);
     }
 
+    public Flux<String> stream(String conversationId, String question, String runtimeSystemPrompt) {
+        return streamInternal(conversationId, question, runtimeSystemPrompt);
+    }
 
-    public Flux<String> streamInternal(String conversationId, String question) {
+    public Flux<String> streamInternal(String conversationId, String question, String runtimeSystemPrompt) {
         List<Message> messages = Collections.synchronizedList(new ArrayList<>());
         boolean useMemory = useMemory(conversationId);
 
         messages.add(new SystemMessage(REACT_AGENT_SYSTEM_PROMPT));
         messages.add(new SystemMessage(systemPrompt));
+        if (runtimeSystemPrompt != null && !runtimeSystemPrompt.isBlank()) {
+            messages.add(new SystemMessage(runtimeSystemPrompt));
+        }
 
         // ===== 加载历史记忆 =====
         if (useMemory) {
@@ -471,6 +490,7 @@ public class SimpleReactAgent extends BaseAgent {
         private String name;
         private ChatModel chatModel;
         private List<ToolCallback> tools = new ArrayList<>();
+        private List<Advisor> advisors = new ArrayList<>();
         private String systemPrompt = "";
         private int maxRounds;
         private ChatMemory chatMemory;
@@ -500,6 +520,16 @@ public class SimpleReactAgent extends BaseAgent {
             return this;
         }
 
+        public Builder advisors(Advisor... advisors) {
+            this.advisors = advisors == null ? new ArrayList<>() : new ArrayList<>(Arrays.asList(advisors));
+            return this;
+        }
+
+        public Builder advisors(List<Advisor> advisors) {
+            this.advisors = advisors == null ? new ArrayList<>() : new ArrayList<>(advisors);
+            return this;
+        }
+
         public Builder systemPrompt(String systemPrompt) {
             this.systemPrompt = systemPrompt;
             return this;
@@ -514,7 +544,7 @@ public class SimpleReactAgent extends BaseAgent {
             if (chatModel == null) {
                 throw new IllegalArgumentException("chatModel 不能为空！");
             }
-            return new SimpleReactAgent(name, chatModel, tools, systemPrompt, maxRounds, chatMemory);
+            return new SimpleReactAgent(name, chatModel, tools, advisors, systemPrompt, maxRounds, chatMemory);
         }
     }
 

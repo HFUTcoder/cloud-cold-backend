@@ -1,4 +1,4 @@
-package com.shenchen.cloudcoldagent.prompt;
+package com.shenchen.cloudcoldagent.prompts;
 
 import lombok.Builder;
 import lombok.Getter;

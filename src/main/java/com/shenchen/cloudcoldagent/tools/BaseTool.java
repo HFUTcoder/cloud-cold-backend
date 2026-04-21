@@ -1,4 +1,4 @@
-package com.shenchen.cloudcoldagent.tool;
+package com.shenchen.cloudcoldagent.tools;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

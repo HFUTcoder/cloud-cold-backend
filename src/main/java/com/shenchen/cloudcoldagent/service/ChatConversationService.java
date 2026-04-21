@@ -41,6 +41,21 @@ public interface ChatConversationService extends IService<ChatConversation> {
     boolean isConversationOwnedByUser(Long userId, String conversationId);
 
     /**
+     * 获取会话详情
+     */
+    ChatConversation getByConversationId(Long userId, String conversationId);
+
+    /**
+     * 更新会话绑定的 skills
+     */
+    void updateConversationSkills(Long userId, String conversationId, List<String> selectedSkills);
+
+    /**
+     * 构建会话级 skill 强约束系统提示词
+     */
+    String buildConversationSkillPrompt(Long userId, String conversationId);
+
+    /**
      * 规范化会话 id
      */
     String normalizeConversationId(Long userId, String rawConversationId);
