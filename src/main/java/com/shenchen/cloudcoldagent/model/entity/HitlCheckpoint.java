@@ -18,8 +18,8 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Table(value = "chat_memory_history", camelToUnderline = false)
-public class ChatMemoryHistory implements Serializable {
+@Table(value = "hitl_checkpoint", camelToUnderline = false)
+public class HitlCheckpoint implements Serializable {
 
     @Serial
     private static final long serialVersionUID = 1L;
@@ -29,9 +29,24 @@ public class ChatMemoryHistory implements Serializable {
 
     private String conversationId;
 
-    private String content;
+    private String interruptId;
 
-    private String messageType;
+    private String agentType;
+
+    private String pendingToolCallsJson;
+
+    private String checkpointMessagesJson;
+
+    private String contextJson;
+
+    private String feedbacksJson;
+
+    /**
+     * PENDING / RESOLVED / CANCELLED
+     */
+    private String status;
+
+    private LocalDateTime resolvedTime;
 
     private LocalDateTime createTime;
 

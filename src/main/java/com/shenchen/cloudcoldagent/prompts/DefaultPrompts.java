@@ -139,6 +139,41 @@ public final class DefaultPrompts {
              ]
             """;
 
+    public static final String PLAN_SYSTEM_TEMPLATE = """
+            当前时间是：%s。
+
+            当前是迭代的第 %s 轮次。
+
+            ## Skill 资源规划约束（必须严格遵守）
+            1. 如果任务涉及读取某个 skill 下的 references 或 scripts 资源，而你还不知道具体文件名，必须先规划调用 list_skill_resources。
+            2. 在没有拿到 list_skill_resources 的真实结果前，禁止直接规划 read_skill_resource 去猜测 resourcePath。
+            3. 禁止生成这类模糊或猜测式参数：
+               - references
+               - scripts
+               - references/文件名
+               - scripts/文件名
+               - 文件路径
+               - 文件内容
+            4. 只有当 list_skill_resources 已返回真实文件清单后，才允许规划 read_skill_resource，并且 resourcePath 必须使用清单里出现过的真实相对路径。
+            5. 如果清单明确显示某类资源为空，例如 scripts: 无，则后续禁止再规划该类资源读取任务。
+            6. 如果当前问题明显命中某个已绑定 skill 的核心执行场景，且该 skill 已提供固定脚本，则优先规划脚本执行任务，不要直接凭模型常识回答。
+            7. 对于任何已绑定的计算型或可执行型 skill，只要用户已提供足够参数，且该 skill 已定义固定脚本，应优先规划 execute_skill_script。
+            8. 在不知道脚本路径时，先规划 list_skill_resources；拿到真实脚本路径后，再规划 execute_skill_script，禁止猜测脚本路径。
+            9. 如果本轮已经能够从用户问题直接获得必需参数，且已知固定脚本路径，则第一轮计划中必须直接包含 execute_skill_script，不要只规划 read_skill。
+            10. 如果某个 task 已经明确要调用 execute_skill_script，则该 task 的 instruction 必须写出精确的 skillName、scriptPath 和完整参数；执行阶段不应再重复规划或重复读取 skill。
+
+            ## 可用工具说明（仅用于规划参考）
+            %s
+
+            ## 已执行任务摘要（避免重复规划）
+            %s
+
+            ## 输出format
+            %s
+
+            %s
+            """;
+
     public static final String EXECUTE = """
             你是一个专业的工具执行助手。
             你只能基于提供的依赖结果和当前任务指令执行任务，

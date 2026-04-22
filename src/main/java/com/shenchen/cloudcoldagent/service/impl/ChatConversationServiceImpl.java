@@ -10,6 +10,7 @@ import com.shenchen.cloudcoldagent.mapper.ChatConversationMapper;
 import com.shenchen.cloudcoldagent.mapper.ChatMemoryHistoryMapper;
 import com.shenchen.cloudcoldagent.model.entity.ChatConversation;
 import com.shenchen.cloudcoldagent.service.ChatConversationService;
+import com.shenchen.cloudcoldagent.service.UserConversationRelationService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemoryRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -33,26 +34,32 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
     private static final String DEFAULT_CONVERSATION_TITLE = "新会话";
 
     private final SkillRegistry skillRegistry;
+    private final ChatConversationMapper chatConversationMapper;
     private final ChatMemoryRepository chatMemoryRepository;
     private final ChatMemoryHistoryMapper chatMemoryHistoryMapper;
+    private final UserConversationRelationService userConversationRelationService;
     private final JdbcTemplate jdbcTemplate;
 
     public ChatConversationServiceImpl(SkillRegistry skillRegistry,
+                                       ChatConversationMapper chatConversationMapper,
                                        ChatMemoryRepository chatMemoryRepository,
                                        ChatMemoryHistoryMapper chatMemoryHistoryMapper,
+                                       UserConversationRelationService userConversationRelationService,
                                        JdbcTemplate jdbcTemplate) {
         this.skillRegistry = skillRegistry;
+        this.chatConversationMapper = chatConversationMapper;
         this.chatMemoryRepository = chatMemoryRepository;
         this.chatMemoryHistoryMapper = chatMemoryHistoryMapper;
+        this.userConversationRelationService = userConversationRelationService;
         this.jdbcTemplate = jdbcTemplate;
     }
 
     @Override
     public List<String> listConversationIdsByUserId(Long userId) {
-        return listByUserId(userId).stream()
-                .map(ChatConversation::getConversationId)
-                .filter(Objects::nonNull)
-                .toList();
+        if (userId == null || userId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "userId 不合法");
+        }
+        return userConversationRelationService.listConversationIdsByUserId(userId);
     }
 
     @Override
@@ -60,13 +67,15 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         if (userId == null || userId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "userId 不合法");
         }
-
-        QueryWrapper queryWrapper = QueryWrapper.create()
-                .eq("userId", userId)
+        List<String> conversationIds = listConversationIdsByUserId(userId);
+        if (conversationIds.isEmpty()) {
+            return List.of();
+        }
+        List<ChatConversation> conversations = chatConversationMapper.selectListByQuery(QueryWrapper.create()
+                .in("conversationId", conversationIds)
                 .eq("isDelete", 0)
                 .orderBy("lastActiveTime", false)
-                .orderBy("id", false);
-        List<ChatConversation> conversations = this.mapper.selectListByQuery(queryWrapper);
+                .orderBy("id", false));
         conversations.forEach(this::fillSelectedSkillList);
         return conversations;
     }
@@ -83,7 +92,6 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         LocalDateTime now = LocalDateTime.now();
         if (existing == null) {
             ChatConversation conversation = ChatConversation.builder()
-                    .userId(userId)
                     .conversationId(normalizedConversationId)
                     .title(DEFAULT_CONVERSATION_TITLE)
                     .selectedSkills("[]")
@@ -91,10 +99,11 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
                     .isDelete(0)
                     .build();
             this.save(conversation);
+            userConversationRelationService.bindUserConversation(userId, normalizedConversationId, now);
             return;
         }
 
-        if (!userId.equals(existing.getUserId())) {
+        if (!isConversationOwnedByUser(userId, normalizedConversationId)) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "会话归属用户不匹配");
         }
         existing.setLastActiveTime(now);
@@ -109,7 +118,7 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
                 .eq("isDelete", 0);
         ChatConversation existing = this.mapper.selectOneByQuery(queryWrapper);
         if (existing != null) {
-            if (!userId.equals(existing.getUserId())) {
+            if (!isConversationOwnedByUser(userId, conversationId)) {
                 throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "会话归属用户不匹配");
             }
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "会话已存在");
@@ -117,7 +126,6 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
 
         LocalDateTime now = LocalDateTime.now();
         ChatConversation conversation = ChatConversation.builder()
-                .userId(userId)
                 .conversationId(conversationId)
                 .title(DEFAULT_CONVERSATION_TITLE)
                 .selectedSkills("[]")
@@ -125,6 +133,7 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
                 .isDelete(0)
                 .build();
         this.save(conversation);
+        userConversationRelationService.bindUserConversation(userId, conversationId, now);
         return conversationId;
     }
 
@@ -138,32 +147,31 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         if (existing == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "会话不存在");
         }
-        if (!userId.equals(existing.getUserId())) {
+        if (!isConversationOwnedByUser(userId, normalizedConversationId)) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限删除该会话");
         }
 
         // 级联删除会话下所有记忆消息
         chatMemoryRepository.deleteByConversationId(normalizedConversationId);
 
+        userConversationRelationService.deleteByConversationId(normalizedConversationId);
         return jdbcTemplate.update("DELETE FROM chat_conversation WHERE id = ?", existing.getId()) > 0;
     }
 
     @Override
     public boolean isConversationOwnedByUser(Long userId, String conversationId) {
         String normalizedConversationId = normalizeConversationId(userId, conversationId);
-        QueryWrapper queryWrapper = QueryWrapper.create()
-                .eq("conversationId", normalizedConversationId)
-                .eq("userId", userId)
-                .eq("isDelete", 0);
-        return this.mapper.selectCountByQuery(queryWrapper) > 0;
+        return userConversationRelationService.isConversationOwnedByUser(userId, normalizedConversationId);
     }
 
     @Override
     public ChatConversation getByConversationId(Long userId, String conversationId) {
         String normalizedConversationId = normalizeConversationId(userId, conversationId);
+        if (!isConversationOwnedByUser(userId, normalizedConversationId)) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限访问该会话");
+        }
         QueryWrapper queryWrapper = QueryWrapper.create()
                 .eq("conversationId", normalizedConversationId)
-                .eq("userId", userId)
                 .eq("isDelete", 0);
         ChatConversation conversation = this.mapper.selectOneByQuery(queryWrapper);
         if (conversation == null) {
@@ -216,11 +224,15 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
                 %s
 
                 请先结合用户问题判断上述 skills 中哪些真正相关。
+                如果用户当前问题明显命中了某个已绑定 skill 的核心适用场景，必须优先通过该 skill 的工具链完成，不要直接凭模型常识作答。
+                如果某个已绑定 skill 明确提供了可执行脚本，且当前任务与该脚本适用场景匹配，应优先执行脚本并基于脚本结果回答。
                 如果用户当前问题需要依赖这些已绑定 skill 的正文、reference、script 或其他资源内容才能回答，而这些内容尚未进入上下文，请先调用相关 skill 工具读取，再回答。
                 在已绑定 skill 的前提下，不要仅仅因为“当前上下文里还没展开具体内容”就直接回答“信息不足”或“缺少上下文”。
                 不要为了例行检查而一次性读取所有 skill 的完整内容。
                 只有当某个已绑定 skill 与当前问题相关，或者你确实需要它的详细步骤、约束、脚本、参考材料时，才调用 read_skill 继续读取该 skill 的完整内容。
+                read_skill 的返回结果会同时附带该 skill 当前可用的 references 与 scripts 真实文件清单；一旦你已经调用过 read_skill，就应优先使用其中返回的真实路径，不要再猜测脚本名或资源路径。
                 一旦确认某个已绑定 skill 相关，后续回答必须优先遵循该 skill 的约束、步骤和要求。
+                对于任何已绑定的计算型或可执行型 skill，只要用户已经提供了足够参数，且该 skill 已定义固定脚本，就应优先规划脚本执行，而不是直接凭模型常识作答。
                 除了上述已绑定 skills 之外，不要主动加载其他 skill，除非系统另有明确要求。
 
                 以下是系统提供的 skill 渐进式加载规范，请在“仅限上述 skills 范围内”遵循：
@@ -255,7 +267,7 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         if (conversation == null) {
             return;
         }
-        if (!userId.equals(conversation.getUserId())) {
+        if (!isConversationOwnedByUser(userId, normalizedConversationId)) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "会话归属用户不匹配");
         }
         if (conversation.getTitle() != null && !DEFAULT_CONVERSATION_TITLE.equals(conversation.getTitle())) {

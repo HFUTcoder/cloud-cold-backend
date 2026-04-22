@@ -2,10 +2,12 @@ package com.shenchen.cloudcoldagent.service;
 
 import com.shenchen.cloudcoldagent.model.vo.SkillMetadataVO;
 import com.shenchen.cloudcoldagent.model.vo.SkillResourceContentVO;
+import com.shenchen.cloudcoldagent.model.vo.SkillScriptExecutionVO;
 import com.shenchen.cloudcoldagent.model.vo.SkillResourceListVO;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
 public interface SkillService {
 
@@ -34,4 +36,10 @@ public interface SkillService {
      * 列出 skill 内部可读取的资源清单。
      */
     SkillResourceListVO listSkillResources(String skillName) throws IOException;
+
+    /**
+     * 执行 skill 内部脚本。
+     */
+    SkillScriptExecutionVO executeSkillScript(String skillName, String scriptPath, Map<String, Object> arguments)
+            throws IOException;
 }

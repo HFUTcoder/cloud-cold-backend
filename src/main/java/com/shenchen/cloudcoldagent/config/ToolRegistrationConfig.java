@@ -2,6 +2,7 @@ package com.shenchen.cloudcoldagent.config;
 
 import com.shenchen.cloudcoldagent.tools.BaseTool;
 import com.shenchen.cloudcoldagent.tools.common.SearchTool;
+import com.shenchen.cloudcoldagent.tools.skill.ExecuteSkillScriptTool;
 import com.shenchen.cloudcoldagent.tools.skill.ListSkillResourcesTool;
 import com.shenchen.cloudcoldagent.tools.skill.ReadSkillResourceTool;
 import com.shenchen.cloudcoldagent.tools.skill.ReadSkillTool;
@@ -32,11 +33,13 @@ public class ToolRegistrationConfig {
     @Bean("skillTools")
     public ToolCallback[] skillTools(ReadSkillTool readSkillTool,
                                      ReadSkillResourceTool readSkillResourceTool,
-                                     ListSkillResourcesTool listSkillResourcesTool) {
+                                     ListSkillResourcesTool listSkillResourcesTool,
+                                     ExecuteSkillScriptTool executeSkillScriptTool) {
         return ToolCallbacks.from(
                 readSkillTool,
                 readSkillResourceTool,
-                listSkillResourcesTool
+                listSkillResourcesTool,
+                executeSkillScriptTool
         );
     }
 }

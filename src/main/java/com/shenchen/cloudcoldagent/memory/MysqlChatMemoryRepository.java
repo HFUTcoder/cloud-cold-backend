@@ -1,9 +1,7 @@
 package com.shenchen.cloudcoldagent.memory;
 
 import com.mybatisflex.core.query.QueryWrapper;
-import com.shenchen.cloudcoldagent.mapper.ChatConversationMapper;
 import com.shenchen.cloudcoldagent.mapper.ChatMemoryHistoryMapper;
-import com.shenchen.cloudcoldagent.model.entity.ChatConversation;
 import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemoryRepository;
@@ -27,14 +25,11 @@ import java.util.Set;
 @Component
 public class MysqlChatMemoryRepository implements ChatMemoryRepository {
 
-    private final ChatConversationMapper chatConversationMapper;
     private final ChatMemoryHistoryMapper chatMemoryHistoryMapper;
     private final JdbcTemplate jdbcTemplate;
 
-    public MysqlChatMemoryRepository(ChatConversationMapper chatConversationMapper,
-                                     ChatMemoryHistoryMapper chatMemoryHistoryMapper,
+    public MysqlChatMemoryRepository(ChatMemoryHistoryMapper chatMemoryHistoryMapper,
                                      JdbcTemplate jdbcTemplate) {
-        this.chatConversationMapper = chatConversationMapper;
         this.chatMemoryHistoryMapper = chatMemoryHistoryMapper;
         this.jdbcTemplate = jdbcTemplate;
     }
@@ -91,7 +86,6 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
             return;
         }
 
-        Long userId = getUserIdByConversationId(conversationId);
         LocalDateTime now = LocalDateTime.now();
 
         for (Message message : messages) {
@@ -100,7 +94,6 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
             }
             String content = Objects.toString(message.getText(), "");
             ChatMemoryHistory row = ChatMemoryHistory.builder()
-                    .userId(userId)
                     .conversationId(conversationId)
                     .content(content)
                     .messageType(message.getMessageType().name())
@@ -138,16 +131,4 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
         };
     }
 
-    private Long getUserIdByConversationId(String conversationId) {
-        if (conversationId == null || conversationId.isBlank()) {
-            return null;
-        }
-        ChatConversation conversation = chatConversationMapper.selectOneByQuery(QueryWrapper.create()
-                .eq("conversationId", conversationId)
-                .eq("isDelete", 0));
-        if (conversation == null) {
-            return null;
-        }
-        return conversation.getUserId();
-    }
 }

@@ -1,13 +1,18 @@
 package com.shenchen.cloudcoldagent.service.impl;
 
+import com.alibaba.cloud.ai.agent.python.tool.PythonTool;
 import com.alibaba.cloud.ai.graph.skills.SkillMetadata;
 import com.alibaba.cloud.ai.graph.skills.registry.SkillRegistry;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.model.vo.SkillMetadataVO;
 import com.shenchen.cloudcoldagent.model.vo.SkillResourceContentVO;
 import com.shenchen.cloudcoldagent.model.vo.SkillResourceListVO;
+import com.shenchen.cloudcoldagent.model.vo.SkillScriptExecutionVO;
 import com.shenchen.cloudcoldagent.service.SkillService;
+import com.shenchen.cloudcoldagent.utils.PythonScriptRuntimeUtils;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -18,11 +23,13 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 @Service
+@Slf4j
 public class SkillServiceImpl implements SkillService {
 
     private static final String RESOURCE_TYPE_MAIN = "main";
@@ -32,6 +39,12 @@ public class SkillServiceImpl implements SkillService {
 
     @Autowired
     private SkillRegistry skillRegistry;
+
+    @Autowired
+    private PythonTool pythonTool;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Override
     public List<SkillMetadataVO> listSkillMetadata() {
@@ -93,6 +106,41 @@ public class SkillServiceImpl implements SkillService {
                 .build();
     }
 
+    @Override
+    public SkillScriptExecutionVO executeSkillScript(String skillName, String scriptPath, Map<String, Object> arguments)
+            throws IOException {
+        SkillMetadata metadata = getSkillMetadataInternal(skillName);
+        String normalizedScriptPath = normalizeResourcePath(scriptPath, RESOURCE_TYPE_SCRIPT);
+        Path skillBasePath = resolveSkillBasePath(metadata);
+        Path resolvedScriptPath = resolveResourcePath(skillBasePath, RESOURCE_TYPE_SCRIPT, normalizedScriptPath);
+        Map<String, Object> safeArguments = arguments == null ? Map.of() : arguments;
+
+        log.info("开始执行 skill script，skillName={}, scriptPath={}, arguments={}",
+                metadata.getName(), normalizedScriptPath, safeArguments);
+
+        if (!Files.exists(resolvedScriptPath) || !Files.isRegularFile(resolvedScriptPath)) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "script 资源不存在: " + normalizedScriptPath);
+        }
+
+        String scriptContent = Files.readString(resolvedScriptPath, StandardCharsets.UTF_8);
+        log.info("已加载 skill script，skillName={}, scriptPath={}, absolutePath={}, scriptLength={}",
+                metadata.getName(), normalizedScriptPath, resolvedScriptPath, scriptContent.length());
+        String wrappedCode = PythonScriptRuntimeUtils.buildWrappedCode(objectMapper, arguments, scriptContent);
+        log.info("准备调用 PythonTool 执行脚本，skillName={}, scriptPath={}, wrappedCodeLength={}",
+                metadata.getName(), normalizedScriptPath, wrappedCode.length());
+        String result = pythonTool.apply(new PythonTool.PythonRequest(wrappedCode), null);
+        log.info("skill script 执行完成，skillName={}, scriptPath={}, result={}",
+                metadata.getName(), normalizedScriptPath, truncateForLog(result));
+
+        return SkillScriptExecutionVO.builder()
+                .skillName(metadata.getName())
+                .scriptPath(normalizedScriptPath)
+                .arguments(safeArguments)
+                .result(result)
+                .engine("spring-ai-alibaba-python-tool")
+                .build();
+    }
+
     private SkillMetadataVO toSkillMetadataVO(SkillMetadata metadata) {
         if (metadata == null) {
             return null;
@@ -149,6 +197,13 @@ public class SkillServiceImpl implements SkillService {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "script 资源必须位于 scripts 目录下");
         }
         return normalizedPath;
+    }
+
+    private String truncateForLog(String text) {
+        if (text == null || text.length() <= 500) {
+            return text;
+        }
+        return text.substring(0, 500) + "...(truncated)";
     }
 
     private Path resolveSkillBasePath(SkillMetadata metadata) {

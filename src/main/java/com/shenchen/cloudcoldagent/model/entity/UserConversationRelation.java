@@ -18,8 +18,8 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Table(value = "chat_memory_history", camelToUnderline = false)
-public class ChatMemoryHistory implements Serializable {
+@Table(value = "user_conversation_relation", camelToUnderline = false)
+public class UserConversationRelation implements Serializable {
 
     @Serial
     private static final long serialVersionUID = 1L;
@@ -27,11 +27,9 @@ public class ChatMemoryHistory implements Serializable {
     @Id(keyType = KeyType.Generator, value = KeyGenerators.snowFlakeId)
     private Long id;
 
+    private Long userId;
+
     private String conversationId;
-
-    private String content;
-
-    private String messageType;
 
     private LocalDateTime createTime;
 

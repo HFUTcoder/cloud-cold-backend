@@ -3,13 +3,19 @@ package com.shenchen.cloudcoldagent.service.impl;
 import com.shenchen.cloudcoldagent.agent.PlanExecuteAgent;
 import com.shenchen.cloudcoldagent.agent.SimpleReactAgent;
 import com.shenchen.cloudcoldagent.advisors.SkillAdvisor;
+import com.shenchen.cloudcoldagent.config.HitlProperties;
 import com.shenchen.cloudcoldagent.constant.AgentModeConstant;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.model.dto.agent.AgentCallRequest;
 import com.shenchen.cloudcoldagent.model.entity.ChatConversation;
+import com.shenchen.cloudcoldagent.model.vo.HitlCheckpointVO;
+import com.shenchen.cloudcoldagent.model.vo.AgentStreamEvent;
 import com.shenchen.cloudcoldagent.service.AgentService;
 import com.shenchen.cloudcoldagent.service.ChatConversationService;
+import com.shenchen.cloudcoldagent.service.HitlCheckpointService;
+import com.shenchen.cloudcoldagent.service.HitlExecutionService;
+import com.shenchen.cloudcoldagent.service.HitlResumeService;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -25,7 +31,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 代理服务层实现
@@ -43,6 +51,18 @@ public class AgentServiceImpl implements AgentService {
 
     @Autowired
     private ChatConversationService chatConversationService;
+
+    @Autowired
+    private HitlExecutionService hitlExecutionService;
+
+    @Autowired
+    private HitlCheckpointService hitlCheckpointService;
+
+    @Autowired
+    private HitlResumeService hitlResumeService;
+
+    @Autowired
+    private HitlProperties hitlProperties;
 
     @Autowired
     private ObjectProvider<Advisor> advisorProvider;
@@ -98,6 +118,7 @@ public class AgentServiceImpl implements AgentService {
                 .systemPrompt("你是专业的研究分析助手！")
                 .build();
         planExecuteAgent = PlanExecuteAgent.builder()
+                .agentType("PlanExecuteAgent")
                 .chatModel(openAiChatModel)
                 .tools(allToolCallbacks)
                 .advisors(allAdvisors)
@@ -105,8 +126,13 @@ public class AgentServiceImpl implements AgentService {
                 .maxToolRetries(3)
                 .chatMemory(chatMemory)
                 .contextCharLimit(5000)
+                .hitlExecutionService(hitlExecutionService)
+                .hitlCheckpointService(hitlCheckpointService)
+                .hitlResumeService(hitlResumeService)
+                .hitlInterceptToolNames(resolveHitlInterceptToolNames())
                 .build();
         commonPlanExecuteAgent = PlanExecuteAgent.builder()
+                .agentType("CommonPlanExecuteAgent")
                 .chatModel(openAiChatModel)
                 .tools(commonToolCallbacks)
                 .advisors(commonAdvisors)
@@ -114,12 +140,16 @@ public class AgentServiceImpl implements AgentService {
                 .maxToolRetries(3)
                 .chatMemory(chatMemory)
                 .contextCharLimit(5000)
+                .hitlExecutionService(hitlExecutionService)
+                .hitlCheckpointService(hitlCheckpointService)
+                .hitlResumeService(hitlResumeService)
+                .hitlInterceptToolNames(resolveHitlInterceptToolNames())
                 .build();
     }
 
 
     @Override
-    public Flux<String> call(AgentCallRequest agentCallRequest, Long userId) {
+    public Flux<AgentStreamEvent> call(AgentCallRequest agentCallRequest, Long userId) {
         String question = agentCallRequest.getQuestion() == null ? "" : agentCallRequest.getQuestion();
         String mode = agentCallRequest.getMode() == null ? AgentModeConstant.FAST : agentCallRequest.getMode();
         String conversationId = resolveConversationId(userId, agentCallRequest.getConversationId());
@@ -132,17 +162,33 @@ public class AgentServiceImpl implements AgentService {
         switch (mode) {
             case AgentModeConstant.FAST:
                 return enableSkillTools
-                        ? reactAgent.stream(conversationId, effectiveQuestion, conversationSkillPrompt)
+                        ? reactAgent.stream(conversationId, effectiveQuestion, conversationSkillPrompt, question)
                         : commonReactAgent.stream(conversationId, effectiveQuestion, null);
             case AgentModeConstant.THINKING:
                 return enableSkillTools
-                        ? planExecuteAgent.stream(conversationId, effectiveQuestion, conversationSkillPrompt)
-                        : commonPlanExecuteAgent.stream(conversationId, effectiveQuestion, null);
+                        ? planExecuteAgent.stream(conversationId, effectiveQuestion, conversationSkillPrompt, question)
+                        : commonPlanExecuteAgent.stream(conversationId, effectiveQuestion, null, question);
             default:
                 return enableSkillTools
-                        ? reactAgent.stream(conversationId, effectiveQuestion, conversationSkillPrompt)
+                        ? reactAgent.stream(conversationId, effectiveQuestion, conversationSkillPrompt, question)
                         : commonReactAgent.stream(conversationId, effectiveQuestion, null);
         }
+    }
+
+    @Override
+    public Flux<AgentStreamEvent> resume(String interruptId) {
+        HitlCheckpointVO checkpoint = hitlCheckpointService.getByInterruptId(interruptId);
+        if (checkpoint == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "HITL checkpoint 不存在");
+        }
+        String agentType = checkpoint.getAgentType();
+        if ("CommonPlanExecuteAgent".equals(agentType)) {
+            return commonPlanExecuteAgent.resume(interruptId);
+        }
+        if ("PlanExecuteAgent".equals(agentType) || agentType == null || agentType.isBlank()) {
+            return planExecuteAgent.resume(interruptId);
+        }
+        throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前 agentType 暂不支持 resume: " + agentType);
     }
 
     private String resolveConversationId(Long userId, String rawConversationId) {
@@ -154,6 +200,13 @@ public class AgentServiceImpl implements AgentService {
 
     private boolean shouldEnableSkillTools(String question, String conversationSkillPrompt) {
         return StringUtils.hasText(conversationSkillPrompt);
+    }
+
+    private Set<String> resolveHitlInterceptToolNames() {
+        if (!hitlProperties.isEnabled() || hitlProperties.getInterceptToolNames() == null) {
+            return new LinkedHashSet<>();
+        }
+        return new LinkedHashSet<>(hitlProperties.getInterceptToolNames());
     }
 
     private String buildEffectiveQuestion(Long userId, String conversationId, String question) {
@@ -173,7 +226,10 @@ public class AgentServiceImpl implements AgentService {
                 %s
 
                 下面是用户本轮真实问题。请在理解和回答时优先结合上述已绑定 skills，但不要把这段上下文当作用户原话复述给用户。
+                如果本轮问题明显属于某个已绑定 skill 的核心处理范围，优先走该 skill 的工具链，不要直接凭常识回答。
+                如果该 skill 已定义固定可执行脚本，且用户已提供足够参数，应优先执行脚本并基于脚本结果作答。
                 如果本轮问题需要依赖这些已绑定 skill 的正文或资源内容，而你当前还没有读到对应内容，请先调用相关 skill 工具读取，再回答。
+                对于任何已绑定的计算型或可执行型 skill，如果该 skill 已定义固定脚本且当前问题已提供足够参数，命中后不要直接凭模型常识回答，应优先调用 `execute_skill_script`。
                 不要仅仅因为当前上下文尚未展开这些 skill 内容，就直接回答“信息不足”或“缺少上下文”。
 
                 [用户问题]

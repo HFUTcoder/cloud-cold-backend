@@ -5,7 +5,9 @@ import com.shenchen.cloudcoldagent.constant.UserConstant;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.exception.ThrowUtils;
 import com.shenchen.cloudcoldagent.model.dto.agent.AgentCallRequest;
+import com.shenchen.cloudcoldagent.model.dto.agent.AgentResumeRequest;
 import com.shenchen.cloudcoldagent.model.entity.User;
+import com.shenchen.cloudcoldagent.model.vo.AgentStreamEvent;
 import com.shenchen.cloudcoldagent.service.AgentService;
 import com.shenchen.cloudcoldagent.service.ChatConversationService;
 import com.shenchen.cloudcoldagent.service.UserService;
@@ -18,6 +20,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.Disposable;
 
 import java.io.IOException;
+import java.util.LinkedHashMap;
 import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
@@ -44,11 +47,18 @@ public class AgentController {
         }
 
         SseEmitter emitter = new SseEmitter(0L);
+        String conversationId = agentCallRequest.getConversationId();
 
         Disposable disposable = agentService.call(agentCallRequest, loginUser.getId()).subscribe(
-                data -> sendEvent(emitter, "message", data),
+                data -> sendEvent(emitter, data),
                 throwable -> {
-                    sendEvent(emitter, "error", throwable.getMessage());
+                    LinkedHashMap<String, Object> errorData = new LinkedHashMap<>();
+                    errorData.put("message", throwable == null ? "" : String.valueOf(throwable.getMessage()));
+                    sendEvent(emitter, AgentStreamEvent.builder()
+                            .type("error")
+                            .conversationId(conversationId)
+                            .data(errorData)
+                            .build());
                     emitter.completeWithError(throwable);
                 },
                 emitter::complete
@@ -63,10 +73,43 @@ public class AgentController {
         return emitter;
     }
 
-    private void sendEvent(SseEmitter emitter, String eventName, String data) {
+    @PostMapping("/resume")
+    @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
+    public SseEmitter resume(@RequestBody AgentResumeRequest agentResumeRequest, HttpServletRequest request) {
+        ThrowUtils.throwIf(agentResumeRequest == null || agentResumeRequest.getInterruptId() == null
+                || agentResumeRequest.getInterruptId().isBlank(), ErrorCode.PARAMS_ERROR);
+        userService.getLoginUser(request);
+
+        SseEmitter emitter = new SseEmitter(0L);
+
+        Disposable disposable = agentService.resume(agentResumeRequest.getInterruptId()).subscribe(
+                data -> sendEvent(emitter, data),
+                throwable -> {
+                    LinkedHashMap<String, Object> errorData = new LinkedHashMap<>();
+                    errorData.put("message", throwable == null ? "" : String.valueOf(throwable.getMessage()));
+                    sendEvent(emitter, AgentStreamEvent.builder()
+                            .type("error")
+                            .interruptId(agentResumeRequest.getInterruptId())
+                            .data(errorData)
+                            .build());
+                    emitter.completeWithError(throwable);
+                },
+                emitter::complete
+        );
+        emitter.onCompletion(disposable::dispose);
+        emitter.onTimeout(() -> {
+            disposable.dispose();
+            emitter.complete();
+        });
+        emitter.onError(err -> disposable.dispose());
+
+        return emitter;
+    }
+
+    private void sendEvent(SseEmitter emitter, AgentStreamEvent data) {
         try {
             emitter.send(SseEmitter.event()
-                    .name(eventName)
+                    .name("agent")
                     .data(data));
         } catch (IOException e) {
             emitter.completeWithError(e);

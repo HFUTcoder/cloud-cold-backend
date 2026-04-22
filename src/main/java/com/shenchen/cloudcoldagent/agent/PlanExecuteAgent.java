@@ -1,6 +1,13 @@
 package com.shenchen.cloudcoldagent.agent;
 
+import cn.hutool.json.JSONUtil;
+import com.shenchen.cloudcoldagent.model.vo.HitlCheckpointVO;
+import com.shenchen.cloudcoldagent.model.vo.AgentStreamEvent;
 import com.shenchen.cloudcoldagent.prompts.PlanExecutePromptsFactory;
+import com.shenchen.cloudcoldagent.service.HitlCheckpointService;
+import com.shenchen.cloudcoldagent.service.HitlExecutionService;
+import com.shenchen.cloudcoldagent.service.HitlResumeService;
+import com.shenchen.cloudcoldagent.utils.PlanExecuteResumeUtils;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -20,6 +27,8 @@ import org.springframework.util.CollectionUtils;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
@@ -34,6 +43,15 @@ import reactor.core.scheduler.Schedulers;
 @Slf4j
 public class PlanExecuteAgent extends BaseAgent {
 
+    private static final Pattern EXECUTE_SKILL_SCRIPT_TOOL_PATTERN =
+            Pattern.compile("调用\\s*execute_skill_script\\s*工具");
+    private static final Pattern SCRIPT_PATH_PATTERN =
+            Pattern.compile("(scripts/[A-Za-z0-9_./-]+\\.py)");
+    private static final Pattern PARAM_ASSIGNMENT_PATTERN =
+            Pattern.compile("([a-zA-Z_][a-zA-Z0-9_]*)\\s*=\\s*(-?\\d+(?:\\.\\d+)?)");
+    private static final Pattern SINGLE_SKILL_LINE_PATTERN =
+            Pattern.compile("当前会话已绑定以下 skills：\\s*\\R\\s*-\\s*(.+?)(?:\\R|$)");
+
     // plan-execute 总轮数
     private final int contextCharLimit;
 
@@ -42,6 +60,16 @@ public class PlanExecuteAgent extends BaseAgent {
 
     // 工具重试次数
     private final int maxToolRetries;
+
+    private final HitlExecutionService hitlExecutionService;
+
+    private final HitlCheckpointService hitlCheckpointService;
+
+    private final HitlResumeService hitlResumeService;
+
+    private final Set<String> hitlInterceptToolNames;
+
+    private final String agentType;
 
     private PlanExecutePromptsFactory planExecutePrompts;
 
@@ -52,12 +80,22 @@ public class PlanExecuteAgent extends BaseAgent {
                             int contextCharLimit,
                             int maxToolRetries,
                             PlanExecutePromptsFactory planExecutePrompts,
-                            ChatMemory chatMemory) {
+                            ChatMemory chatMemory,
+                            HitlExecutionService hitlExecutionService,
+                            HitlCheckpointService hitlCheckpointService,
+                            HitlResumeService hitlResumeService,
+                            String agentType,
+                            Set<String> hitlInterceptToolNames) {
         super(chatModel, tools, advisors, maxRounds, chatMemory);
         this.contextCharLimit = contextCharLimit;
         this.maxToolRetries = maxToolRetries;
         this.toolSemaphore = new Semaphore(3);
         this.planExecutePrompts = planExecutePrompts;
+        this.hitlExecutionService = hitlExecutionService;
+        this.hitlCheckpointService = hitlCheckpointService;
+        this.hitlResumeService = hitlResumeService;
+        this.agentType = StringUtils.isBlank(agentType) ? "PlanExecuteAgent" : agentType;
+        this.hitlInterceptToolNames = hitlInterceptToolNames == null ? Set.of() : new LinkedHashSet<>(hitlInterceptToolNames);
     }
 
     public static Builder builder() {
@@ -82,8 +120,43 @@ public class PlanExecuteAgent extends BaseAgent {
 
         private ChatMemory chatMemory;
 
+        private HitlExecutionService hitlExecutionService;
+
+        private HitlCheckpointService hitlCheckpointService;
+
+        private HitlResumeService hitlResumeService;
+
+        private String agentType = "PlanExecuteAgent";
+
+        private Set<String> hitlInterceptToolNames = new LinkedHashSet<>();
+
         public Builder chatMemory(ChatMemory chatMemory) {
             this.chatMemory = chatMemory;
+            return this;
+        }
+
+        public Builder hitlExecutionService(HitlExecutionService hitlExecutionService) {
+            this.hitlExecutionService = hitlExecutionService;
+            return this;
+        }
+
+        public Builder hitlCheckpointService(HitlCheckpointService hitlCheckpointService) {
+            this.hitlCheckpointService = hitlCheckpointService;
+            return this;
+        }
+
+        public Builder hitlResumeService(HitlResumeService hitlResumeService) {
+            this.hitlResumeService = hitlResumeService;
+            return this;
+        }
+
+        public Builder agentType(String agentType) {
+            this.agentType = agentType;
+            return this;
+        }
+
+        public Builder hitlInterceptToolNames(Set<String> hitlInterceptToolNames) {
+            this.hitlInterceptToolNames = hitlInterceptToolNames == null ? new LinkedHashSet<>() : new LinkedHashSet<>(hitlInterceptToolNames);
             return this;
         }
 
@@ -134,20 +207,22 @@ public class PlanExecuteAgent extends BaseAgent {
 
         public PlanExecuteAgent build() {
             Objects.requireNonNull(chatModel, "chatModel must not be null");
-            return new PlanExecuteAgent(chatModel, tools, advisors, maxRounds, contextCharLimit, maxToolRetries, planExecutePrompts, chatMemory);
+            return new PlanExecuteAgent(chatModel, tools, advisors, maxRounds, contextCharLimit, maxToolRetries,
+                    planExecutePrompts, chatMemory, hitlExecutionService, hitlCheckpointService, hitlResumeService,
+                    agentType, hitlInterceptToolNames);
         }
     }
 
     public String call(String question) {
-        return callInternal(null, question, null);
+        return callInternal(null, question, null, question);
     }
 
     public String call(String conversationId, String question) {
-        return callInternal(conversationId, question, null);
+        return callInternal(conversationId, question, null, question);
     }
 
     public String call(String conversationId, String question, String runtimeSystemPrompt) {
-        return callInternal(conversationId, question, runtimeSystemPrompt);
+        return callInternal(conversationId, question, runtimeSystemPrompt, question);
     }
 
     /**
@@ -156,20 +231,28 @@ public class PlanExecuteAgent extends BaseAgent {
      * @param question
      * @return
      */
-    public Flux<String> stream(String question) {
-        return streamInternal(null, question, null);
+    public Flux<AgentStreamEvent> stream(String question) {
+        return streamInternal(null, question, null, question);
     }
 
     // 带会话记忆
-    public Flux<String> stream(String conversationId, String question) {
-        return streamInternal(conversationId, question, null);
+    public Flux<AgentStreamEvent> stream(String conversationId, String question) {
+        return streamInternal(conversationId, question, null, question);
     }
 
-    public Flux<String> stream(String conversationId, String question, String runtimeSystemPrompt) {
-        return streamInternal(conversationId, question, runtimeSystemPrompt);
+    public Flux<AgentStreamEvent> stream(String conversationId, String question, String runtimeSystemPrompt) {
+        return streamInternal(conversationId, question, runtimeSystemPrompt, question);
     }
 
-    public Flux<String> streamInternal(String conversationId, String question, String runtimeSystemPrompt) {
+    public Flux<AgentStreamEvent> stream(String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
+        return streamInternal(conversationId, question, runtimeSystemPrompt, memoryQuestion);
+    }
+
+    public Flux<AgentStreamEvent> resume(String interruptId) {
+        return resumeInternal(interruptId);
+    }
+
+    public Flux<AgentStreamEvent> streamInternal(String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
         boolean useMemory = useMemory(conversationId);
 
         OverAllState state = new OverAllState(conversationId, question);
@@ -191,11 +274,12 @@ public class PlanExecuteAgent extends BaseAgent {
 
         // 当前问题存入memory
         if (useMemory) {
-            addUserMemory(conversationId, question);
+            addUserMemory(conversationId, memoryQuestion == null ? question : memoryQuestion);
         }
 
-        Sinks.Many<String> sink = Sinks.many().unicast().onBackpressureBuffer();
+        Sinks.Many<AgentStreamEvent> sink = Sinks.many().unicast().onBackpressureBuffer();
         AtomicBoolean hasSentFinalResult = new AtomicBoolean(false);
+        AtomicBoolean interruptedByHitl = new AtomicBoolean(false);
         hasSentFinalResult.set(false);
 
         // 收集最终答案，存储memory
@@ -206,24 +290,33 @@ public class PlanExecuteAgent extends BaseAgent {
                 while (maxRounds <= 0 || state.getRound() < maxRounds) {
                     state.nextRound();
                     log.info("===== Plan-Execute Round {} =====", state.getRound());
-                    emitStep(sink, "round", "Plan-Execute Round " + state.getRound(), "开始规划与执行");
+                    emitStep(sink, state.getConversationId(), "round", "Plan-Execute Round " + state.getRound(), "开始规划与执行");
 
                     // 1.生成计划
-                    List<PlanTask> plan = filterRepeatedTasks(generatePlan(state), state);
+                    List<PlanTask> plan = sanitizePlan(generatePlan(state));
                     String planText = "【Execution Plan】\n" + plan;
                     log.info(planText);
                     state.add(new AssistantMessage(planText));
-                    emitStep(sink, "plan", "Execution Plan", renderPlanForDisplay(plan));
+                    emitStep(sink, state.getConversationId(), "plan", "Execution Plan", renderPlanForDisplay(plan));
 
                     if (plan.isEmpty() || plan.stream().allMatch(t -> t.id() == null)) {
                         log.info("===== No execution needed, direct answer =====");
-                        emitStep(sink, "execution", "Execution", "当前无需执行工具任务，进入总结阶段。");
+                        emitStep(sink, state.getConversationId(), "execution", "Execution", "当前无需执行工具任务，进入总结阶段。");
                         break;
                     }
 
                     // 2.执行
                     Map<String, TaskResult> results = executePlan(plan, state, runtimeSystemPrompt);
-                    emitStep(sink, "task", "Task Result", renderTaskResultsForDisplay(results));
+                    emitStep(sink, state.getConversationId(), "task", "Task Result", renderTaskResultsForDisplay(results));
+
+                    if (state.getInterruptedCheckpoint() != null) {
+                        enrichInterruptedCheckpoint(state, plan, results, runtimeSystemPrompt);
+                        interruptedByHitl.set(true);
+                        sink.tryEmitNext(buildHitlInterruptEvent(state.getConversationId(), state.getInterruptedCheckpoint()));
+                        hasSentFinalResult.set(true);
+                        sink.tryEmitComplete();
+                        return;
+                    }
 
                     // 3.批判
                     CritiqueResult critique = critique(state);
@@ -231,7 +324,7 @@ public class PlanExecuteAgent extends BaseAgent {
 
                     if (critique.passed()) {
                         log.info("===== Goal satisfied, finish =====");
-                        emitStep(sink, "critique", "Critique", "目标已满足，进入总结阶段。");
+                        emitStep(sink, state.getConversationId(), "critique", "Critique", "目标已满足，进入总结阶段。");
                         break;
                     }
 
@@ -242,32 +335,38 @@ public class PlanExecuteAgent extends BaseAgent {
 
                     if (isOnlyMissingSummary) {
                         log.info("===== 数据已收集完毕，直接进入总结阶段 =====");
-                        emitStep(sink, "critique", "Critique", "已收集到足够数据，直接生成最终总结。");
+                        emitStep(sink, state.getConversationId(), "critique", "Critique", "已收集到足够数据，直接生成最终总结。");
                         break;
                     }
 
                     if (shouldStopAfterSkillResourceExhausted(state)) {
                         log.info("===== Skill resources exhausted, stop retrying and summarize =====");
-                        emitStep(sink, "critique", "Critique", "已确认 skill 可读资源已穷尽，停止无效重试并直接总结。");
+                        emitStep(sink, state.getConversationId(), "critique", "Critique", "已确认 skill 可读资源已穷尽，停止无效重试并直接总结。");
                         break;
                     }
 
                     log.info("===== critique Goal not satisfied, continue round =====,\n reason is {} ", critique.feedback);
                     state.add(new AssistantMessage(critiqueText));
-                    emitStep(sink, "critique", "Critique Feedback", critique.feedback());
+                    emitStep(sink, state.getConversationId(), "critique", "Critique Feedback", critique.feedback());
 
                     // 4. 压缩context
                     compressIfNeeded(state);
                 }
                 if (state.round == maxRounds) {
                     log.info("===== Max rounds reached, force finish =====");
-                    emitStep(sink, "round", "Plan-Execute", "达到最大轮次，强制进入总结阶段。");
+                    emitStep(sink, state.getConversationId(), "round", "Plan-Execute", "达到最大轮次，强制进入总结阶段。");
                 }
 
                 // 5.总结输出
-                emitStep(sink, "final", "Final Answer", "正在生成最终答案...");
+                emitStep(sink, state.getConversationId(), "final", "Final Answer", "正在生成最终答案...");
                 String answer = summarize(state);
-                sink.tryEmitNext(answer);
+                Map<String, Object> finalData = new LinkedHashMap<>();
+                finalData.put("content", answer);
+                sink.tryEmitNext(AgentStreamEvent.builder()
+                        .type("final_answer")
+                        .conversationId(state.getConversationId())
+                        .data(finalData)
+                        .build());
                 finalAnswerBuffer.append(answer);
 
                 hasSentFinalResult.set(true);
@@ -283,20 +382,27 @@ public class PlanExecuteAgent extends BaseAgent {
         return sink.asFlux()
                 .doOnCancel(() -> hasSentFinalResult.set(true))
                 .doFinally(signalType -> {
+                    if (interruptedByHitl.get()) {
+                        log.info("执行链已因 HITL 中断，等待用户处理，conversationId={}", conversationId);
+                        return;
+                    }
                     log.info("最终答案: {}", finalAnswerBuffer);
                 });
     }
 
-    private void emitStep(Sinks.Many<String> sink, String type, String title, String content) {
+    private void emitStep(Sinks.Many<AgentStreamEvent> sink, String conversationId, String type, String title, String content) {
         if (sink == null || StringUtils.isBlank(content)) {
             return;
         }
-        String block = """
-                [思考过程][%s] %s
-                %s
-                
-                """.formatted(type, title, content);
-        sink.tryEmitNext(block);
+        Map<String, Object> stepData = new LinkedHashMap<>();
+        stepData.put("stage", type);
+        stepData.put("title", title);
+        stepData.put("content", content);
+        sink.tryEmitNext(AgentStreamEvent.builder()
+                .type("thinking_step")
+                .conversationId(conversationId)
+                .data(stepData)
+                .build());
     }
 
     private String renderPlanForDisplay(List<PlanTask> plan) {
@@ -331,7 +437,11 @@ public class PlanExecuteAgent extends BaseAgent {
                 .collect(Collectors.joining("\n"));
     }
 
-    public String callInternal(String conversationId, String question, String runtimeSystemPrompt) {
+    public String call(String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
+        return callInternal(conversationId, question, runtimeSystemPrompt, memoryQuestion);
+    }
+
+    public String callInternal(String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
 
         boolean useMemory = useMemory(conversationId);
 
@@ -351,7 +461,7 @@ public class PlanExecuteAgent extends BaseAgent {
         state.add(new UserMessage(question));
 
         if (useMemory) {
-            addUserMemory(conversationId, question);
+            addUserMemory(conversationId, memoryQuestion == null ? question : memoryQuestion);
         }
 
         // 【新增】用于判断是否已经执行过工具
@@ -361,7 +471,7 @@ public class PlanExecuteAgent extends BaseAgent {
             state.nextRound();
             log.info("===== Plan-Execute Round {} =====", state.getRound());
 
-            List<PlanTask> plan = filterRepeatedTasks(generatePlan(state), state);
+            List<PlanTask> plan = sanitizePlan(generatePlan(state));
             log.info("【Execution Plan】\n\n" + plan);
             state.add(new AssistantMessage("【Execution Plan】\n" + plan));
 
@@ -373,6 +483,10 @@ public class PlanExecuteAgent extends BaseAgent {
             // 2.执行
             Map<String, TaskResult> results = executePlan(plan, state, runtimeSystemPrompt);
             hasExecutedTools = (results != null && !results.isEmpty());
+            if (state.getInterruptedCheckpoint() != null) {
+                enrichInterruptedCheckpoint(state, plan, results, runtimeSystemPrompt);
+                return JSONUtil.toJsonStr(buildHitlInterruptEvent(state.getConversationId(), state.getInterruptedCheckpoint()));
+            }
 
             // 3.批判
             CritiqueResult critique = critique(state);
@@ -398,10 +512,7 @@ public class PlanExecuteAgent extends BaseAgent {
             }
 
             log.info("===== critique Goal not satisfied, continue round =====,\n reason is {} ", critique.feedback);
-            state.add(new AssistantMessage("""
-                    【Critique Feedback】
-                    %s
-                    """.formatted(critique.feedback())));
+            state.add(new AssistantMessage(String.format("【Critique Feedback】%n%s", critique.feedback())));
 
             // 4. 压缩context
             compressIfNeeded(state);
@@ -419,37 +530,16 @@ public class PlanExecuteAgent extends BaseAgent {
         BeanOutputConverter<List<PlanTask>> converter = new BeanOutputConverter<>(new ParameterizedTypeReference<>() {
         });
 
+        String planPrompt = PlanExecutePromptsFactory.buildPrompts(planExecutePrompts).formatPlanPrompt(
+                LocalDateTime.now(ZoneId.of("Asia/Shanghai")),
+                state.round,
+                toolDesc,
+                renderExecutedTaskHistory(state),
+                converter.getFormat()
+        );
+
         Prompt prompt = new Prompt(List.of(
-                new SystemMessage("""
-                            当前时间是：%s。
-                        
-                            当前是迭代的第 %s 轮次。
-
-                            ## Skill 资源规划约束（必须严格遵守）
-                            1. 如果任务涉及读取某个 skill 下的 references 或 scripts 资源，而你还不知道具体文件名，必须先规划调用 `list_skill_resources`。
-                            2. 在没有拿到 `list_skill_resources` 的真实结果前，禁止直接规划 `read_skill_resource` 去猜测 `resourcePath`。
-                            3. 禁止生成这类模糊或猜测式参数：
-                               - `references`
-                               - `scripts`
-                               - `references/文件名`
-                               - `scripts/文件名`
-                               - `文件路径`
-                               - `文件内容`
-                            4. 只有当 `list_skill_resources` 已返回真实文件清单后，才允许规划 `read_skill_resource`，并且 `resourcePath` 必须使用清单里出现过的真实相对路径。
-                            5. 如果清单明确显示某类资源为空，例如 `scripts: 无`，则后续禁止再规划该类资源读取任务。
-                        
-                            ## 可用工具说明（仅用于规划参考）
-                            %s
-
-                            ## 已执行任务摘要（避免重复规划）
-                            %s
-                        
-                            ## 输出format
-                            %s
-                        
-                        """.formatted(LocalDateTime.now(ZoneId.of("Asia/Shanghai")), state.round, toolDesc,
-                        renderExecutedTaskHistory(state), converter.getFormat())
-                        + PlanExecutePromptsFactory.buildPrompts(planExecutePrompts).getPlanPrompt()),
+                new SystemMessage(planPrompt),
                 new UserMessage("【对话历史】\n\n" + renderMessages(state.getMessages()))
         ));
 
@@ -459,36 +549,14 @@ public class PlanExecuteAgent extends BaseAgent {
         return planTasks;
     }
 
-    private List<PlanTask> filterRepeatedTasks(List<PlanTask> plan, OverAllState state) {
+    private List<PlanTask> sanitizePlan(List<PlanTask> plan) {
         if (plan == null || plan.isEmpty()) {
             return List.of();
         }
-
-        List<PlanTask> filtered = new ArrayList<>();
-        Set<String> currentRoundKeys = new HashSet<>();
-
-        for (PlanTask task : plan) {
-            if (task == null || StringUtils.isBlank(task.id()) || StringUtils.isBlank(task.instruction())) {
-                continue;
-            }
-
-            String taskKey = buildTaskKey(task);
-            if (!currentRoundKeys.add(taskKey)) {
-                log.info("===== Skip duplicated task in same round =====, taskId: {}, instruction: {}", task.id(), task.instruction());
-                continue;
-            }
-
-            if (state.hasAttempted(taskKey)) {
-                ExecutedTaskSnapshot snapshot = state.getExecutedTask(taskKey);
-                log.info("===== Skip repeated task across rounds =====, taskId: {}, instruction: {}, previousRound: {}, success: {}",
-                        task.id(), task.instruction(), snapshot == null ? null : snapshot.round(), snapshot != null && snapshot.success());
-                continue;
-            }
-
-            filtered.add(task);
-        }
-
-        return filtered;
+        return plan.stream()
+                .filter(Objects::nonNull)
+                .filter(task -> StringUtils.isNotBlank(task.id()) && StringUtils.isNotBlank(task.instruction()))
+                .toList();
     }
 
     private String renderToolDescriptions() {
@@ -535,18 +603,22 @@ public class PlanExecuteAgent extends BaseAgent {
                             if (task == null || StringUtils.isBlank(task.id())) {
                                 return;
                             }
-                            TaskResult result = executeWithRetry(task, dependencySnapshot, runtimeSystemPrompt);
+                            TaskResult result = executeWithRetry(task, dependencySnapshot, runtimeSystemPrompt, state);
                             results.put(task.id(), result);
-                            state.recordTask(buildTaskKey(task), task, result);
+                            state.recordTask(task, result);
 
                             if (result.success() && result.output() != null) {
                                 accumulatedResults.put(task.id(), result.output());
+                            }
+                            if (result.interrupted() && result.checkpoint() != null && state.getInterruptedCheckpoint() == null) {
+                                state.setInterruptedCheckpoint(result.checkpoint());
                             }
 
                             state.add(new AssistantMessage("""
                                     【Completed Task Result】
                                     taskId: %s
                                     success: %s
+                                    interrupted: %s
                                     result:
                                     %s
                                     error:
@@ -555,8 +627,9 @@ public class PlanExecuteAgent extends BaseAgent {
                                     """.formatted(
                                     task.id(),
                                     result.success(),
-                                    result.output(),
-                                    result.error()
+                                    result.interrupted(),
+                                    StringUtils.defaultString(result.output()),
+                                    StringUtils.defaultString(result.error())
                             )));
 
                         } catch (InterruptedException e) {
@@ -566,8 +639,10 @@ public class PlanExecuteAgent extends BaseAgent {
                                     new TaskResult(
                                             task.id(),
                                             false,
+                                            false,
                                             null,
-                                            "Task execution interrupted"
+                                            "Task execution interrupted",
+                                            null
                                     ));
                         } finally {
                             // 释放许可
@@ -581,13 +656,17 @@ public class PlanExecuteAgent extends BaseAgent {
             CompletableFuture.allOf(
                     futures.toArray(new CompletableFuture[0])
             ).join();
+
+            if (state.getInterruptedCheckpoint() != null) {
+                break;
+            }
         }
 
         return results;
     }
 
 
-    private TaskResult executeWithRetry(PlanTask task, String dependencySnapshot, String runtimeSystemPrompt) {
+    private TaskResult executeWithRetry(PlanTask task, String dependencySnapshot, String runtimeSystemPrompt, OverAllState state) {
 
         int attempt = 0;
         Throwable lastError = null;
@@ -595,15 +674,12 @@ public class PlanExecuteAgent extends BaseAgent {
         while (attempt < maxToolRetries) {
             attempt++;
             try {
-                SimpleReactAgent agent = SimpleReactAgent.builder()
-                        .chatModel(chatModel)
-                        .tools(tools)
-                        .advisors(advisors)
-                        .maxRounds(5)
-                        .systemPrompt(PlanExecutePromptsFactory.buildPrompts(planExecutePrompts).getExecutePrompt())
-                        .build();
+                TaskResult directToolResult = executePlannedToolTask(task, state, runtimeSystemPrompt);
+                if (directToolResult != null) {
+                    return directToolResult;
+                }
 
-                String result = agent.call(null, """
+                String executionInput = """
                         【Available Results】
                         %s
                         
@@ -612,9 +688,42 @@ public class PlanExecuteAgent extends BaseAgent {
                         """.formatted(
                         dependencySnapshot.isBlank() ? "NONE" : dependencySnapshot,
                         task.instruction
-                ), runtimeSystemPrompt);
+                );
 
-                return new TaskResult(task.id(), true, result, null);
+                if (isHitlEnabled(state)) {
+                    HitlExecutionService.HitlExecutionResult hitlResult = hitlExecutionService.execute(
+                            new HitlExecutionService.HitlExecutionRequest(
+                                    state.getConversationId(),
+                                    agentType,
+                                    chatModel,
+                                    tools,
+                                    advisors,
+                                    executionInput,
+                                    runtimeSystemPrompt,
+                                    PlanExecutePromptsFactory.buildPrompts(planExecutePrompts).getExecutePrompt(),
+                                    5,
+                                    hitlInterceptToolNames
+                            )
+                    );
+                    if (hitlResult.interrupted()) {
+                        return new TaskResult(task.id(), false, true, null, hitlResult.error(), hitlResult.checkpoint());
+                    }
+                    if (StringUtils.isNotBlank(hitlResult.content())) {
+                        return new TaskResult(task.id(), true, false, hitlResult.content(), null, null);
+                    }
+                }
+
+                SimpleReactAgent agent = SimpleReactAgent.builder()
+                        .chatModel(chatModel)
+                        .tools(tools)
+                        .advisors(advisors)
+                        .maxRounds(5)
+                        .systemPrompt(PlanExecutePromptsFactory.buildPrompts(planExecutePrompts).getExecutePrompt())
+                        .build();
+
+                String result = agent.call(null, executionInput, runtimeSystemPrompt);
+
+                return new TaskResult(task.id(), true, false, result, null, null);
             } catch (Exception e) {
                 lastError = e;
                 log.warn("Task {} failed attempt {}/{}", task.id(), attempt, maxToolRetries, e);
@@ -624,9 +733,452 @@ public class PlanExecuteAgent extends BaseAgent {
         return new TaskResult(
                 task.id(),
                 false,
+                false,
                 null,
-                lastError == null ? "unknown error" : lastError.getMessage()
+                lastError == null ? "unknown error" : lastError.getMessage(),
+                null
         );
+    }
+
+    private boolean isHitlEnabled(OverAllState state) {
+        return state != null
+                && hitlExecutionService != null
+                && hitlExecutionService.isEnabled(state.getConversationId(), hitlInterceptToolNames);
+    }
+
+    private Flux<AgentStreamEvent> resumeInternal(String interruptId) {
+        Sinks.Many<AgentStreamEvent> sink = Sinks.many().unicast().onBackpressureBuffer();
+        AtomicBoolean hasSentFinalResult = new AtomicBoolean(false);
+        AtomicBoolean interruptedByHitl = new AtomicBoolean(false);
+        StringBuilder finalAnswerBuffer = new StringBuilder();
+
+        Schedulers.boundedElastic().schedule(() -> {
+            try {
+                HitlCheckpointVO checkpoint = hitlCheckpointService.getByInterruptId(interruptId);
+                PlanExecuteResumeUtils.ResumeContext resumeContext = PlanExecuteResumeUtils.readContext(checkpoint.getContext());
+                OverAllState state = restoreResumeState(checkpoint.getConversationId(), resumeContext);
+                String runtimeSystemPrompt = resumeContext.runtimeSystemPrompt();
+                emitStep(sink, state.getConversationId(), "resume", "Resume", "正在恢复上次被 HITL 中断的执行链...");
+
+                PlanTask currentTask = resumeContext.currentTask();
+                if (currentTask == null) {
+                    throw new IllegalStateException("resume 上下文缺少 currentTask");
+                }
+
+                Map<String, TaskResult> currentRoundResults = new LinkedHashMap<>();
+                TaskResult resumedTaskResult = resumeInterruptedTask(interruptId, currentTask);
+                currentRoundResults.put(currentTask.id(), resumedTaskResult);
+                state.recordTask(currentTask, resumedTaskResult);
+                appendTaskResultMessage(state, currentTask, resumedTaskResult);
+
+                if (resumedTaskResult.interrupted() && resumedTaskResult.checkpoint() != null) {
+                    state.setInterruptedCheckpoint(resumedTaskResult.checkpoint());
+                    enrichInterruptedCheckpoint(state, resumeContext.currentPlan(), currentRoundResults, runtimeSystemPrompt);
+                    interruptedByHitl.set(true);
+                    sink.tryEmitNext(buildHitlInterruptEvent(state.getConversationId(), state.getInterruptedCheckpoint()));
+                    hasSentFinalResult.set(true);
+                    sink.tryEmitComplete();
+                    return;
+                }
+
+                List<PlanTask> remainingPlan = excludeCurrentTask(resumeContext.currentPlan(), currentTask);
+                Map<String, TaskResult> remainingResults = executePlan(remainingPlan, state, runtimeSystemPrompt);
+                currentRoundResults.putAll(remainingResults);
+                emitStep(sink, state.getConversationId(), "task", "Task Result", renderTaskResultsForDisplay(currentRoundResults));
+
+                if (state.getInterruptedCheckpoint() != null) {
+                    enrichInterruptedCheckpoint(state, resumeContext.currentPlan(), currentRoundResults, runtimeSystemPrompt);
+                    interruptedByHitl.set(true);
+                    sink.tryEmitNext(buildHitlInterruptEvent(state.getConversationId(), state.getInterruptedCheckpoint()));
+                    hasSentFinalResult.set(true);
+                    sink.tryEmitComplete();
+                    return;
+                }
+
+                if (!shouldContinueAfterCritique(sink, state, currentRoundResults)) {
+                    finishStreamWithSummary(sink, state, finalAnswerBuffer, hasSentFinalResult);
+                    return;
+                }
+
+                while (maxRounds <= 0 || state.getRound() < maxRounds) {
+                    state.nextRound();
+                    log.info("===== Plan-Execute Round {} =====", state.getRound());
+                    emitStep(sink, state.getConversationId(), "round", "Plan-Execute Round " + state.getRound(), "开始规划与执行");
+
+                    List<PlanTask> plan = sanitizePlan(generatePlan(state));
+                    String planText = "【Execution Plan】\n" + plan;
+                    log.info(planText);
+                    state.add(new AssistantMessage(planText));
+                    emitStep(sink, state.getConversationId(), "plan", "Execution Plan", renderPlanForDisplay(plan));
+
+                    if (plan.isEmpty() || plan.stream().allMatch(t -> t.id() == null)) {
+                        log.info("===== No execution needed, direct answer =====");
+                        emitStep(sink, state.getConversationId(), "execution", "Execution", "当前无需执行工具任务，进入总结阶段。");
+                        break;
+                    }
+
+                    Map<String, TaskResult> results = executePlan(plan, state, runtimeSystemPrompt);
+                    emitStep(sink, state.getConversationId(), "task", "Task Result", renderTaskResultsForDisplay(results));
+
+                    if (state.getInterruptedCheckpoint() != null) {
+                        enrichInterruptedCheckpoint(state, plan, results, runtimeSystemPrompt);
+                        interruptedByHitl.set(true);
+                        sink.tryEmitNext(buildHitlInterruptEvent(state.getConversationId(), state.getInterruptedCheckpoint()));
+                        hasSentFinalResult.set(true);
+                        sink.tryEmitComplete();
+                        return;
+                    }
+
+                    if (!shouldContinueAfterCritique(sink, state, results)) {
+                        break;
+                    }
+                }
+
+                if (state.round == maxRounds) {
+                    log.info("===== Max rounds reached, force finish =====");
+                    emitStep(sink, state.getConversationId(), "round", "Plan-Execute", "达到最大轮次，强制进入总结阶段。");
+                }
+
+                finishStreamWithSummary(sink, state, finalAnswerBuffer, hasSentFinalResult);
+            } catch (Exception e) {
+                if (!hasSentFinalResult.get()) {
+                    hasSentFinalResult.set(true);
+                    sink.tryEmitError(e);
+                }
+            }
+        });
+
+        return sink.asFlux()
+                .doOnCancel(() -> hasSentFinalResult.set(true))
+                .doFinally(signalType -> {
+                    if (interruptedByHitl.get()) {
+                        log.info("resume 执行链再次因 HITL 中断，等待用户处理，interruptId={}", interruptId);
+                        return;
+                    }
+                    log.info("resume 最终答案: {}", finalAnswerBuffer);
+                });
+    }
+
+    private OverAllState restoreResumeState(String conversationId, PlanExecuteResumeUtils.ResumeContext resumeContext) {
+        OverAllState state = new OverAllState(conversationId, resumeContext.question());
+        state.messages.addAll(resumeContext.messages() == null ? List.of() : resumeContext.messages());
+        state.executedTasks.putAll(resumeContext.executedTasks() == null ? Map.of() : resumeContext.executedTasks());
+        state.round = resumeContext.round();
+        return state;
+    }
+
+    private TaskResult resumeInterruptedTask(String interruptId, PlanTask currentTask) {
+        if (hitlResumeService == null) {
+            throw new IllegalStateException("hitlResumeService 未配置，无法 resume");
+        }
+        HitlResumeService.HitlResumeResult resumeResult = hitlResumeService.resume(
+                new HitlResumeService.HitlResumeRequest(
+                        interruptId,
+                        chatModel,
+                        tools,
+                        advisors,
+                        5,
+                        hitlInterceptToolNames
+                )
+        );
+        if (resumeResult.interrupted()) {
+            return new TaskResult(currentTask == null ? null : currentTask.id(), false, true, null, resumeResult.error(), resumeResult.checkpoint());
+        }
+        return new TaskResult(currentTask == null ? null : currentTask.id(), true, false, resumeResult.content(), resumeResult.error(), null);
+    }
+
+    private boolean shouldContinueAfterCritique(Sinks.Many<AgentStreamEvent> sink,
+                                                OverAllState state,
+                                                Map<String, TaskResult> results) {
+        CritiqueResult critique = critique(state);
+        if (critique.passed()) {
+            log.info("===== Goal satisfied, finish =====");
+            emitStep(sink, state.getConversationId(), "critique", "Critique", "目标已满足，进入总结阶段。");
+            return false;
+        }
+
+        boolean isOnlyMissingSummary = critique.feedback() != null
+                && (critique.feedback().contains("报告") || critique.feedback().contains("总结") || critique.feedback().contains("最终答案"))
+                && results != null && !results.isEmpty();
+
+        if (isOnlyMissingSummary) {
+            log.info("===== 数据已收集完毕，直接进入总结阶段 =====");
+            emitStep(sink, state.getConversationId(), "critique", "Critique", "已收集到足够数据，直接生成最终总结。");
+            return false;
+        }
+
+        if (shouldStopAfterSkillResourceExhausted(state)) {
+            log.info("===== Skill resources exhausted, stop retrying and summarize =====");
+            emitStep(sink, state.getConversationId(), "critique", "Critique", "已确认 skill 可读资源已穷尽，停止无效重试并直接总结。");
+            return false;
+        }
+
+        log.info("===== critique Goal not satisfied, continue round =====,\n reason is {} ", critique.feedback);
+        state.add(new AssistantMessage("【Critique Feedback】\n" + critique.feedback()));
+        emitStep(sink, state.getConversationId(), "critique", "Critique Feedback", critique.feedback());
+        compressIfNeeded(state);
+        return true;
+    }
+
+    private void finishStreamWithSummary(Sinks.Many<AgentStreamEvent> sink,
+                                         OverAllState state,
+                                         StringBuilder finalAnswerBuffer,
+                                         AtomicBoolean hasSentFinalResult) {
+        emitStep(sink, state.getConversationId(), "final", "Final Answer", "正在生成最终答案...");
+        String answer = summarize(state);
+        Map<String, Object> finalData = new LinkedHashMap<>();
+        finalData.put("content", answer);
+        sink.tryEmitNext(AgentStreamEvent.builder()
+                .type("final_answer")
+                .conversationId(state.getConversationId())
+                .data(finalData)
+                .build());
+        finalAnswerBuffer.append(answer);
+        hasSentFinalResult.set(true);
+        sink.tryEmitComplete();
+    }
+
+    private List<PlanTask> excludeCurrentTask(List<PlanTask> plan, PlanTask currentTask) {
+        List<PlanTask> sanitizedPlan = sanitizePlan(plan);
+        if (currentTask == null || sanitizedPlan.isEmpty()) {
+            return sanitizedPlan;
+        }
+        return sanitizedPlan.stream()
+                .filter(task -> !isSameTask(task, currentTask))
+                .toList();
+    }
+
+    private boolean isSameTask(PlanTask left, PlanTask right) {
+        if (left == null || right == null) {
+            return false;
+        }
+        if (StringUtils.isNotBlank(left.id()) && StringUtils.isNotBlank(right.id())) {
+            return StringUtils.equals(left.id(), right.id());
+        }
+        return StringUtils.equals(left.instruction(), right.instruction())
+                && left.order() == right.order();
+    }
+
+    private TaskResult executePlannedToolTask(PlanTask task, OverAllState state, String runtimeSystemPrompt) {
+        if (task == null || StringUtils.isBlank(task.instruction())) {
+            return null;
+        }
+        String instruction = task.instruction();
+        if (!EXECUTE_SKILL_SCRIPT_TOOL_PATTERN.matcher(instruction).find()) {
+            return null;
+        }
+
+        String scriptPath = extractScriptPath(instruction);
+        if (StringUtils.isBlank(scriptPath)) {
+            return null;
+        }
+        String skillName = resolveSkillNameForScript(task, state, runtimeSystemPrompt, scriptPath);
+        if (StringUtils.isBlank(skillName)) {
+            log.info("===== Planned execute_skill_script task skipped direct execution because skillName could not be resolved, taskId: {} =====", task.id());
+            return null;
+        }
+
+        Map<String, Object> arguments = extractNumericArguments(instruction);
+        ToolCallback callback = findTool("execute_skill_script");
+        if (callback == null) {
+            return new TaskResult(task.id(), false, false, null, "工具未找到：execute_skill_script", null);
+        }
+
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("skillName", skillName);
+        request.put("scriptPath", scriptPath);
+        request.put("arguments", arguments);
+        String argsJson = JSONUtil.toJsonStr(request);
+        log.info("===== Direct execute planned tool task, taskId={}, tool=execute_skill_script, request={} =====",
+                task.id(), argsJson);
+
+        try {
+            if (isHitlEnabled(state)) {
+                HitlExecutionService.HitlExecutionResult hitlResult = hitlExecutionService.execute(
+                        new HitlExecutionService.HitlExecutionRequest(
+                                state.getConversationId(),
+                                agentType,
+                                chatModel,
+                                tools,
+                                advisors,
+                                """
+                                你必须直接调用 execute_skill_script 工具，不要改写脚本路径，不要重复读取 skill。
+                                调用参数如下：
+                                %s
+                                """.formatted(argsJson),
+                                runtimeSystemPrompt,
+                                PlanExecutePromptsFactory.buildPrompts(planExecutePrompts).getExecutePrompt(),
+                                3,
+                                hitlInterceptToolNames
+                        )
+                );
+                if (hitlResult.interrupted()) {
+                    return new TaskResult(task.id(), false, true, null, hitlResult.error(), hitlResult.checkpoint());
+                }
+                if (StringUtils.isNotBlank(hitlResult.content())) {
+                    return new TaskResult(task.id(), true, false, hitlResult.content(), null, null);
+                }
+            }
+
+            String result = String.valueOf(callback.call(argsJson));
+            return new TaskResult(task.id(), true, false, result, null, null);
+        } catch (Exception e) {
+            return new TaskResult(task.id(), false, false, null, e.getMessage(), null);
+        }
+    }
+
+    private String extractScriptPath(String instruction) {
+        Matcher matcher = SCRIPT_PATH_PATTERN.matcher(StringUtils.defaultString(instruction));
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
+    private Map<String, Object> extractNumericArguments(String instruction) {
+        Map<String, Object> arguments = new LinkedHashMap<>();
+        Matcher matcher = PARAM_ASSIGNMENT_PATTERN.matcher(StringUtils.defaultString(instruction));
+        while (matcher.find()) {
+            String key = matcher.group(1);
+            String rawValue = matcher.group(2);
+            if (StringUtils.isBlank(key) || StringUtils.isBlank(rawValue)) {
+                continue;
+            }
+            arguments.put(key, rawValue.contains(".") ? Double.parseDouble(rawValue) : Long.parseLong(rawValue));
+        }
+        return arguments;
+    }
+
+    private String resolveSkillNameForScript(PlanTask task, OverAllState state, String runtimeSystemPrompt, String scriptPath) {
+        String fromMessages = resolveSkillNameFromMessages(state, scriptPath);
+        if (StringUtils.isNotBlank(fromMessages)) {
+            return fromMessages;
+        }
+        String fromPrompt = resolveSingleBoundSkillName(runtimeSystemPrompt);
+        if (StringUtils.isNotBlank(fromPrompt)) {
+            return fromPrompt;
+        }
+        log.info("===== Unable to resolve skillName for planned tool task, taskId={}, scriptPath={} =====",
+                task == null ? null : task.id(), scriptPath);
+        return null;
+    }
+
+    private String resolveSkillNameFromMessages(OverAllState state, String scriptPath) {
+        if (state == null || state.getMessages() == null || StringUtils.isBlank(scriptPath)) {
+            return null;
+        }
+        List<Message> messages = state.getMessages();
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            Message message = messages.get(i);
+            String text = message == null ? null : message.getText();
+            if (StringUtils.isBlank(text) || !text.contains(scriptPath) || !text.contains("skillName:")) {
+                continue;
+            }
+            String skillName = extractFieldValue(text, "skillName:");
+            if (StringUtils.isNotBlank(skillName)) {
+                return skillName;
+            }
+        }
+        return null;
+    }
+
+    private String resolveSingleBoundSkillName(String runtimeSystemPrompt) {
+        if (StringUtils.isBlank(runtimeSystemPrompt)) {
+            return null;
+        }
+        Matcher matcher = SINGLE_SKILL_LINE_PATTERN.matcher(runtimeSystemPrompt);
+        if (matcher.find()) {
+            return StringUtils.trim(matcher.group(1));
+        }
+        return null;
+    }
+
+    private ToolCallback findTool(String toolName) {
+        if (tools == null || StringUtils.isBlank(toolName)) {
+            return null;
+        }
+        return tools.stream()
+                .filter(tool -> tool != null && tool.getToolDefinition() != null)
+                .filter(tool -> toolName.equals(tool.getToolDefinition().name()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private void enrichInterruptedCheckpoint(OverAllState state,
+                                             List<PlanTask> plan,
+                                             Map<String, TaskResult> results,
+                                             String runtimeSystemPrompt) {
+        if (state == null || state.getInterruptedCheckpoint() == null || hitlCheckpointService == null) {
+            return;
+        }
+        PlanTask interruptedTask = findInterruptedTask(plan, results);
+        Map<String, Object> additionalContext = PlanExecuteResumeUtils.buildContext(
+                state,
+                plan,
+                interruptedTask,
+                runtimeSystemPrompt
+        );
+        HitlCheckpointVO updatedCheckpoint = hitlCheckpointService.appendContext(
+                state.getInterruptedCheckpoint().getInterruptId(),
+                additionalContext
+        );
+        state.setInterruptedCheckpoint(updatedCheckpoint);
+    }
+
+    private PlanTask findInterruptedTask(List<PlanTask> plan, Map<String, TaskResult> results) {
+        if (plan == null || plan.isEmpty() || results == null || results.isEmpty()) {
+            return null;
+        }
+        Set<String> interruptedTaskIds = results.values().stream()
+                .filter(TaskResult::interrupted)
+                .map(TaskResult::taskId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        return plan.stream()
+                .filter(Objects::nonNull)
+                .filter(task -> interruptedTaskIds.contains(task.id()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private void appendTaskResultMessage(OverAllState state, PlanTask task, TaskResult result) {
+        if (state == null || task == null || result == null) {
+            return;
+        }
+        state.add(new AssistantMessage("""
+                【Completed Task Result】
+                taskId: %s
+                success: %s
+                interrupted: %s
+                result:
+                %s
+                error:
+                %s
+                【End Task Result】
+                """.formatted(
+                task.id(),
+                result.success(),
+                result.interrupted(),
+                StringUtils.defaultString(result.output()),
+                StringUtils.defaultString(result.error())
+        )));
+    }
+
+    private AgentStreamEvent buildHitlInterruptEvent(String conversationId, HitlCheckpointVO checkpoint) {
+        if (checkpoint == null) {
+            return AgentStreamEvent.builder()
+                    .type("hitl_interrupt")
+                    .conversationId(conversationId)
+                    .data(Map.of())
+                    .build();
+        }
+        Map<String, Object> interruptData = new LinkedHashMap<>();
+        interruptData.put("agentType", checkpoint.getAgentType());
+        interruptData.put("pendingToolCalls", checkpoint.getPendingToolCalls());
+        interruptData.put("status", checkpoint.getStatus());
+        return AgentStreamEvent.builder()
+                .type("hitl_interrupt")
+                .conversationId(conversationId)
+                .interruptId(checkpoint.getInterruptId())
+                .data(interruptData)
+                .build();
     }
 
     private String renderDependencySnapshot(Map<String, String> results) {
@@ -770,29 +1322,6 @@ public class PlanExecuteAgent extends BaseAgent {
                 .orElse(null);
     }
 
-    private String buildTaskKey(PlanTask task) {
-        String instruction = task == null ? "" : StringUtils.defaultString(task.instruction());
-        String normalized = instruction
-                .replace("调用", "")
-                .replace("工具", "")
-                .replace("执行", "")
-                .replace("查询", "")
-                .replace("搜索", "")
-                .replace("根据", "")
-                .replace("，", "")
-                .replace(",", "")
-                .replace("。", "")
-                .replace(".", "")
-                .replace("：", "")
-                .replace(":", "")
-                .replaceAll("\\s+", "");
-
-        char[] chars = normalized.toCharArray();
-        Arrays.sort(chars);
-        return new String(chars);
-    }
-
-
     private CritiqueResult critique(OverAllState state) {
 
         BeanOutputConverter<CritiqueResult> converter = new BeanOutputConverter<>(new ParameterizedTypeReference<>() {
@@ -899,6 +1428,7 @@ public class PlanExecuteAgent extends BaseAgent {
         private final String question;
         private final List<Message> messages = new ArrayList<>();
         private final Map<String, ExecutedTaskSnapshot> executedTasks = new LinkedHashMap<>();
+        private HitlCheckpointVO interruptedCheckpoint;
         private int round = 0;
 
         public OverAllState(String conversationId, String question) {
@@ -924,11 +1454,16 @@ public class PlanExecuteAgent extends BaseAgent {
             messages.clear();
         }
 
-        public void recordTask(String taskKey, PlanTask task, TaskResult result) {
-            if (StringUtils.isBlank(taskKey) || task == null || result == null) {
+        public void setInterruptedCheckpoint(HitlCheckpointVO interruptedCheckpoint) {
+            this.interruptedCheckpoint = interruptedCheckpoint;
+        }
+
+        public void recordTask(PlanTask task, TaskResult result) {
+            if (task == null || result == null) {
                 return;
             }
-            executedTasks.put(taskKey, new ExecutedTaskSnapshot(
+            String executionKey = (task.id() == null ? "task" : task.id()) + "#" + executedTasks.size();
+            executedTasks.put(executionKey, new ExecutedTaskSnapshot(
                     task.id(),
                     task.instruction(),
                     result.success(),
@@ -937,22 +1472,16 @@ public class PlanExecuteAgent extends BaseAgent {
                     round
             ));
         }
-
-        public boolean hasAttempted(String taskKey) {
-            return executedTasks.containsKey(taskKey);
-        }
-
-        public ExecutedTaskSnapshot getExecutedTask(String taskKey) {
-            return executedTasks.get(taskKey);
-        }
     }
 
 
     public record TaskResult(
             String taskId,
             boolean success,
+            boolean interrupted,
             String output,
-            String error) { }
+            String error,
+            HitlCheckpointVO checkpoint) { }
 
     public record ExecutedTaskSnapshot(
             String taskId,

@@ -28,8 +28,6 @@ public class ChatConversation implements Serializable {
     @Id(keyType = KeyType.Generator, value = KeyGenerators.snowFlakeId)
     private Long id;
 
-    private Long userId;
-
     private String conversationId;
 
     private String title;

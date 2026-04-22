@@ -1,6 +1,8 @@
 package com.shenchen.cloudcoldagent.agent;
 
+import com.shenchen.cloudcoldagent.model.vo.AgentStreamEvent;
 import com.shenchen.cloudcoldagent.prompts.DefaultPrompts;
+import com.shenchen.cloudcoldagent.utils.JsonArgumentUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientResponse;
@@ -67,19 +69,23 @@ public class SimpleReactAgent extends BaseAgent {
      * @return
      */
     public String call(String question) {
-        return callInternal(null, question, null);
+        return callInternal(null, question, null, question);
     }
 
     // 带会话记忆
     public String call(String conversationId, String question) {
-        return callInternal(conversationId, question, null);
+        return callInternal(conversationId, question, null, question);
     }
 
     public String call(String conversationId, String question, String runtimeSystemPrompt) {
-        return callInternal(conversationId, question, runtimeSystemPrompt);
+        return callInternal(conversationId, question, runtimeSystemPrompt, question);
     }
 
-    public String callInternal(String conversationId, String question, String runtimeSystemPrompt) {
+    public String call(String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
+        return callInternal(conversationId, question, runtimeSystemPrompt, memoryQuestion);
+    }
+
+    public String callInternal(String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
         List<Message> messages = Collections.synchronizedList(new ArrayList<>());
         boolean useMemory = useMemory(conversationId);
 
@@ -101,7 +107,7 @@ public class SimpleReactAgent extends BaseAgent {
 
         // 添加记忆
         if (useMemory) {
-            addUserMemory(conversationId, question);
+            addUserMemory(conversationId, memoryQuestion == null ? question : memoryQuestion);
         }
 
         int round = 0;
@@ -144,13 +150,12 @@ public class SimpleReactAgent extends BaseAgent {
             }
 
             // ===== 有工具调用：执行工具 =====
-            messages.add(builder.toolCalls(chatResponse.chatResponse().getResult().getOutput().getToolCalls()).build());
+            List<AssistantMessage.ToolCall> normalizedToolCalls = normalizeToolCalls(
+                    chatResponse.chatResponse().getResult().getOutput().getToolCalls()
+            );
+            messages.add(builder.toolCalls(normalizedToolCalls).build());
 
-            chatResponse.chatResponse()
-                    .getResult()
-                    .getOutput()
-                    .getToolCalls()
-                    .forEach(toolCall -> {
+            normalizedToolCalls.forEach(toolCall -> {
                         String toolName = toolCall.name();
                         String argsJson = toolCall.arguments();
 
@@ -200,20 +205,24 @@ public class SimpleReactAgent extends BaseAgent {
      * @param question
      * @return
      */
-    public Flux<String> stream(String question) {
-        return streamInternal(null, question, null);
+    public Flux<AgentStreamEvent> stream(String question) {
+        return streamInternal(null, question, null, question);
     }
 
     // 带会话记忆
-    public Flux<String> stream(String conversationId, String question) {
-        return streamInternal(conversationId, question, null);
+    public Flux<AgentStreamEvent> stream(String conversationId, String question) {
+        return streamInternal(conversationId, question, null, question);
     }
 
-    public Flux<String> stream(String conversationId, String question, String runtimeSystemPrompt) {
-        return streamInternal(conversationId, question, runtimeSystemPrompt);
+    public Flux<AgentStreamEvent> stream(String conversationId, String question, String runtimeSystemPrompt) {
+        return streamInternal(conversationId, question, runtimeSystemPrompt, question);
     }
 
-    public Flux<String> streamInternal(String conversationId, String question, String runtimeSystemPrompt) {
+    public Flux<AgentStreamEvent> stream(String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
+        return streamInternal(conversationId, question, runtimeSystemPrompt, memoryQuestion);
+    }
+
+    public Flux<AgentStreamEvent> streamInternal(String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
         List<Message> messages = Collections.synchronizedList(new ArrayList<>());
         boolean useMemory = useMemory(conversationId);
 
@@ -235,10 +244,10 @@ public class SimpleReactAgent extends BaseAgent {
 
         // 添加记忆
         if (useMemory) {
-            addUserMemory(conversationId, question);
+            addUserMemory(conversationId, memoryQuestion == null ? question : memoryQuestion);
         }
 
-        Sinks.Many<String> sink = Sinks.many().unicast().onBackpressureBuffer();
+        Sinks.Many<AgentStreamEvent> sink = Sinks.many().unicast().onBackpressureBuffer();
         // 迭代轮次
         AtomicLong roundCounter = new AtomicLong(0);
         // 是否发送最终结果标记位
@@ -253,15 +262,13 @@ public class SimpleReactAgent extends BaseAgent {
         scheduleRound(messages, sink, roundCounter, hasSentFinalResult, finalAnswerBuffer, useMemory, conversationId);
 
         return sink.asFlux()
-                // 收集最终答案
-                .doOnNext(finalAnswerBuffer::append)
                 .doOnCancel(() -> hasSentFinalResult.set(true))
                 .doFinally(signalType -> {
                     log.info("最终答案: {}", finalAnswerBuffer);
                 });
     }
 
-    private void scheduleRound(List<Message> messages, Sinks.Many<String> sink, AtomicLong roundCounter, AtomicBoolean hasSentFinalResult,
+    private void scheduleRound(List<Message> messages, Sinks.Many<AgentStreamEvent> sink, AtomicLong roundCounter, AtomicBoolean hasSentFinalResult,
                                StringBuilder finalAnswerBuffer, boolean useMemory, String conversationId) {
         // 轮次+1
         roundCounter.incrementAndGet();
@@ -272,7 +279,7 @@ public class SimpleReactAgent extends BaseAgent {
                 .stream()
                 .chatResponse()
                 .publishOn(Schedulers.boundedElastic())
-                .doOnNext(chunk -> processChunk(chunk, sink, state))
+                .doOnNext(chunk -> processChunk(chunk, sink, state, conversationId))
                 .doOnComplete(() -> finishRound(messages, sink, state, roundCounter, hasSentFinalResult, finalAnswerBuffer, useMemory, conversationId))
                 .doOnError(err -> {
                     if (!hasSentFinalResult.get()) {
@@ -283,7 +290,7 @@ public class SimpleReactAgent extends BaseAgent {
                 .subscribe();
     }
 
-    private void processChunk(ChatResponse chunk, Sinks.Many<String> sink, RoundState state) {
+    private void processChunk(ChatResponse chunk, Sinks.Many<AgentStreamEvent> sink, RoundState state, String conversationId) {
 
         if (chunk == null || chunk.getResult() == null ||
                 chunk.getResult().getOutput() == null) return;
@@ -304,7 +311,13 @@ public class SimpleReactAgent extends BaseAgent {
 
         // 还没出现 tool_call，发送并缓存文本
         if (text != null) {
-            sink.tryEmitNext(text);
+            Map<String, Object> deltaData = new LinkedHashMap<>();
+            deltaData.put("content", text);
+            sink.tryEmitNext(AgentStreamEvent.builder()
+                    .type("assistant_delta")
+                    .conversationId(conversationId)
+                    .data(deltaData)
+                    .build());
             state.textBuffer.append(text);
         }
     }
@@ -341,12 +354,21 @@ public class SimpleReactAgent extends BaseAgent {
     /**
      * 轮次结束处理工具调用
      */
-    private void finishRound(List<Message> messages, Sinks.Many<String> sink, RoundState state, AtomicLong roundCounter,
+    private void finishRound(List<Message> messages, Sinks.Many<AgentStreamEvent> sink, RoundState state, AtomicLong roundCounter,
                              AtomicBoolean hasSentFinalResult, StringBuilder finalAnswerBuffer, boolean useMemory, String conversationId) {
 
         // 如果整轮都没有 tool_call，才是最终答案
         if (state.mode != RoundMode.TOOL_CALL) {
             String finalText = state.textBuffer.toString();
+            finalAnswerBuffer.setLength(0);
+            finalAnswerBuffer.append(finalText);
+            Map<String, Object> finalData = new LinkedHashMap<>();
+            finalData.put("content", finalText);
+            sink.tryEmitNext(AgentStreamEvent.builder()
+                    .type("final_answer")
+                    .conversationId(conversationId)
+                    .data(finalData)
+                    .build());
             sink.tryEmitComplete();
             hasSentFinalResult.set(true);
 
@@ -362,11 +384,12 @@ public class SimpleReactAgent extends BaseAgent {
         }
 
         // TOOL_CALL
-        AssistantMessage assistantMsg = AssistantMessage.builder().toolCalls(state.toolCalls).build();
+        List<AssistantMessage.ToolCall> normalizedToolCalls = normalizeToolCalls(state.toolCalls);
+        AssistantMessage assistantMsg = AssistantMessage.builder().toolCalls(normalizedToolCalls).build();
 
         messages.add(assistantMsg);
 
-        executeToolCalls(state.toolCalls, messages, hasSentFinalResult, () -> {
+        executeToolCalls(normalizedToolCalls, messages, hasSentFinalResult, () -> {
             if (!hasSentFinalResult.get()) {
                 scheduleRound(messages, sink, roundCounter, hasSentFinalResult, finalAnswerBuffer, useMemory, conversationId);
             }
@@ -374,7 +397,7 @@ public class SimpleReactAgent extends BaseAgent {
     }
 
 
-    private void forceFinalStream(String conversationId, boolean useMemory, List<Message> messages, Sinks.Many<String> sink, AtomicBoolean hasSentFinalResult) {
+    private void forceFinalStream(String conversationId, boolean useMemory, List<Message> messages, Sinks.Many<AgentStreamEvent> sink, AtomicBoolean hasSentFinalResult) {
         messages.add(new UserMessage("""
                 你已达到最大推理轮次限制。
                 请基于当前已有的上下文信息，
@@ -400,11 +423,24 @@ public class SimpleReactAgent extends BaseAgent {
                             .getText();
 
                     if (text != null && !hasSentFinalResult.get()) {
-                        sink.tryEmitNext(text);
+                        Map<String, Object> deltaData = new LinkedHashMap<>();
+                        deltaData.put("content", text);
+                        sink.tryEmitNext(AgentStreamEvent.builder()
+                                .type("assistant_delta")
+                                .conversationId(conversationId)
+                                .data(deltaData)
+                                .build());
                         stringBuilder.append(text);
                     }
                 })
                 .doOnComplete(() -> {
+                    Map<String, Object> finalData = new LinkedHashMap<>();
+                    finalData.put("content", stringBuilder.toString());
+                    sink.tryEmitNext(AgentStreamEvent.builder()
+                            .type("final_answer")
+                            .conversationId(conversationId)
+                            .data(finalData)
+                            .build());
                     hasSentFinalResult.set(true);
                     sink.tryEmitComplete();
                     if (useMemory) {
@@ -473,6 +509,44 @@ public class SimpleReactAgent extends BaseAgent {
         messages.add(ToolResponseMessage.builder()
                 .responses(List.of(tr))
                 .build());
+    }
+
+    private List<AssistantMessage.ToolCall> normalizeToolCalls(List<AssistantMessage.ToolCall> toolCalls) {
+        if (toolCalls == null || toolCalls.isEmpty()) {
+            return List.of();
+        }
+        List<AssistantMessage.ToolCall> normalized = new ArrayList<>(toolCalls.size());
+        for (AssistantMessage.ToolCall toolCall : toolCalls) {
+            if (toolCall == null) {
+                continue;
+            }
+            normalized.add(new AssistantMessage.ToolCall(
+                    toolCall.id(),
+                    "function",
+                    toolCall.name(),
+                    normalizeArguments(toolCall)
+            ));
+        }
+        return normalized;
+    }
+
+    private String normalizeArguments(AssistantMessage.ToolCall toolCall) {
+        String rawArguments = toolCall == null ? null : toolCall.arguments();
+        JsonArgumentUtils.NormalizationResult result = JsonArgumentUtils.normalizeJsonArguments(rawArguments);
+        if (result.repaired()) {
+            log.warn("Tool call arguments were incomplete JSON and have been repaired. toolName={}, toolId={}, rawArguments={}, repairedArguments={}",
+                    toolCall == null ? null : toolCall.name(),
+                    toolCall == null ? null : toolCall.id(),
+                    rawArguments,
+                    result.normalizedJson());
+        }
+        if (result.fallbackToEmptyObject()) {
+            log.warn("Tool call arguments are not valid JSON, fallback to empty object. toolName={}, toolId={}, rawArguments={}",
+                    toolCall == null ? null : toolCall.name(),
+                    toolCall == null ? null : toolCall.id(),
+                    rawArguments);
+        }
+        return result.normalizedJson();
     }
 
     private ToolCallback findTool(String name) {

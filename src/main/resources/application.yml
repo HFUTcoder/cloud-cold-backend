@@ -1,6 +1,11 @@
 spring:
   application:
     name: cloud-cold-agent
+  ai:
+    alibaba:
+      python:
+        tool:
+          enabled: true
   profiles:
     active: local
   multipart:
@@ -48,3 +53,7 @@ cloudcold:
   search:
     mock:
       enabled: true
+  hitl:
+    enabled: true
+    intercept-tool-names:
+      - execute_skill_script

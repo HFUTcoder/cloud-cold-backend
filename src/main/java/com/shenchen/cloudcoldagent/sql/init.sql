@@ -29,14 +29,12 @@ INSERT INTO user (id, userAccount, userPassword, userName, userAvatar, userProfi
 create table if not exists chat_memory_history
 (
     id             bigint auto_increment comment '主键 id' primary key,
-    userId         bigint                               null comment '用户 id',
     conversationId varchar(64)                          not null comment '会话 id',
     content        text                                 not null comment '消息内容',
     messageType    varchar(32)                          not null comment '消息类型：USER/ASSISTANT/SYSTEM/TOOL',
     createTime     datetime   default CURRENT_TIMESTAMP not null comment '创建时间',
     updateTime     datetime   default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
     isDelete       tinyint    default 0                 not null comment '是否删除',
-    index idx_userId_createTime (userId, createTime),
     index idx_conversationId_createTime (conversationId, createTime),
     index idx_conversationId_isDelete (conversationId, isDelete)
 ) comment '聊天历史记忆' collate = utf8mb4_unicode_ci;
@@ -46,7 +44,6 @@ create table if not exists chat_memory_history
 create table if not exists chat_conversation
 (
     id             bigint auto_increment comment '主键 id' primary key,
-    userId         bigint                               not null comment '用户 id',
     conversationId varchar(64)                          not null comment '会话 id',
     title          varchar(255)                         null comment '会话标题（可选）',
     selectedSkills text                                 null comment '会话强制绑定的 skill 名称列表（JSON 数组）',
@@ -54,7 +51,37 @@ create table if not exists chat_conversation
     createTime     datetime   default CURRENT_TIMESTAMP not null comment '创建时间',
     updateTime     datetime   default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
     isDelete       tinyint    default 0                 not null comment '是否删除',
-    unique key uk_conversationId (conversationId),
-    index idx_userId_lastActiveTime (userId, lastActiveTime),
-    index idx_userId_isDelete (userId, isDelete)
+    unique key uk_conversationId (conversationId)
 ) comment '聊天会话' collate = utf8mb4_unicode_ci;
+
+create table if not exists user_conversation_relation
+(
+    id             bigint auto_increment comment '主键 id' primary key,
+    userId         bigint                               not null comment '用户 id',
+    conversationId varchar(64)                          not null comment '会话 id',
+    createTime     datetime   default CURRENT_TIMESTAMP not null comment '创建时间',
+    updateTime     datetime   default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    isDelete       tinyint    default 0                 not null comment '是否删除',
+    unique key uk_userId_conversationId (userId, conversationId),
+    index idx_userId_isDelete (userId, isDelete),
+    index idx_conversationId_isDelete (conversationId, isDelete)
+) comment '用户会话关联表' collate = utf8mb4_unicode_ci;
+
+create table if not exists hitl_checkpoint
+(
+    id                    bigint auto_increment comment '主键 id' primary key,
+    conversationId        varchar(64)                          not null comment '会话 id',
+    interruptId           varchar(64)                          not null comment '中断 id',
+    agentType             varchar(64)                          null comment 'agent 类型',
+    pendingToolCallsJson  longtext                             not null comment '待确认工具调用 JSON',
+    checkpointMessagesJson longtext                            not null comment '消息快照 JSON',
+    contextJson           longtext                             null comment '上下文 JSON',
+    feedbacksJson         longtext                             null comment '审批反馈 JSON',
+    status                varchar(32)                          not null comment '状态：PENDING/RESOLVED/CANCELLED',
+    resolvedTime          datetime                             null comment '处理完成时间',
+    createTime            datetime   default CURRENT_TIMESTAMP not null comment '创建时间',
+    updateTime            datetime   default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    isDelete              tinyint    default 0                 not null comment '是否删除',
+    unique key uk_interruptId (interruptId),
+    index idx_conversationId_status (conversationId, status)
+) comment 'HITL 中断检查点' collate = utf8mb4_unicode_ci;

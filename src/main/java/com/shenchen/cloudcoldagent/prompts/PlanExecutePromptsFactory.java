@@ -3,6 +3,8 @@ package com.shenchen.cloudcoldagent.prompts;
 import lombok.Builder;
 import lombok.Getter;
 
+import java.time.LocalDateTime;
+
 @Getter
 @Builder
 public class PlanExecutePromptsFactory {
@@ -59,5 +61,20 @@ public class PlanExecutePromptsFactory {
                 .compressPrompt(custom.compressPrompt != null ? custom.compressPrompt : defaults.compressPrompt)
                 .summarizePrompt(custom.summarizePrompt != null ? custom.summarizePrompt : defaults.summarizePrompt)
                 .build();
+    }
+
+    public String formatPlanPrompt(LocalDateTime now,
+                                   int round,
+                                   String toolDesc,
+                                   String executedTaskHistory,
+                                   String outputFormat) {
+        return DefaultPrompts.PLAN_SYSTEM_TEMPLATE.formatted(
+                now,
+                round,
+                toolDesc,
+                executedTaskHistory,
+                outputFormat,
+                planPrompt
+        );
     }
 }

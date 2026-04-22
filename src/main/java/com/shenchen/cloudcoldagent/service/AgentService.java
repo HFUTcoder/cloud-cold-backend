@@ -1,6 +1,7 @@
 package com.shenchen.cloudcoldagent.service;
 
 import com.shenchen.cloudcoldagent.model.dto.agent.AgentCallRequest;
+import com.shenchen.cloudcoldagent.model.vo.AgentStreamEvent;
 import reactor.core.publisher.Flux;
 
 /**
@@ -15,5 +16,7 @@ public interface AgentService {
      * @param agentCallRequest 代理调用请求
      * @return 响应流
      */
-    Flux<String> call(AgentCallRequest agentCallRequest, Long userId);
+    Flux<AgentStreamEvent> call(AgentCallRequest agentCallRequest, Long userId);
+
+    Flux<AgentStreamEvent> resume(String interruptId);
 }
