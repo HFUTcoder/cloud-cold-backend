@@ -200,6 +200,7 @@ public class AgentServiceImpl implements AgentService {
             toolArguments.put("skillName", request.getSkillName());
             toolArguments.put("scriptPath", request.getScriptPath());
             toolArguments.put("arguments", request.getArguments() == null ? Map.of() : request.getArguments());
+            toolArguments.put("argumentSpecs", request.getArgumentSpecs() == null ? Map.of() : request.getArgumentSpecs());
             tasks.add(new PlanExecuteAgent.PlanTask(
                     toolCallPlan.getToolName() + "_" + index++,
                     toolCallPlan.getToolName(),

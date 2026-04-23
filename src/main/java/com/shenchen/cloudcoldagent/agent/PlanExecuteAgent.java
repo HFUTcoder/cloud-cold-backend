@@ -552,9 +552,27 @@ public class PlanExecuteAgent extends BaseAgent {
         ));
 
         String json = chatModel.call(prompt).getResult().getOutput().getText();
+        if (StringUtils.isBlank(json)) {
+            log.warn("generatePlan 返回为空，降级为空计划。");
+            return List.of();
+        }
 
-        List<PlanTask> planTasks = converter.convert(json);
-        return planTasks;
+        String raw = json.trim();
+        try {
+            return converter.convert(raw);
+        } catch (Exception firstEx) {
+            // 容错: 某些场景模型会返回单个对象而不是数组，包装后重试
+            if (raw.startsWith("{") && raw.endsWith("}")) {
+                try {
+                    return converter.convert("[" + raw + "]");
+                } catch (Exception secondEx) {
+                    log.warn("generatePlan 解析失败(对象包装后仍失败)，降级为空计划。raw={}", raw, secondEx);
+                    return List.of();
+                }
+            }
+            log.warn("generatePlan 解析失败，降级为空计划。raw={}", raw, firstEx);
+            return List.of();
+        }
     }
 
     private List<PlanTask> sanitizePlan(List<PlanTask> plan) {
@@ -716,17 +734,26 @@ public class PlanExecuteAgent extends BaseAgent {
                 String runtimeSystemPrompt = resumeContext.runtimeSystemPrompt();
                 emitStep(sink, state.getConversationId(), "resume", "Resume", "正在恢复上次被 HITL 中断的执行链...");
 
+                if (isAllFeedbackRejected(checkpoint)) {
+                    String rejectSummary = "你已拒绝本次工具执行，当前任务停止执行。你可以修改参数后重新发起请求。";
+                    emitStep(sink, state.getConversationId(), "critique", "Critique", "用户已拒绝工具执行，结束当前流程。");
+                    emitFinalAnswer(sink, state.getConversationId(), rejectSummary, hasSentFinalResult);
+                    addAssistantMemory(state.getConversationId(), rejectSummary);
+                    return;
+                }
+
                 PlanTask currentTask = resumeContext.currentTask();
                 if (currentTask == null) {
                     throw new IllegalStateException("resume 上下文缺少 currentTask");
                 }
+                PlanTask effectiveCurrentTask = applyEditedArgumentsIfPresent(currentTask, checkpoint);
 
                 Map<String, TaskResult> currentRoundResults = new LinkedHashMap<>();
-                TaskResult resumedTaskResult = resumeInterruptedTask(interruptId, currentTask, state);
-                currentRoundResults.put(currentTask.id(), resumedTaskResult);
+                TaskResult resumedTaskResult = resumeInterruptedTask(interruptId, effectiveCurrentTask, state);
+                currentRoundResults.put(effectiveCurrentTask.id(), resumedTaskResult);
                 rememberApprovedToolNames(state, checkpoint);
-                state.recordTask(currentTask, resumedTaskResult);
-                appendTaskResultMessage(state, currentTask, resumedTaskResult);
+                state.recordTask(effectiveCurrentTask, resumedTaskResult);
+                appendTaskResultMessage(state, effectiveCurrentTask, resumedTaskResult);
 
                 if (resumedTaskResult.interrupted() && resumedTaskResult.checkpoint() != null) {
                     state.setInterruptedCheckpoint(resumedTaskResult.checkpoint());
@@ -738,7 +765,7 @@ public class PlanExecuteAgent extends BaseAgent {
                     return;
                 }
 
-                List<PlanTask> remainingPlan = excludeCurrentTask(resumeContext.currentPlan(), currentTask);
+                List<PlanTask> remainingPlan = excludeCurrentTask(resumeContext.currentPlan(), effectiveCurrentTask);
                 Map<String, TaskResult> remainingResults = executePlan(remainingPlan, state, runtimeSystemPrompt);
                 currentRoundResults.putAll(remainingResults);
                 emitStep(sink, state.getConversationId(), "task", "Task Result", renderTaskResultsForDisplay(currentRoundResults));
@@ -814,6 +841,49 @@ public class PlanExecuteAgent extends BaseAgent {
                     }
                     log.info("resume 最终答案: {}", finalAnswerBuffer);
                 });
+    }
+
+    private boolean isAllFeedbackRejected(HitlCheckpointVO checkpoint) {
+        if (checkpoint == null || checkpoint.getFeedbacks() == null || checkpoint.getFeedbacks().isEmpty()) {
+            return false;
+        }
+        return checkpoint.getFeedbacks().stream()
+                .filter(Objects::nonNull)
+                .allMatch(feedback -> feedback.result() == PendingToolCall.FeedbackResult.REJECTED);
+    }
+
+    @SuppressWarnings("unchecked")
+    private PlanTask applyEditedArgumentsIfPresent(PlanTask task, HitlCheckpointVO checkpoint) {
+        if (task == null || checkpoint == null || checkpoint.getFeedbacks() == null || checkpoint.getFeedbacks().isEmpty()) {
+            return task;
+        }
+        PendingToolCall editedFeedback = checkpoint.getFeedbacks().stream()
+                .filter(Objects::nonNull)
+                .filter(feedback -> feedback.result() == PendingToolCall.FeedbackResult.EDIT)
+                .filter(feedback -> StringUtils.isNotBlank(feedback.arguments()))
+                .filter(feedback -> StringUtils.equals(StringUtils.defaultIfBlank(feedback.name(), task.toolName()), task.toolName()))
+                .findFirst()
+                .orElse(null);
+        if (editedFeedback == null) {
+            return task;
+        }
+
+        try {
+            Map<String, Object> parsed = JSONUtil.toBean(editedFeedback.arguments(), LinkedHashMap.class);
+            if (parsed == null || parsed.isEmpty()) {
+                return task;
+            }
+            return new PlanTask(
+                    task.id(),
+                    task.toolName(),
+                    parsed,
+                    task.order(),
+                    task.summary()
+            );
+        } catch (Exception ex) {
+            log.warn("解析 EDIT 后参数失败，回退原任务参数，taskId={}, error={}", task.id(), ex.getMessage());
+            return task;
+        }
     }
 
     private OverAllState restoreResumeState(String conversationId, PlanExecuteResumeUtils.ResumeContext resumeContext) {
@@ -1257,6 +1327,24 @@ public class PlanExecuteAgent extends BaseAgent {
         sink.tryEmitComplete();
     }
 
+    private void emitFinalAnswer(Sinks.Many<AgentStreamEvent> sink,
+                                 String conversationId,
+                                 String content,
+                                 AtomicBoolean hasSentFinalResult) {
+        if (hasSentFinalResult.get()) {
+            return;
+        }
+        Map<String, Object> finalData = new LinkedHashMap<>();
+        finalData.put("content", content == null ? "" : content);
+        sink.tryEmitNext(AgentStreamEvent.builder()
+                .type("final_answer")
+                .conversationId(conversationId)
+                .data(finalData)
+                .build());
+        hasSentFinalResult.set(true);
+        sink.tryEmitComplete();
+    }
+
     private Prompt buildSummarizePrompt(OverAllState state) {
         // 1. 先获取外部 Prompt
         String externalSummarizePrompt = PlanExecutePromptsFactory.buildPrompts(planExecutePrompts).getSummarizePrompt();
@@ -1265,15 +1353,17 @@ public class PlanExecuteAgent extends BaseAgent {
         String systemMessageContent =
                 "## 核心规则（必须100%严格遵守）\n" +
                         "1.  你必须完全、仅基于下方【执行上下文】里的工具返回的真实数据生成最终答案，禁止编造任何不在上下文里的日期、天气、数值、景点等信息。\n" +
-                        "2.  禁止输出【Execution Plan】【Critique Feedback】【Task Result】等任何中间执行过程的标签和内容，只输出给用户看的最终答案。\n" +
-                        "3.  输出内容必须连贯、完整，符合用户的原始问题要求，禁止重复内容。\n" +
-                        "4.  如果上下文里的工具数据有明确的时间，必须以工具返回的时间为准，禁止使用与当前时间不符的虚假日期。\n\n" +
+                        "2.  若上下文出现“用户原始提问参数”与“实际工具执行参数（尤其 HITL 编辑后参数）”不一致，必须以实际工具执行参数为准，并在答案中明确说明“按确认参数计算”。\n" +
+                        "3.  禁止输出【Execution Plan】【Critique Feedback】【Task Result】等任何中间执行过程的标签和内容，只输出给用户看的最终答案。\n" +
+                        "4.  输出内容必须连贯、完整，符合用户的原始问题要求，禁止重复内容。\n" +
+                        "5.  如果上下文里的工具数据有明确的时间，必须以工具返回的时间为准，禁止使用与当前时间不符的虚假日期。\n\n" +
                         externalSummarizePrompt;
 
         // 3. 构建用户消息：这里只有两个变量，安全地使用 formatted
         String userMessageContent = String.format(
-                "【用户原始问题】%n%s%n%n【执行上下文（含工具返回的真实结果）】%n%s",
+                "【用户原始问题】%n%s%n%n【HITL 确认后的实际执行参数（若有）】%n%s%n%n【执行上下文（含工具返回的真实结果）】%n%s",
                 state.getQuestion(),
+                renderLatestConfirmedArguments(state),
                 renderMessages(state.getMessages())
         );
 
@@ -1295,6 +1385,20 @@ public class PlanExecuteAgent extends BaseAgent {
 
     private String defaultTaskValue(String value) {
         return StringUtils.defaultIfBlank(value, "-");
+    }
+
+    private String renderLatestConfirmedArguments(OverAllState state) {
+        if (state == null || state.getExecutedTasks().isEmpty()) {
+            return "无";
+        }
+        return state.getExecutedTasks().values().stream()
+                .sorted(Comparator.comparingInt(ExecutedTaskSnapshot::round).reversed())
+                .map(ExecutedTaskSnapshot::arguments)
+                .filter(Objects::nonNull)
+                .filter(arguments -> !arguments.isEmpty())
+                .findFirst()
+                .map(JSONUtil::toJsonStr)
+                .orElse("无");
     }
 
     // 内部对象实体
