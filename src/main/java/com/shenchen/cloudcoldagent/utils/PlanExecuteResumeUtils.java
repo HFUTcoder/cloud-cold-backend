@@ -31,6 +31,7 @@ public final class PlanExecuteResumeUtils {
         payload.put("runtimeSystemPrompt", runtimeSystemPrompt);
         payload.put("messagesJson", HitlSerializationUtils.writeMessages(state == null ? List.of() : state.getMessages()));
         payload.put("executedTasksJson", HitlSerializationUtils.writeJson(state == null ? Map.of() : state.getExecutedTasks()));
+        payload.put("approvedToolNamesJson", HitlSerializationUtils.writeJson(state == null ? List.of() : state.getApprovedToolNames()));
         payload.put("currentPlanJson", HitlSerializationUtils.writeJson(currentPlan == null ? List.of() : currentPlan));
         payload.put("currentTaskJson", HitlSerializationUtils.writeJson(currentTask));
         context.put(CONTEXT_KEY, payload);
@@ -50,6 +51,7 @@ public final class PlanExecuteResumeUtils {
             String runtimeSystemPrompt = stringValue(normalized.get("runtimeSystemPrompt"));
             String messagesJson = stringValue(normalized.get("messagesJson"));
             String executedTasksJson = stringValue(normalized.get("executedTasksJson"));
+            String approvedToolNamesJson = stringValue(normalized.get("approvedToolNamesJson"));
             String currentPlanJson = stringValue(normalized.get("currentPlanJson"));
             String currentTaskJson = stringValue(normalized.get("currentTaskJson"));
 
@@ -57,6 +59,10 @@ public final class PlanExecuteResumeUtils {
             Map<String, PlanExecuteAgent.ExecutedTaskSnapshot> executedTasks = executedTasksJson == null || executedTasksJson.isBlank()
                     ? new LinkedHashMap<>()
                     : OBJECT_MAPPER.readValue(executedTasksJson, new TypeReference<>() {
+                    });
+            List<String> approvedToolNames = approvedToolNamesJson == null || approvedToolNamesJson.isBlank()
+                    ? List.of()
+                    : OBJECT_MAPPER.readValue(approvedToolNamesJson, new TypeReference<>() {
                     });
             List<PlanExecuteAgent.PlanTask> currentPlan = currentPlanJson == null || currentPlanJson.isBlank()
                     ? List.of()
@@ -66,7 +72,7 @@ public final class PlanExecuteResumeUtils {
                     ? null
                     : OBJECT_MAPPER.readValue(currentTaskJson, PlanExecuteAgent.PlanTask.class);
 
-            return new ResumeContext(question, round, runtimeSystemPrompt, messages, executedTasks, currentPlan, currentTask);
+            return new ResumeContext(question, round, runtimeSystemPrompt, messages, executedTasks, approvedToolNames, currentPlan, currentTask);
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
@@ -94,6 +100,7 @@ public final class PlanExecuteResumeUtils {
             String runtimeSystemPrompt,
             List<Message> messages,
             Map<String, PlanExecuteAgent.ExecutedTaskSnapshot> executedTasks,
+            List<String> approvedToolNames,
             List<PlanExecuteAgent.PlanTask> currentPlan,
             PlanExecuteAgent.PlanTask currentTask
     ) {

@@ -21,7 +21,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * 会话服务实现
@@ -205,45 +204,9 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
 
     @Override
     public String buildConversationSkillPrompt(Long userId, String conversationId) {
-        ChatConversation conversation = getByConversationId(userId, conversationId);
-        List<String> selectedSkillList = conversation.getSelectedSkillList();
-        if (selectedSkillList == null || selectedSkillList.isEmpty()) {
-            log.info("会话未绑定 skills，跳过生成 skill prompt，userId={}, conversationId={}",
-                    userId,
-                    conversation.getConversationId());
-            return "";
-        }
-
-        String skillLines = selectedSkillList.stream()
-                .map(skill -> "- " + skill)
-                .collect(Collectors.joining("\n"));
-        String frameworkInstructions = skillRegistry.getSkillLoadInstructions();
-
-        String prompt = """
-                当前会话绑定了以下高优先级 skills：
-                %s
-
-                请先结合用户问题判断上述 skills 中哪些真正相关。
-                如果用户当前问题明显命中了某个已绑定 skill 的核心适用场景，必须优先通过该 skill 的工具链完成，不要直接凭模型常识作答。
-                如果某个已绑定 skill 明确提供了可执行脚本，且当前任务与该脚本适用场景匹配，应优先执行脚本并基于脚本结果回答。
-                如果用户当前问题需要依赖这些已绑定 skill 的正文、reference、script 或其他资源内容才能回答，而这些内容尚未进入上下文，请先调用相关 skill 工具读取，再回答。
-                在已绑定 skill 的前提下，不要仅仅因为“当前上下文里还没展开具体内容”就直接回答“信息不足”或“缺少上下文”。
-                不要为了例行检查而一次性读取所有 skill 的完整内容。
-                只有当某个已绑定 skill 与当前问题相关，或者你确实需要它的详细步骤、约束、脚本、参考材料时，才调用 read_skill 继续读取该 skill 的完整内容。
-                read_skill 的返回结果会同时附带该 skill 当前可用的 references 与 scripts 真实文件清单；一旦你已经调用过 read_skill，就应优先使用其中返回的真实路径，不要再猜测脚本名或资源路径。
-                一旦确认某个已绑定 skill 相关，后续回答必须优先遵循该 skill 的约束、步骤和要求。
-                对于任何已绑定的计算型或可执行型 skill，只要用户已经提供了足够参数，且该 skill 已定义固定脚本，就应优先规划脚本执行，而不是直接凭模型常识作答。
-                除了上述已绑定 skills 之外，不要主动加载其他 skill，除非系统另有明确要求。
-
-                以下是系统提供的 skill 渐进式加载规范，请在“仅限上述 skills 范围内”遵循：
-                %s
-                """.formatted(skillLines, frameworkInstructions);
-        log.info("生成会话级 skill prompt，userId={}, conversationId={}, selectedSkills={}, prompt=\n{}",
-                userId,
-                conversation.getConversationId(),
-                selectedSkillList,
-                prompt);
-        return prompt;
+        log.debug("buildConversationSkillPrompt 已废弃，当前 skill 前置能力统一由 skill workflow 负责，conversationId={}",
+                normalizeConversationId(userId, conversationId));
+        return "";
     }
 
     @Override

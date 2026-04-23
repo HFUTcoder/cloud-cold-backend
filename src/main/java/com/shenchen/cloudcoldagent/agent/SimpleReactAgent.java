@@ -116,13 +116,13 @@ public class SimpleReactAgent extends BaseAgent {
             round++;
             if (maxRounds > 0 && round > maxRounds) {
                 log.warn("=== 达到 maxRounds（{}），强制生成最终答案 ===", maxRounds);
-                messages.add(new UserMessage("""
-                        你已达到最大推理轮次限制。
-                        请基于当前已有的上下文信息，
-                        直接给出最终答案。
-                        禁止再调用任何工具。
-                        如果信息不完整，请合理总结和说明。
-                        """));
+                messages.add(new UserMessage(
+                        "你已达到最大推理轮次限制。\n" +
+                                "请基于当前已有的上下文信息，\n" +
+                                "直接给出最终答案。\n" +
+                                "禁止再调用任何工具。\n" +
+                                "如果信息不完整，请合理总结和说明。"
+                ));
 
                 String finalText = chatClient.prompt().messages(messages).call().content();
                 if (useMemory) {
@@ -164,10 +164,15 @@ public class SimpleReactAgent extends BaseAgent {
                             addErrorToolResponse(messages, toolCall, "工具未找到：" + toolName);
                             return;
                         }
+                        JsonArgumentUtils.NormalizationResult normalizationResult = JsonArgumentUtils.normalizeJsonArguments(argsJson);
+                        if (!normalizationResult.valid()) {
+                            addErrorToolResponse(messages, toolCall, "工具参数不是合法 JSON：" + normalizationResult.errorMessage());
+                            return;
+                        }
 
                         Object result;
                         try {
-                            result = callback.call(argsJson);
+                            result = callback.call(normalizationResult.normalizedJson());
                             ToolResponseMessage.ToolResponse tr = new ToolResponseMessage.ToolResponse(toolCall.id(), toolName, result.toString());
 
                             messages.add(ToolResponseMessage.builder().responses(List.of(tr)).build());
@@ -398,13 +403,13 @@ public class SimpleReactAgent extends BaseAgent {
 
 
     private void forceFinalStream(String conversationId, boolean useMemory, List<Message> messages, Sinks.Many<AgentStreamEvent> sink, AtomicBoolean hasSentFinalResult) {
-        messages.add(new UserMessage("""
-                你已达到最大推理轮次限制。
-                请基于当前已有的上下文信息，
-                直接给出最终答案。
-                禁止再调用任何工具。
-                如果信息不完整，请合理总结和说明。
-                """));
+        messages.add(new UserMessage(
+                "你已达到最大推理轮次限制。\n" +
+                        "请基于当前已有的上下文信息，\n" +
+                        "直接给出最终答案。\n" +
+                        "禁止再调用任何工具。\n" +
+                        "如果信息不完整，请合理总结和说明。"
+        ));
 
         StringBuilder stringBuilder = new StringBuilder();
 
@@ -474,9 +479,15 @@ public class SimpleReactAgent extends BaseAgent {
                     completeToolCall(completedCount, totalToolCalls, onComplete);
                     return;
                 }
+                JsonArgumentUtils.NormalizationResult normalizationResult = JsonArgumentUtils.normalizeJsonArguments(argsJson);
+                if (!normalizationResult.valid()) {
+                    addErrorToolResponse(messages, tc, "工具参数不是合法 JSON：" + normalizationResult.errorMessage());
+                    completeToolCall(completedCount, totalToolCalls, onComplete);
+                    return;
+                }
 
                 try {
-                    Object result = callback.call(argsJson);
+                    Object result = callback.call(normalizationResult.normalizedJson());
                     String resultStr = Objects.toString(result, "");
                     ToolResponseMessage.ToolResponse tr = new ToolResponseMessage.ToolResponse(
                             tc.id(), toolName, resultStr);
@@ -533,18 +544,13 @@ public class SimpleReactAgent extends BaseAgent {
     private String normalizeArguments(AssistantMessage.ToolCall toolCall) {
         String rawArguments = toolCall == null ? null : toolCall.arguments();
         JsonArgumentUtils.NormalizationResult result = JsonArgumentUtils.normalizeJsonArguments(rawArguments);
-        if (result.repaired()) {
-            log.warn("Tool call arguments were incomplete JSON and have been repaired. toolName={}, toolId={}, rawArguments={}, repairedArguments={}",
+        if (!result.valid()) {
+            log.warn("Tool call arguments are not valid JSON. toolName={}, toolId={}, rawArguments={}, error={}",
                     toolCall == null ? null : toolCall.name(),
                     toolCall == null ? null : toolCall.id(),
                     rawArguments,
-                    result.normalizedJson());
-        }
-        if (result.fallbackToEmptyObject()) {
-            log.warn("Tool call arguments are not valid JSON, fallback to empty object. toolName={}, toolId={}, rawArguments={}",
-                    toolCall == null ? null : toolCall.name(),
-                    toolCall == null ? null : toolCall.id(),
-                    rawArguments);
+                    result.errorMessage());
+            return rawArguments;
         }
         return result.normalizedJson();
     }

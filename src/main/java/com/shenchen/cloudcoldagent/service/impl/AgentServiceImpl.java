@@ -2,13 +2,12 @@ package com.shenchen.cloudcoldagent.service.impl;
 
 import com.shenchen.cloudcoldagent.agent.PlanExecuteAgent;
 import com.shenchen.cloudcoldagent.agent.SimpleReactAgent;
-import com.shenchen.cloudcoldagent.advisors.SkillAdvisor;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shenchen.cloudcoldagent.config.HitlProperties;
 import com.shenchen.cloudcoldagent.constant.AgentModeConstant;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.model.dto.agent.AgentCallRequest;
-import com.shenchen.cloudcoldagent.model.entity.ChatConversation;
 import com.shenchen.cloudcoldagent.model.vo.HitlCheckpointVO;
 import com.shenchen.cloudcoldagent.model.vo.AgentStreamEvent;
 import com.shenchen.cloudcoldagent.service.AgentService;
@@ -16,6 +15,11 @@ import com.shenchen.cloudcoldagent.service.ChatConversationService;
 import com.shenchen.cloudcoldagent.service.HitlCheckpointService;
 import com.shenchen.cloudcoldagent.service.HitlExecutionService;
 import com.shenchen.cloudcoldagent.service.HitlResumeService;
+import com.shenchen.cloudcoldagent.skillworkflow.SkillWorkflowService;
+import com.shenchen.cloudcoldagent.skillworkflow.state.SkillExecutionPlan;
+import com.shenchen.cloudcoldagent.skillworkflow.state.SkillScriptExecutionRequest;
+import com.shenchen.cloudcoldagent.skillworkflow.state.SkillToolCallPlan;
+import com.shenchen.cloudcoldagent.skillworkflow.state.SkillWorkflowResult;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -28,11 +32,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -65,6 +72,9 @@ public class AgentServiceImpl implements AgentService {
     private HitlProperties hitlProperties;
 
     @Autowired
+    private SkillWorkflowService skillWorkflowService;
+
+    @Autowired
     private ObjectProvider<Advisor> advisorProvider;
 
     @Autowired
@@ -72,29 +82,19 @@ public class AgentServiceImpl implements AgentService {
     private ToolCallback[] allToolCallbacks;
 
     @Autowired
-    @Qualifier("commonTools")
-    private ToolCallback[] commonToolCallbacks;
+    private ObjectMapper objectMapper;
 
     private List<Advisor> allAdvisors;
-
-    private List<Advisor> commonAdvisors;
 
     private ChatMemory chatMemory;
 
     private SimpleReactAgent reactAgent;
 
-    private SimpleReactAgent commonReactAgent;
-
     private PlanExecuteAgent planExecuteAgent;
-
-    private PlanExecuteAgent commonPlanExecuteAgent;
 
     @PostConstruct
     public void init() {
         allAdvisors = advisorProvider.orderedStream().toList();
-        commonAdvisors = allAdvisors.stream()
-                .filter(advisor -> !(advisor instanceof SkillAdvisor))
-                .toList();
         chatMemory = MessageWindowChatMemory.builder()
                 .chatMemoryRepository(chatMemoryRepository)
                 .maxMessages(20)
@@ -108,34 +108,11 @@ public class AgentServiceImpl implements AgentService {
                 .maxRounds(5)
                 .systemPrompt("你是专业的研究分析助手！")
                 .build();
-        commonReactAgent = SimpleReactAgent.builder()
-                .name("CommonReactAgent")
-                .chatModel(openAiChatModel)
-                .tools(commonToolCallbacks)
-                .advisors(commonAdvisors)
-                .chatMemory(chatMemory)
-                .maxRounds(5)
-                .systemPrompt("你是专业的研究分析助手！")
-                .build();
         planExecuteAgent = PlanExecuteAgent.builder()
                 .agentType("PlanExecuteAgent")
                 .chatModel(openAiChatModel)
                 .tools(allToolCallbacks)
                 .advisors(allAdvisors)
-                .maxRounds(3)
-                .maxToolRetries(3)
-                .chatMemory(chatMemory)
-                .contextCharLimit(5000)
-                .hitlExecutionService(hitlExecutionService)
-                .hitlCheckpointService(hitlCheckpointService)
-                .hitlResumeService(hitlResumeService)
-                .hitlInterceptToolNames(resolveHitlInterceptToolNames())
-                .build();
-        commonPlanExecuteAgent = PlanExecuteAgent.builder()
-                .agentType("CommonPlanExecuteAgent")
-                .chatModel(openAiChatModel)
-                .tools(commonToolCallbacks)
-                .advisors(commonAdvisors)
                 .maxRounds(3)
                 .maxToolRetries(3)
                 .chatMemory(chatMemory)
@@ -155,23 +132,17 @@ public class AgentServiceImpl implements AgentService {
         String conversationId = resolveConversationId(userId, agentCallRequest.getConversationId());
         chatConversationService.touchConversation(userId, conversationId);
         chatConversationService.generateTitleOnFirstMessage(userId, conversationId, question);
-        String conversationSkillPrompt = chatConversationService.buildConversationSkillPrompt(userId, conversationId);
-        String effectiveQuestion = buildEffectiveQuestion(userId, conversationId, question);
-        boolean enableSkillTools = shouldEnableSkillTools(question, conversationSkillPrompt);
+        SkillWorkflowResult workflowResult = skillWorkflowService.preprocess(userId, conversationId, question);
+        String effectiveQuestion = workflowResult.getEnhancedQuestion();
+        List<PlanExecuteAgent.PlanTask> preferredPlan = buildPreferredPlan(workflowResult);
 
         switch (mode) {
             case AgentModeConstant.FAST:
-                return enableSkillTools
-                        ? reactAgent.stream(conversationId, effectiveQuestion, conversationSkillPrompt, question)
-                        : commonReactAgent.stream(conversationId, effectiveQuestion, null);
+                return reactAgent.stream(conversationId, effectiveQuestion, null, question);
             case AgentModeConstant.THINKING:
-                return enableSkillTools
-                        ? planExecuteAgent.stream(conversationId, effectiveQuestion, conversationSkillPrompt, question)
-                        : commonPlanExecuteAgent.stream(conversationId, effectiveQuestion, null, question);
+                return planExecuteAgent.stream(conversationId, effectiveQuestion, null, question, preferredPlan);
             default:
-                return enableSkillTools
-                        ? reactAgent.stream(conversationId, effectiveQuestion, conversationSkillPrompt, question)
-                        : commonReactAgent.stream(conversationId, effectiveQuestion, null);
+                return reactAgent.stream(conversationId, effectiveQuestion, null, question);
         }
     }
 
@@ -182,9 +153,6 @@ public class AgentServiceImpl implements AgentService {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "HITL checkpoint 不存在");
         }
         String agentType = checkpoint.getAgentType();
-        if ("CommonPlanExecuteAgent".equals(agentType)) {
-            return commonPlanExecuteAgent.resume(interruptId);
-        }
         if ("PlanExecuteAgent".equals(agentType) || agentType == null || agentType.isBlank()) {
             return planExecuteAgent.resume(interruptId);
         }
@@ -198,10 +166,6 @@ public class AgentServiceImpl implements AgentService {
         return chatConversationService.normalizeConversationId(userId, rawConversationId);
     }
 
-    private boolean shouldEnableSkillTools(String question, String conversationSkillPrompt) {
-        return StringUtils.hasText(conversationSkillPrompt);
-    }
-
     private Set<String> resolveHitlInterceptToolNames() {
         if (!hitlProperties.isEnabled() || hitlProperties.getInterceptToolNames() == null) {
             return new LinkedHashSet<>();
@@ -209,38 +173,42 @@ public class AgentServiceImpl implements AgentService {
         return new LinkedHashSet<>(hitlProperties.getInterceptToolNames());
     }
 
-    private String buildEffectiveQuestion(Long userId, String conversationId, String question) {
-        ChatConversation conversation = chatConversationService.getByConversationId(userId, conversationId);
-        List<String> selectedSkillList = conversation.getSelectedSkillList();
-        if (selectedSkillList == null || selectedSkillList.isEmpty()) {
-            return question;
+    private List<PlanExecuteAgent.PlanTask> buildPreferredPlan(SkillWorkflowResult workflowResult) {
+        if (workflowResult == null || workflowResult.getExecutionPlans() == null || workflowResult.getExecutionPlans().isEmpty()) {
+            return List.of();
         }
-
-        String skillLines = selectedSkillList.stream()
-                .map(skill -> "- " + skill)
-                .reduce((left, right) -> left + "\n" + right)
-                .orElse("");
-        String effectiveQuestion = """
-                [会话绑定技能上下文]
-                当前会话已绑定以下 skills：
-                %s
-
-                下面是用户本轮真实问题。请在理解和回答时优先结合上述已绑定 skills，但不要把这段上下文当作用户原话复述给用户。
-                如果本轮问题明显属于某个已绑定 skill 的核心处理范围，优先走该 skill 的工具链，不要直接凭常识回答。
-                如果该 skill 已定义固定可执行脚本，且用户已提供足够参数，应优先执行脚本并基于脚本结果作答。
-                如果本轮问题需要依赖这些已绑定 skill 的正文或资源内容，而你当前还没有读到对应内容，请先调用相关 skill 工具读取，再回答。
-                对于任何已绑定的计算型或可执行型 skill，如果该 skill 已定义固定脚本且当前问题已提供足够参数，命中后不要直接凭模型常识回答，应优先调用 `execute_skill_script`。
-                不要仅仅因为当前上下文尚未展开这些 skill 内容，就直接回答“信息不足”或“缺少上下文”。
-
-                [用户问题]
-                %s
-                """.formatted(skillLines, question);
-        log.info("拼接会话级 skill 用户提示词，userId={}, conversationId={}, selectedSkills={}, rawQuestion={}, effectiveQuestion=\n{}",
-                userId,
-                conversationId,
-                selectedSkillList,
-                question,
-                effectiveQuestion);
-        return effectiveQuestion;
+        List<PlanExecuteAgent.PlanTask> tasks = new ArrayList<>();
+        int order = 1;
+        int index = 1;
+        for (Object rawExecutionPlan : workflowResult.getExecutionPlans()) {
+            SkillExecutionPlan executionPlan = objectMapper.convertValue(rawExecutionPlan, SkillExecutionPlan.class);
+            if (executionPlan == null || !Boolean.TRUE.equals(executionPlan.getSelected())
+                    || !Boolean.TRUE.equals(executionPlan.getExecutable())) {
+                continue;
+            }
+            SkillToolCallPlan toolCallPlan = executionPlan.getToolCallPlan();
+            if (toolCallPlan == null || toolCallPlan.getToolName() == null || toolCallPlan.getToolName().isBlank()) {
+                continue;
+            }
+            SkillScriptExecutionRequest request = toolCallPlan.getRequest();
+            if (request == null
+                    || request.getSkillName() == null || request.getSkillName().isBlank()
+                    || request.getScriptPath() == null || request.getScriptPath().isBlank()
+                    || request.getArguments() == null) {
+                continue;
+            }
+            Map<String, Object> toolArguments = new LinkedHashMap<>();
+            toolArguments.put("skillName", request.getSkillName());
+            toolArguments.put("scriptPath", request.getScriptPath());
+            toolArguments.put("arguments", request.getArguments() == null ? Map.of() : request.getArguments());
+            tasks.add(new PlanExecuteAgent.PlanTask(
+                    toolCallPlan.getToolName() + "_" + index++,
+                    toolCallPlan.getToolName(),
+                    toolArguments,
+                    order,
+                    Objects.toString(toolCallPlan.getSummary(), executionPlan.getReason())
+            ));
+        }
+        return tasks;
     }
 }

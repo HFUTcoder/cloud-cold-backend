@@ -1,6 +1,7 @@
 package com.shenchen.cloudcoldagent.agent;
 
 import cn.hutool.json.JSONUtil;
+import com.shenchen.cloudcoldagent.hitl.PendingToolCall;
 import com.shenchen.cloudcoldagent.model.vo.HitlCheckpointVO;
 import com.shenchen.cloudcoldagent.model.vo.AgentStreamEvent;
 import com.shenchen.cloudcoldagent.prompts.PlanExecutePromptsFactory;
@@ -11,6 +12,7 @@ import com.shenchen.cloudcoldagent.utils.PlanExecuteResumeUtils;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -18,6 +20,8 @@ import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.ai.tool.ToolCallback;
@@ -27,8 +31,6 @@ import org.springframework.util.CollectionUtils;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
@@ -42,15 +44,6 @@ import reactor.core.scheduler.Schedulers;
 
 @Slf4j
 public class PlanExecuteAgent extends BaseAgent {
-
-    private static final Pattern EXECUTE_SKILL_SCRIPT_TOOL_PATTERN =
-            Pattern.compile("调用\\s*execute_skill_script\\s*工具");
-    private static final Pattern SCRIPT_PATH_PATTERN =
-            Pattern.compile("(scripts/[A-Za-z0-9_./-]+\\.py)");
-    private static final Pattern PARAM_ASSIGNMENT_PATTERN =
-            Pattern.compile("([a-zA-Z_][a-zA-Z0-9_]*)\\s*=\\s*(-?\\d+(?:\\.\\d+)?)");
-    private static final Pattern SINGLE_SKILL_LINE_PATTERN =
-            Pattern.compile("当前会话已绑定以下 skills：\\s*\\R\\s*-\\s*(.+?)(?:\\R|$)");
 
     // plan-execute 总轮数
     private final int contextCharLimit;
@@ -72,6 +65,8 @@ public class PlanExecuteAgent extends BaseAgent {
     private final String agentType;
 
     private PlanExecutePromptsFactory planExecutePrompts;
+
+    private final ChatClient chatClient;
 
     public PlanExecuteAgent(ChatModel chatModel,
                             List<ToolCallback> tools,
@@ -96,6 +91,11 @@ public class PlanExecuteAgent extends BaseAgent {
         this.hitlResumeService = hitlResumeService;
         this.agentType = StringUtils.isBlank(agentType) ? "PlanExecuteAgent" : agentType;
         this.hitlInterceptToolNames = hitlInterceptToolNames == null ? Set.of() : new LinkedHashSet<>(hitlInterceptToolNames);
+        ChatClient.Builder builder = ChatClient.builder(chatModel);
+        if (!this.advisors.isEmpty()) {
+            builder.defaultAdvisors(this.advisors);
+        }
+        this.chatClient = builder.build();
     }
 
     public static Builder builder() {
@@ -232,30 +232,42 @@ public class PlanExecuteAgent extends BaseAgent {
      * @return
      */
     public Flux<AgentStreamEvent> stream(String question) {
-        return streamInternal(null, question, null, question);
+        return streamInternal(null, question, null, question, List.of());
     }
 
     // 带会话记忆
     public Flux<AgentStreamEvent> stream(String conversationId, String question) {
-        return streamInternal(conversationId, question, null, question);
+        return streamInternal(conversationId, question, null, question, List.of());
     }
 
     public Flux<AgentStreamEvent> stream(String conversationId, String question, String runtimeSystemPrompt) {
-        return streamInternal(conversationId, question, runtimeSystemPrompt, question);
+        return streamInternal(conversationId, question, runtimeSystemPrompt, question, List.of());
     }
 
     public Flux<AgentStreamEvent> stream(String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
-        return streamInternal(conversationId, question, runtimeSystemPrompt, memoryQuestion);
+        return streamInternal(conversationId, question, runtimeSystemPrompt, memoryQuestion, List.of());
+    }
+
+    public Flux<AgentStreamEvent> stream(String conversationId,
+                                         String question,
+                                         String runtimeSystemPrompt,
+                                         String memoryQuestion,
+                                         List<PlanTask> preferredPlan) {
+        return streamInternal(conversationId, question, runtimeSystemPrompt, memoryQuestion, preferredPlan);
     }
 
     public Flux<AgentStreamEvent> resume(String interruptId) {
         return resumeInternal(interruptId);
     }
 
-    public Flux<AgentStreamEvent> streamInternal(String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
+    public Flux<AgentStreamEvent> streamInternal(String conversationId,
+                                                 String question,
+                                                 String runtimeSystemPrompt,
+                                                 String memoryQuestion,
+                                                 List<PlanTask> preferredPlan) {
         boolean useMemory = useMemory(conversationId);
 
-        OverAllState state = new OverAllState(conversationId, question);
+        OverAllState state = new OverAllState(conversationId, question, preferredPlan);
 
         if (runtimeSystemPrompt != null && !runtimeSystemPrompt.isBlank()) {
             state.add(new SystemMessage(runtimeSystemPrompt));
@@ -359,18 +371,8 @@ public class PlanExecuteAgent extends BaseAgent {
 
                 // 5.总结输出
                 emitStep(sink, state.getConversationId(), "final", "Final Answer", "正在生成最终答案...");
-                String answer = summarize(state);
-                Map<String, Object> finalData = new LinkedHashMap<>();
-                finalData.put("content", answer);
-                sink.tryEmitNext(AgentStreamEvent.builder()
-                        .type("final_answer")
-                        .conversationId(state.getConversationId())
-                        .data(finalData)
-                        .build());
-                finalAnswerBuffer.append(answer);
-
-                hasSentFinalResult.set(true);
-                sink.tryEmitComplete();
+                streamSummary(sink, state, finalAnswerBuffer, hasSentFinalResult);
+                return;
             } catch (Exception e) {
                 if (!hasSentFinalResult.get()) {
                     hasSentFinalResult.set(true);
@@ -411,10 +413,12 @@ public class PlanExecuteAgent extends BaseAgent {
         }
         return plan.stream()
                 .filter(Objects::nonNull)
-                .map(task -> "- taskId: %s, order: %s, instruction: %s".formatted(
+                .map(task -> "- taskId: %s, order: %s, toolName: %s, summary: %s, arguments: %s".formatted(
                         task.id(),
                         task.order(),
-                        task.instruction()))
+                        defaultTaskValue(task.toolName()),
+                        defaultTaskValue(task.summary()),
+                        task.arguments() == null ? "{}" : JSONUtil.toJsonStr(task.arguments())))
                 .collect(Collectors.joining("\n"));
     }
 
@@ -445,7 +449,7 @@ public class PlanExecuteAgent extends BaseAgent {
 
         boolean useMemory = useMemory(conversationId);
 
-        OverAllState state = new OverAllState(conversationId, question);
+        OverAllState state = new OverAllState(conversationId, question, List.of());
 
         if (runtimeSystemPrompt != null && !runtimeSystemPrompt.isBlank()) {
             state.add(new SystemMessage(runtimeSystemPrompt));
@@ -525,6 +529,10 @@ public class PlanExecuteAgent extends BaseAgent {
     }
 
     private List<PlanTask> generatePlan(OverAllState state) {
+        List<PlanTask> preferredPlan = state == null ? List.of() : state.consumePreferredPlan();
+        if (!preferredPlan.isEmpty()) {
+            return preferredPlan;
+        }
 
         String toolDesc = renderToolDescriptions();
         BeanOutputConverter<List<PlanTask>> converter = new BeanOutputConverter<>(new ParameterizedTypeReference<>() {
@@ -555,7 +563,7 @@ public class PlanExecuteAgent extends BaseAgent {
         }
         return plan.stream()
                 .filter(Objects::nonNull)
-                .filter(task -> StringUtils.isNotBlank(task.id()) && StringUtils.isNotBlank(task.instruction()))
+                .filter(task -> task.id() == null || StringUtils.isNotBlank(task.toolName()))
                 .toList();
     }
 
@@ -614,17 +622,14 @@ public class PlanExecuteAgent extends BaseAgent {
                                 state.setInterruptedCheckpoint(result.checkpoint());
                             }
 
-                            state.add(new AssistantMessage("""
-                                    【Completed Task Result】
-                                    taskId: %s
-                                    success: %s
-                                    interrupted: %s
-                                    result:
-                                    %s
-                                    error:
-                                    %s
-                                    【End Task Result】
-                                    """.formatted(
+                            state.add(new AssistantMessage(String.format(
+                                    "【Completed Task Result】%n" +
+                                            "taskId: %s%n" +
+                                            "success: %s%n" +
+                                            "interrupted: %s%n" +
+                                            "result:%n%s%n" +
+                                            "error:%n%s%n" +
+                                            "【End Task Result】",
                                     task.id(),
                                     result.success(),
                                     result.interrupted(),
@@ -674,56 +679,7 @@ public class PlanExecuteAgent extends BaseAgent {
         while (attempt < maxToolRetries) {
             attempt++;
             try {
-                TaskResult directToolResult = executePlannedToolTask(task, state, runtimeSystemPrompt);
-                if (directToolResult != null) {
-                    return directToolResult;
-                }
-
-                String executionInput = """
-                        【Available Results】
-                        %s
-                        
-                        【Current Task】
-                        %s
-                        """.formatted(
-                        dependencySnapshot.isBlank() ? "NONE" : dependencySnapshot,
-                        task.instruction
-                );
-
-                if (isHitlEnabled(state)) {
-                    HitlExecutionService.HitlExecutionResult hitlResult = hitlExecutionService.execute(
-                            new HitlExecutionService.HitlExecutionRequest(
-                                    state.getConversationId(),
-                                    agentType,
-                                    chatModel,
-                                    tools,
-                                    advisors,
-                                    executionInput,
-                                    runtimeSystemPrompt,
-                                    PlanExecutePromptsFactory.buildPrompts(planExecutePrompts).getExecutePrompt(),
-                                    5,
-                                    hitlInterceptToolNames
-                            )
-                    );
-                    if (hitlResult.interrupted()) {
-                        return new TaskResult(task.id(), false, true, null, hitlResult.error(), hitlResult.checkpoint());
-                    }
-                    if (StringUtils.isNotBlank(hitlResult.content())) {
-                        return new TaskResult(task.id(), true, false, hitlResult.content(), null, null);
-                    }
-                }
-
-                SimpleReactAgent agent = SimpleReactAgent.builder()
-                        .chatModel(chatModel)
-                        .tools(tools)
-                        .advisors(advisors)
-                        .maxRounds(5)
-                        .systemPrompt(PlanExecutePromptsFactory.buildPrompts(planExecutePrompts).getExecutePrompt())
-                        .build();
-
-                String result = agent.call(null, executionInput, runtimeSystemPrompt);
-
-                return new TaskResult(task.id(), true, false, result, null, null);
+                return executeStructuredToolTask(task, state);
             } catch (Exception e) {
                 lastError = e;
                 log.warn("Task {} failed attempt {}/{}", task.id(), attempt, maxToolRetries, e);
@@ -766,8 +722,9 @@ public class PlanExecuteAgent extends BaseAgent {
                 }
 
                 Map<String, TaskResult> currentRoundResults = new LinkedHashMap<>();
-                TaskResult resumedTaskResult = resumeInterruptedTask(interruptId, currentTask);
+                TaskResult resumedTaskResult = resumeInterruptedTask(interruptId, currentTask, state);
                 currentRoundResults.put(currentTask.id(), resumedTaskResult);
+                rememberApprovedToolNames(state, checkpoint);
                 state.recordTask(currentTask, resumedTaskResult);
                 appendTaskResultMessage(state, currentTask, resumedTaskResult);
 
@@ -860,14 +817,15 @@ public class PlanExecuteAgent extends BaseAgent {
     }
 
     private OverAllState restoreResumeState(String conversationId, PlanExecuteResumeUtils.ResumeContext resumeContext) {
-        OverAllState state = new OverAllState(conversationId, resumeContext.question());
+        OverAllState state = new OverAllState(conversationId, resumeContext.question(), List.of());
         state.messages.addAll(resumeContext.messages() == null ? List.of() : resumeContext.messages());
         state.executedTasks.putAll(resumeContext.executedTasks() == null ? Map.of() : resumeContext.executedTasks());
+        state.approvedToolNames.addAll(resumeContext.approvedToolNames() == null ? List.of() : resumeContext.approvedToolNames());
         state.round = resumeContext.round();
         return state;
     }
 
-    private TaskResult resumeInterruptedTask(String interruptId, PlanTask currentTask) {
+    private TaskResult resumeInterruptedTask(String interruptId, PlanTask currentTask, OverAllState state) {
         if (hitlResumeService == null) {
             throw new IllegalStateException("hitlResumeService 未配置，无法 resume");
         }
@@ -878,7 +836,8 @@ public class PlanExecuteAgent extends BaseAgent {
                         tools,
                         advisors,
                         5,
-                        hitlInterceptToolNames
+                        hitlInterceptToolNames,
+                        state == null ? Set.of() : state.getApprovedToolNames()
                 )
         );
         if (resumeResult.interrupted()) {
@@ -920,22 +879,44 @@ public class PlanExecuteAgent extends BaseAgent {
         return true;
     }
 
+    private void rememberApprovedToolNames(OverAllState state, HitlCheckpointVO checkpoint) {
+        if (state == null || checkpoint == null) {
+            return;
+        }
+
+        Map<String, PendingToolCall> pendingById = new LinkedHashMap<>();
+        for (PendingToolCall pendingToolCall : checkpoint.getPendingToolCalls() == null
+                ? List.<PendingToolCall>of()
+                : checkpoint.getPendingToolCalls()) {
+            if (pendingToolCall != null && StringUtils.isNotBlank(pendingToolCall.id())) {
+                pendingById.put(pendingToolCall.id(), pendingToolCall);
+            }
+        }
+
+        for (PendingToolCall feedback : checkpoint.getFeedbacks() == null ? List.<PendingToolCall>of() : checkpoint.getFeedbacks()) {
+            if (feedback == null || StringUtils.isBlank(feedback.id()) || feedback.result() == null) {
+                continue;
+            }
+            if (feedback.result() == PendingToolCall.FeedbackResult.REJECTED) {
+                continue;
+            }
+            PendingToolCall pendingToolCall = pendingById.get(feedback.id());
+            if (pendingToolCall == null) {
+                continue;
+            }
+            String toolName = StringUtils.defaultIfBlank(feedback.name(), pendingToolCall.name());
+            if (StringUtils.isNotBlank(toolName)) {
+                state.getApprovedToolNames().add(toolName);
+            }
+        }
+    }
+
     private void finishStreamWithSummary(Sinks.Many<AgentStreamEvent> sink,
                                          OverAllState state,
                                          StringBuilder finalAnswerBuffer,
                                          AtomicBoolean hasSentFinalResult) {
         emitStep(sink, state.getConversationId(), "final", "Final Answer", "正在生成最终答案...");
-        String answer = summarize(state);
-        Map<String, Object> finalData = new LinkedHashMap<>();
-        finalData.put("content", answer);
-        sink.tryEmitNext(AgentStreamEvent.builder()
-                .type("final_answer")
-                .conversationId(state.getConversationId())
-                .data(finalData)
-                .build());
-        finalAnswerBuffer.append(answer);
-        hasSentFinalResult.set(true);
-        sink.tryEmitComplete();
+        streamSummary(sink, state, finalAnswerBuffer, hasSentFinalResult);
     }
 
     private List<PlanTask> excludeCurrentTask(List<PlanTask> plan, PlanTask currentTask) {
@@ -955,69 +936,35 @@ public class PlanExecuteAgent extends BaseAgent {
         if (StringUtils.isNotBlank(left.id()) && StringUtils.isNotBlank(right.id())) {
             return StringUtils.equals(left.id(), right.id());
         }
-        return StringUtils.equals(left.instruction(), right.instruction())
+        return StringUtils.equals(left.toolName(), right.toolName())
+                && Objects.equals(left.arguments(), right.arguments())
                 && left.order() == right.order();
     }
 
-    private TaskResult executePlannedToolTask(PlanTask task, OverAllState state, String runtimeSystemPrompt) {
-        if (task == null || StringUtils.isBlank(task.instruction())) {
-            return null;
+    private TaskResult executeStructuredToolTask(PlanTask task, OverAllState state) {
+        if (task == null || StringUtils.isBlank(task.toolName())) {
+            return new TaskResult(task == null ? null : task.id(), false, false, null, "结构化任务缺少 toolName", null);
         }
-        String instruction = task.instruction();
-        if (!EXECUTE_SKILL_SCRIPT_TOOL_PATTERN.matcher(instruction).find()) {
-            return null;
-        }
-
-        String scriptPath = extractScriptPath(instruction);
-        if (StringUtils.isBlank(scriptPath)) {
-            return null;
-        }
-        String skillName = resolveSkillNameForScript(task, state, runtimeSystemPrompt, scriptPath);
-        if (StringUtils.isBlank(skillName)) {
-            log.info("===== Planned execute_skill_script task skipped direct execution because skillName could not be resolved, taskId: {} =====", task.id());
-            return null;
-        }
-
-        Map<String, Object> arguments = extractNumericArguments(instruction);
-        ToolCallback callback = findTool("execute_skill_script");
+        ToolCallback callback = findTool(task.toolName());
         if (callback == null) {
-            return new TaskResult(task.id(), false, false, null, "工具未找到：execute_skill_script", null);
+            return new TaskResult(task.id(), false, false, null, "工具未找到：" + task.toolName(), null);
         }
-
-        Map<String, Object> request = new LinkedHashMap<>();
-        request.put("skillName", skillName);
-        request.put("scriptPath", scriptPath);
-        request.put("arguments", arguments);
-        String argsJson = JSONUtil.toJsonStr(request);
-        log.info("===== Direct execute planned tool task, taskId={}, tool=execute_skill_script, request={} =====",
-                task.id(), argsJson);
+        Map<String, Object> requestArguments = task.arguments() == null ? Map.of() : task.arguments();
+        String argsJson = JSONUtil.toJsonStr(requestArguments);
+        log.info("===== Direct execute structured tool task, taskId={}, tool={}, arguments={} =====",
+                task.id(), task.toolName(), argsJson);
 
         try {
-            if (isHitlEnabled(state)) {
-                HitlExecutionService.HitlExecutionResult hitlResult = hitlExecutionService.execute(
-                        new HitlExecutionService.HitlExecutionRequest(
-                                state.getConversationId(),
-                                agentType,
-                                chatModel,
-                                tools,
-                                advisors,
-                                """
-                                你必须直接调用 execute_skill_script 工具，不要改写脚本路径，不要重复读取 skill。
-                                调用参数如下：
-                                %s
-                                """.formatted(argsJson),
-                                runtimeSystemPrompt,
-                                PlanExecutePromptsFactory.buildPrompts(planExecutePrompts).getExecutePrompt(),
-                                3,
-                                hitlInterceptToolNames
-                        )
+            if (isHitlEnabled(state)
+                    && hitlInterceptToolNames.contains(task.toolName())
+                    && !state.hasApprovedToolName(task.toolName())) {
+                HitlCheckpointVO checkpoint = createDirectToolCheckpoint(
+                        state,
+                        task.toolName(),
+                        argsJson,
+                        "该工具需要用户手动确认。已锁定结构化 toolName 和 arguments。"
                 );
-                if (hitlResult.interrupted()) {
-                    return new TaskResult(task.id(), false, true, null, hitlResult.error(), hitlResult.checkpoint());
-                }
-                if (StringUtils.isNotBlank(hitlResult.content())) {
-                    return new TaskResult(task.id(), true, false, hitlResult.content(), null, null);
-                }
+                return new TaskResult(task.id(), false, true, null, "Task execution interrupted by HITL", checkpoint);
             }
 
             String result = String.valueOf(callback.call(argsJson));
@@ -1027,67 +974,38 @@ public class PlanExecuteAgent extends BaseAgent {
         }
     }
 
-    private String extractScriptPath(String instruction) {
-        Matcher matcher = SCRIPT_PATH_PATTERN.matcher(StringUtils.defaultString(instruction));
-        return matcher.find() ? matcher.group(1) : null;
-    }
+    private HitlCheckpointVO createDirectToolCheckpoint(OverAllState state,
+                                                        String toolName,
+                                                        String argumentsJson,
+                                                        String description) {
+        if (state == null || hitlCheckpointService == null) {
+            throw new IllegalStateException("hitlCheckpointService 未配置，无法创建直接工具确认 checkpoint");
+        }
+        String toolCallId = "call_" + UUID.randomUUID().toString().replace("-", "");
+        AssistantMessage.ToolCall toolCall = new AssistantMessage.ToolCall(
+                toolCallId,
+                "function",
+                toolName,
+                argumentsJson
+        );
 
-    private Map<String, Object> extractNumericArguments(String instruction) {
-        Map<String, Object> arguments = new LinkedHashMap<>();
-        Matcher matcher = PARAM_ASSIGNMENT_PATTERN.matcher(StringUtils.defaultString(instruction));
-        while (matcher.find()) {
-            String key = matcher.group(1);
-            String rawValue = matcher.group(2);
-            if (StringUtils.isBlank(key) || StringUtils.isBlank(rawValue)) {
-                continue;
-            }
-            arguments.put(key, rawValue.contains(".") ? Double.parseDouble(rawValue) : Long.parseLong(rawValue));
-        }
-        return arguments;
-    }
+        List<Message> checkpointMessages = new ArrayList<>(state.getMessages());
+        checkpointMessages.add(AssistantMessage.builder().toolCalls(List.of(toolCall)).build());
 
-    private String resolveSkillNameForScript(PlanTask task, OverAllState state, String runtimeSystemPrompt, String scriptPath) {
-        String fromMessages = resolveSkillNameFromMessages(state, scriptPath);
-        if (StringUtils.isNotBlank(fromMessages)) {
-            return fromMessages;
-        }
-        String fromPrompt = resolveSingleBoundSkillName(runtimeSystemPrompt);
-        if (StringUtils.isNotBlank(fromPrompt)) {
-            return fromPrompt;
-        }
-        log.info("===== Unable to resolve skillName for planned tool task, taskId={}, scriptPath={} =====",
-                task == null ? null : task.id(), scriptPath);
-        return null;
-    }
-
-    private String resolveSkillNameFromMessages(OverAllState state, String scriptPath) {
-        if (state == null || state.getMessages() == null || StringUtils.isBlank(scriptPath)) {
-            return null;
-        }
-        List<Message> messages = state.getMessages();
-        for (int i = messages.size() - 1; i >= 0; i--) {
-            Message message = messages.get(i);
-            String text = message == null ? null : message.getText();
-            if (StringUtils.isBlank(text) || !text.contains(scriptPath) || !text.contains("skillName:")) {
-                continue;
-            }
-            String skillName = extractFieldValue(text, "skillName:");
-            if (StringUtils.isNotBlank(skillName)) {
-                return skillName;
-            }
-        }
-        return null;
-    }
-
-    private String resolveSingleBoundSkillName(String runtimeSystemPrompt) {
-        if (StringUtils.isBlank(runtimeSystemPrompt)) {
-            return null;
-        }
-        Matcher matcher = SINGLE_SKILL_LINE_PATTERN.matcher(runtimeSystemPrompt);
-        if (matcher.find()) {
-            return StringUtils.trim(matcher.group(1));
-        }
-        return null;
+        PendingToolCall pendingToolCall = new PendingToolCall(
+                toolCallId,
+                toolName,
+                argumentsJson,
+                null,
+                description
+        );
+        return hitlCheckpointService.createCheckpoint(
+                state.getConversationId(),
+                agentType,
+                List.of(pendingToolCall),
+                checkpointMessages,
+                Map.of()
+        );
     }
 
     private ToolCallback findTool(String toolName) {
@@ -1142,17 +1060,14 @@ public class PlanExecuteAgent extends BaseAgent {
         if (state == null || task == null || result == null) {
             return;
         }
-        state.add(new AssistantMessage("""
-                【Completed Task Result】
-                taskId: %s
-                success: %s
-                interrupted: %s
-                result:
-                %s
-                error:
-                %s
-                【End Task Result】
-                """.formatted(
+        state.add(new AssistantMessage(String.format(
+                "【Completed Task Result】%n" +
+                        "taskId: %s%n" +
+                        "success: %s%n" +
+                        "interrupted: %s%n" +
+                        "result:%n%s%n" +
+                        "error:%n%s%n" +
+                        "【End Task Result】",
                 task.id(),
                 result.success(),
                 result.interrupted(),
@@ -1208,118 +1123,17 @@ public class PlanExecuteAgent extends BaseAgent {
 
         return state.getExecutedTasks().values().stream()
                 .sorted(Comparator.comparingInt(ExecutedTaskSnapshot::round))
-                .map(snapshot -> "- round: %s, success: %s, instruction: %s".formatted(
+                .map(snapshot -> "- round: %s, success: %s, toolName: %s, summary: %s, arguments: %s".formatted(
                         snapshot.round(),
                         snapshot.success(),
-                        snapshot.instruction()))
+                        defaultTaskValue(snapshot.toolName()),
+                        defaultTaskValue(snapshot.summary()),
+                        snapshot.arguments() == null ? "{}" : JSONUtil.toJsonStr(snapshot.arguments())))
                 .collect(Collectors.joining("\n"));
     }
 
     private boolean shouldStopAfterSkillResourceExhausted(OverAllState state) {
-        if (state == null || state.getExecutedTasks().isEmpty()) {
-            return false;
-        }
-
-        SkillResourceInventory inventory = buildSkillResourceInventory(state);
-        if (!inventory.hasInventory()) {
-            return false;
-        }
-
-        if (!inventory.scriptsKnownEmpty()) {
-            return false;
-        }
-
-        if (!inventory.mainRead() && inventory.referenceFiles().isEmpty()) {
-            return false;
-        }
-
-        boolean allReferencesRead = inventory.referenceFiles().isEmpty()
-                || inventory.referenceFiles().stream().allMatch(inventory::hasReadReference);
-
-        if (!allReferencesRead) {
-            return false;
-        }
-
-        log.info("===== Skill inventory indicates no more script resources to read, mainRead={}, referenceFiles={}, readReferences={} =====",
-                inventory.mainRead(), inventory.referenceFiles(), inventory.readReferenceFiles());
-        return true;
-    }
-
-    private SkillResourceInventory buildSkillResourceInventory(OverAllState state) {
-        Set<String> referenceFiles = new LinkedHashSet<>();
-        Set<String> scriptFiles = new LinkedHashSet<>();
-        Set<String> readReferenceFiles = new LinkedHashSet<>();
-        boolean listed = false;
-        boolean scriptsKnownEmpty = false;
-        boolean mainRead = false;
-
-        for (ExecutedTaskSnapshot snapshot : state.getExecutedTasks().values()) {
-            if (snapshot == null || !snapshot.success() || StringUtils.isBlank(snapshot.output())) {
-                continue;
-            }
-
-            String output = snapshot.output();
-            if (output.contains("mainFile: SKILL.md")) {
-                listed = true;
-                referenceFiles.addAll(extractSectionItems(output, "references:", "scripts:"));
-                List<String> scripts = extractSectionItems(output, "scripts:", null);
-                scriptFiles.addAll(scripts);
-                scriptsKnownEmpty = scripts.isEmpty();
-            }
-
-            if (output.contains("resourceType: reference")) {
-                String referencePath = extractFieldValue(output, "resourcePath:");
-                if (StringUtils.isNotBlank(referencePath)) {
-                    readReferenceFiles.add(referencePath);
-                }
-            }
-
-            if (output.contains("skillName:") && output.contains("content:") && !output.contains("resourceType:")) {
-                mainRead = true;
-            }
-        }
-
-        return new SkillResourceInventory(listed, scriptsKnownEmpty, mainRead, referenceFiles, scriptFiles, readReferenceFiles);
-    }
-
-    private List<String> extractSectionItems(String text, String sectionStart, String nextSectionStart) {
-        if (StringUtils.isBlank(text) || StringUtils.isBlank(sectionStart)) {
-            return List.of();
-        }
-
-        int startIndex = text.indexOf(sectionStart);
-        if (startIndex < 0) {
-            return List.of();
-        }
-        int contentStart = startIndex + sectionStart.length();
-        int endIndex = StringUtils.isBlank(nextSectionStart) ? text.length() : text.indexOf(nextSectionStart, contentStart);
-        if (endIndex < 0) {
-            endIndex = text.length();
-        }
-
-        String section = text.substring(contentStart, endIndex).trim();
-        if (section.isEmpty() || section.equals("- 无")) {
-            return List.of();
-        }
-
-        return Arrays.stream(section.split("\\R"))
-                .map(String::trim)
-                .filter(line -> line.startsWith("- "))
-                .map(line -> line.substring(2).trim())
-                .filter(StringUtils::isNotBlank)
-                .toList();
-    }
-
-    private String extractFieldValue(String text, String fieldName) {
-        if (StringUtils.isBlank(text) || StringUtils.isBlank(fieldName)) {
-            return null;
-        }
-        return Arrays.stream(text.split("\\R"))
-                .map(String::trim)
-                .filter(line -> line.startsWith(fieldName))
-                .map(line -> line.substring(fieldName.length()).trim())
-                .findFirst()
-                .orElse(null);
+        return false;
     }
 
     private CritiqueResult critique(OverAllState state) {
@@ -1344,15 +1158,18 @@ public class PlanExecuteAgent extends BaseAgent {
 
         log.warn("===== Context too large, compressing ,size is {} =====", state.currentChars());
 
+        String compressLimitPrompt = String.format(
+                "## 最大压缩限制（必须遵守）%n" +
+                        "- 你输出的最终内容【总字符数（包含所有标签、空格、换行）】%n" +
+                        "  不得超过：%s%n" +
+                        "- 这是硬性上限，不是建议%n" +
+                        "- 如超过该限制，视为压缩失败%n%n%s",
+                contextCharLimit,
+                PlanExecutePromptsFactory.buildPrompts(planExecutePrompts).getCompressPrompt()
+        );
+
         Prompt prompt = new Prompt(List.of(
-                new SystemMessage("""                             
-                             ## 最大压缩限制（必须遵守）
-                             - 你输出的最终内容【总字符数（包含所有标签、空格、换行）】
-                                不得超过：%s
-                             - 这是硬性上限，不是建议
-                             - 如超过该限制，视为压缩失败
-                        
-                        """.formatted(contextCharLimit) + PlanExecutePromptsFactory.buildPrompts(planExecutePrompts).getCompressPrompt()),
+                new SystemMessage(compressLimitPrompt),
 
                 new UserMessage(renderMessages(state.getMessages()))
         ));
@@ -1368,28 +1185,94 @@ public class PlanExecuteAgent extends BaseAgent {
     }
 
 
+    private void streamSummary(Sinks.Many<AgentStreamEvent> sink,
+                               OverAllState state,
+                               StringBuilder finalAnswerBuffer,
+                               AtomicBoolean hasSentFinalResult) {
+        Prompt prompt = buildSummarizePrompt(state);
+        String conversationId = state == null ? null : state.getConversationId();
+
+        chatClient.prompt(prompt)
+                .stream()
+                .chatResponse()
+                .publishOn(Schedulers.boundedElastic())
+                .doOnNext(chunk -> processSummaryChunk(chunk, sink, finalAnswerBuffer, conversationId, hasSentFinalResult))
+                .doOnComplete(() -> completeSummaryStream(sink, state, finalAnswerBuffer, hasSentFinalResult))
+                .doOnError(err -> {
+                    if (!hasSentFinalResult.get()) {
+                        hasSentFinalResult.set(true);
+                        sink.tryEmitError(err);
+                    }
+                })
+                .subscribe();
+    }
+
     private String summarize(OverAllState state) {
+        Prompt prompt = buildSummarizePrompt(state);
+        String answer = chatModel.call(prompt).getResult().getOutput().getText();
+        addAssistantMemory(state.conversationId, answer);
+        return answer;
+    }
+
+    private void processSummaryChunk(ChatResponse chunk,
+                                     Sinks.Many<AgentStreamEvent> sink,
+                                     StringBuilder finalAnswerBuffer,
+                                     String conversationId,
+                                     AtomicBoolean hasSentFinalResult) {
+        if (chunk == null || chunk.getResult() == null || chunk.getResult().getOutput() == null || hasSentFinalResult.get()) {
+            return;
+        }
+        Generation generation = chunk.getResult();
+        String text = generation.getOutput().getText();
+        if (text == null || text.isEmpty()) {
+            return;
+        }
+        finalAnswerBuffer.append(text);
+        Map<String, Object> deltaData = new LinkedHashMap<>();
+        deltaData.put("content", text);
+        sink.tryEmitNext(AgentStreamEvent.builder()
+                .type("assistant_delta")
+                .conversationId(conversationId)
+                .data(deltaData)
+                .build());
+    }
+
+    private void completeSummaryStream(Sinks.Many<AgentStreamEvent> sink,
+                                       OverAllState state,
+                                       StringBuilder finalAnswerBuffer,
+                                       AtomicBoolean hasSentFinalResult) {
+        if (hasSentFinalResult.get()) {
+            return;
+        }
+        String answer = finalAnswerBuffer.toString();
+        addAssistantMemory(state.conversationId, answer);
+        Map<String, Object> finalData = new LinkedHashMap<>();
+        finalData.put("content", answer);
+        sink.tryEmitNext(AgentStreamEvent.builder()
+                .type("final_answer")
+                .conversationId(state.getConversationId())
+                .data(finalData)
+                .build());
+        hasSentFinalResult.set(true);
+        sink.tryEmitComplete();
+    }
+
+    private Prompt buildSummarizePrompt(OverAllState state) {
         // 1. 先获取外部 Prompt
         String externalSummarizePrompt = PlanExecutePromptsFactory.buildPrompts(planExecutePrompts).getSummarizePrompt();
 
         // 2. 构建系统提示词：先拼接固定部分和外部 Prompt，不在这里用 formatted
-        String systemMessageContent = """
-                ## 核心规则（必须100%严格遵守）
-                1.  你必须完全、仅基于下方【执行上下文】里的工具返回的真实数据生成最终答案，禁止编造任何不在上下文里的日期、天气、数值、景点等信息。
-                2.  禁止输出【Execution Plan】【Critique Feedback】【Task Result】等任何中间执行过程的标签和内容，只输出给用户看的最终答案。
-                3.  输出内容必须连贯、完整，符合用户的原始问题要求，禁止重复内容。
-                4.  如果上下文里的工具数据有明确的时间，必须以工具返回的时间为准，禁止使用与当前时间不符的虚假日期。
-                
-                """ + externalSummarizePrompt; // 直接拼接，不使用 formatted
+        String systemMessageContent =
+                "## 核心规则（必须100%严格遵守）\n" +
+                        "1.  你必须完全、仅基于下方【执行上下文】里的工具返回的真实数据生成最终答案，禁止编造任何不在上下文里的日期、天气、数值、景点等信息。\n" +
+                        "2.  禁止输出【Execution Plan】【Critique Feedback】【Task Result】等任何中间执行过程的标签和内容，只输出给用户看的最终答案。\n" +
+                        "3.  输出内容必须连贯、完整，符合用户的原始问题要求，禁止重复内容。\n" +
+                        "4.  如果上下文里的工具数据有明确的时间，必须以工具返回的时间为准，禁止使用与当前时间不符的虚假日期。\n\n" +
+                        externalSummarizePrompt;
 
         // 3. 构建用户消息：这里只有两个变量，安全地使用 formatted
-        String userMessageContent = """
-                【用户原始问题】
-                %s
-                
-                【执行上下文（含工具返回的真实结果）】
-                %s
-                """.formatted(
+        String userMessageContent = String.format(
+                "【用户原始问题】%n%s%n%n【执行上下文（含工具返回的真实结果）】%n%s",
                 state.getQuestion(),
                 renderMessages(state.getMessages())
         );
@@ -1398,11 +1281,7 @@ public class PlanExecuteAgent extends BaseAgent {
                 new SystemMessage(systemMessageContent),
                 new UserMessage(userMessageContent)
         ));
-
-        String answer = chatModel.call(prompt).getResult().getOutput().getText();
-        // 追加记忆
-        addAssistantMemory(state.conversationId, answer);
-        return answer;
+        return prompt;
     }
 
     private String renderMessages(List<Message> messages) {
@@ -1414,8 +1293,16 @@ public class PlanExecuteAgent extends BaseAgent {
         return sb.toString();
     }
 
+    private String defaultTaskValue(String value) {
+        return StringUtils.defaultIfBlank(value, "-");
+    }
+
     // 内部对象实体
-    public record PlanTask(String id, String instruction, int order) {
+    public record PlanTask(String id,
+                           String toolName,
+                           Map<String, Object> arguments,
+                           int order,
+                           String summary) {
     }
 
     public record CritiqueResult(boolean passed, String feedback) {
@@ -1428,12 +1315,18 @@ public class PlanExecuteAgent extends BaseAgent {
         private final String question;
         private final List<Message> messages = new ArrayList<>();
         private final Map<String, ExecutedTaskSnapshot> executedTasks = new LinkedHashMap<>();
+        private final Set<String> approvedToolNames = new LinkedHashSet<>();
+        private final List<PlanTask> preferredPlan = new ArrayList<>();
         private HitlCheckpointVO interruptedCheckpoint;
         private int round = 0;
+        private boolean preferredPlanConsumed;
 
-        public OverAllState(String conversationId, String question) {
+        public OverAllState(String conversationId, String question, List<PlanTask> preferredPlan) {
             this.question = question;
             this.conversationId = conversationId;
+            if (preferredPlan != null) {
+                this.preferredPlan.addAll(preferredPlan);
+            }
         }
 
         public void nextRound() {
@@ -1454,6 +1347,22 @@ public class PlanExecuteAgent extends BaseAgent {
             messages.clear();
         }
 
+        public Set<String> getApprovedToolNames() {
+            return approvedToolNames;
+        }
+
+        public boolean hasApprovedToolName(String toolName) {
+            return toolName != null && approvedToolNames.contains(toolName);
+        }
+
+        public List<PlanTask> consumePreferredPlan() {
+            if (preferredPlanConsumed || preferredPlan.isEmpty()) {
+                return List.of();
+            }
+            preferredPlanConsumed = true;
+            return new ArrayList<>(preferredPlan);
+        }
+
         public void setInterruptedCheckpoint(HitlCheckpointVO interruptedCheckpoint) {
             this.interruptedCheckpoint = interruptedCheckpoint;
         }
@@ -1465,7 +1374,9 @@ public class PlanExecuteAgent extends BaseAgent {
             String executionKey = (task.id() == null ? "task" : task.id()) + "#" + executedTasks.size();
             executedTasks.put(executionKey, new ExecutedTaskSnapshot(
                     task.id(),
-                    task.instruction(),
+                    task.toolName(),
+                    task.arguments(),
+                    task.summary(),
                     result.success(),
                     result.output(),
                     result.error(),
@@ -1485,27 +1396,12 @@ public class PlanExecuteAgent extends BaseAgent {
 
     public record ExecutedTaskSnapshot(
             String taskId,
-            String instruction,
+            String toolName,
+            Map<String, Object> arguments,
+            String summary,
             boolean success,
             String output,
             String error,
             int round) { }
-
-    private record SkillResourceInventory(
-            boolean listed,
-            boolean scriptsKnownEmpty,
-            boolean mainRead,
-            Set<String> referenceFiles,
-            Set<String> scriptFiles,
-            Set<String> readReferenceFiles) {
-
-        boolean hasInventory() {
-            return listed;
-        }
-
-        boolean hasReadReference(String path) {
-            return readReferenceFiles.contains(path);
-        }
-    }
 
 }

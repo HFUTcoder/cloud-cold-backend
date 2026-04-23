@@ -21,9 +21,9 @@ public class ExecuteSkillScriptTool extends BaseTool {
         this.skillService = skillService;
     }
 
-    @Tool(name = "execute_skill_script", description = "执行某个 skill 在 scripts 目录下的固定脚本。禁止传入任意代码，只允许传真实存在的 scripts/... 路径和结构化参数。")
+    @Tool(name = "execute_skill_script", description = "执行某个 skill 在 scripts 目录下的固定脚本。skillName、scriptPath 和 arguments 应优先来自前置 skill workflow 注入的完整 SKILL.md 与 execution hints。")
     public String executeSkillScript(@ToolParam(description = "skill 名称") String skillName,
-                                     @ToolParam(description = "脚本相对路径，必须是 list_skill_resources 返回过的 scripts/...") String scriptPath,
+                                     @ToolParam(description = "脚本相对路径，必须是该 skill 真实存在的 scripts/... 路径") String scriptPath,
                                      @ToolParam(description = "脚本参数，使用结构化 JSON 对象，例如 {\"key\":\"value\"}") Map<String, Object> arguments) {
         String inputSummary = "skillName=%s, scriptPath=%s, arguments=%s"
                 .formatted(defaultText(skillName), defaultText(scriptPath), arguments == null ? "{}" : arguments);

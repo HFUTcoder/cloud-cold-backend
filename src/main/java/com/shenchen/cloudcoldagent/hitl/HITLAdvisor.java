@@ -18,9 +18,15 @@ public class HITLAdvisor implements CallAdvisor {
     public static final String HITL_NON_INTERCEPT_TOOLS = "hitl.non.intercept.tools";
 
     private final Set<String> interceptToolNames;
+    private final Set<String> approvedToolNames;
 
     public HITLAdvisor(Set<String> interceptToolNames) {
+        this(interceptToolNames, Set.of());
+    }
+
+    public HITLAdvisor(Set<String> interceptToolNames, Set<String> approvedToolNames) {
         this.interceptToolNames = interceptToolNames;
+        this.approvedToolNames = approvedToolNames == null ? Set.of() : approvedToolNames;
     }
 
     @Override
@@ -36,6 +42,10 @@ public class HITLAdvisor implements CallAdvisor {
         for (AssistantMessage.ToolCall tc : response.chatResponse().getResult().getOutput().getToolCalls()) {
 
             if (!interceptToolNames.contains(tc.name())) {
+                nonInterceptTools.add(tc);
+                continue;
+            }
+            if (approvedToolNames.contains(tc.name())) {
                 nonInterceptTools.add(tc);
                 continue;
             }

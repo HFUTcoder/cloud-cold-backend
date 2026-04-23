@@ -54,11 +54,16 @@ public class HitlResumeServiceImpl implements HitlResumeService {
                 : interrupted.checkpointMessages());
         applyFeedbacks(messages, interrupted.pendingToolCalls(), checkpoint.getFeedbacks(), request.tools());
 
+        Set<String> approvedToolNames = new LinkedHashSet<>(
+                request.approvedToolNames() == null ? Set.of() : request.approvedToolNames()
+        );
+        approvedToolNames.addAll(extractApprovedToolNames(interrupted.pendingToolCalls(), checkpoint.getFeedbacks()));
+
         Set<String> interceptToolNames = request.interceptToolNames() == null
                 ? Set.of()
                 : new LinkedHashSet<>(request.interceptToolNames());
         List<Advisor> runtimeAdvisors = new ArrayList<>(request.advisors() == null ? List.of() : request.advisors());
-        runtimeAdvisors.add(new HITLAdvisor(interceptToolNames));
+        runtimeAdvisors.add(new HITLAdvisor(interceptToolNames, approvedToolNames));
 
         ToolCallingChatOptions toolOptions = ToolCallingChatOptions.builder()
                 .toolCallbacks(request.tools())
@@ -83,6 +88,7 @@ public class HitlResumeServiceImpl implements HitlResumeService {
                 Map<String, Object> context = interrupted.context() == null
                         ? new LinkedHashMap<>()
                         : new LinkedHashMap<>(interrupted.context());
+                context.put("approvedToolNames", new ArrayList<>(approvedToolNames));
                 HitlCheckpointVO nextCheckpoint = hitlCheckpointService.createCheckpoint(
                         checkpoint.getConversationId(),
                         checkpoint.getAgentType(),
@@ -105,6 +111,35 @@ public class HitlResumeServiceImpl implements HitlResumeService {
 
         String finalContent = chatClient.prompt().messages(messages).call().content();
         return new HitlResumeResult(false, finalContent, null, null);
+    }
+
+    private Set<String> extractApprovedToolNames(List<PendingToolCall> pendingToolCalls,
+                                                 List<PendingToolCall> feedbacks) {
+        Map<String, PendingToolCall> pendingMap = new LinkedHashMap<>();
+        for (PendingToolCall pendingToolCall : pendingToolCalls == null ? List.<PendingToolCall>of() : pendingToolCalls) {
+            if (pendingToolCall != null && StringUtils.isNotBlank(pendingToolCall.id())) {
+                pendingMap.put(pendingToolCall.id(), pendingToolCall);
+            }
+        }
+
+        Set<String> toolNames = new LinkedHashSet<>();
+        for (PendingToolCall feedback : feedbacks == null ? List.<PendingToolCall>of() : feedbacks) {
+            if (feedback == null || StringUtils.isBlank(feedback.id()) || feedback.result() == null) {
+                continue;
+            }
+            if (feedback.result() == PendingToolCall.FeedbackResult.REJECTED) {
+                continue;
+            }
+            PendingToolCall pending = pendingMap.get(feedback.id());
+            if (pending == null) {
+                continue;
+            }
+            String toolName = StringUtils.defaultIfBlank(feedback.name(), pending.name());
+            if (StringUtils.isNotBlank(toolName)) {
+                toolNames.add(toolName);
+            }
+        }
+        return toolNames;
     }
 
     @SuppressWarnings("unchecked")
@@ -177,6 +212,11 @@ public class HitlResumeServiceImpl implements HitlResumeService {
             return "{\"error\":\"工具未找到：" + escapeJson(toolName) + "\"}";
         }
         JsonArgumentUtils.NormalizationResult normalizationResult = JsonArgumentUtils.normalizeJsonArguments(rawArguments);
+        if (!normalizationResult.valid()) {
+            return "{\"error\":\"工具参数不是合法 JSON：" + escapeJson(StringUtils.defaultIfBlank(
+                    normalizationResult.errorMessage(), "unknown error")) +
+                    "\",\"toolId\":\"" + escapeJson(toolId) + "\"}";
+        }
         String arguments = normalizationResult.normalizedJson();
         try {
             return String.valueOf(tool.call(arguments));
@@ -197,7 +237,12 @@ public class HitlResumeServiceImpl implements HitlResumeService {
                 result = "工具未找到：" + toolCall.name();
             } else {
                 JsonArgumentUtils.NormalizationResult normalizationResult = JsonArgumentUtils.normalizeJsonArguments(toolCall.arguments());
-                result = String.valueOf(tool.call(normalizationResult.normalizedJson()));
+                if (!normalizationResult.valid()) {
+                    result = "{\"error\":\"工具参数不是合法 JSON：" + escapeJson(StringUtils.defaultIfBlank(
+                            normalizationResult.errorMessage(), "unknown error")) + "\"}";
+                } else {
+                    result = String.valueOf(tool.call(normalizationResult.normalizedJson()));
+                }
             }
             messages.add(ToolResponseMessage.builder().responses(
                     List.of(new ToolResponseMessage.ToolResponse(toolCall.id(), toolCall.name(), result))

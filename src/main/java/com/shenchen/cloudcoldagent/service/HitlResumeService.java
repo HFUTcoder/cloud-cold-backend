@@ -18,7 +18,8 @@ public interface HitlResumeService {
             List<ToolCallback> tools,
             List<Advisor> advisors,
             int maxRounds,
-            Set<String> interceptToolNames
+            Set<String> interceptToolNames,
+            Set<String> approvedToolNames
     ) {
     }
 
