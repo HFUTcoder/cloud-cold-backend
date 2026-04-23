@@ -2,16 +2,11 @@ package com.shenchen.cloudcoldagent.workflow.skill.service.impl;
 
 import com.alibaba.cloud.ai.graph.CompiledGraph;
 import com.alibaba.cloud.ai.graph.OverAllState;
-import com.alibaba.cloud.ai.graph.agent.ReactAgent;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shenchen.cloudcoldagent.workflow.skill.service.SkillWorkflowService;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillExecutionPlan;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillWorkflowResult;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillWorkflowStateKeys;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
@@ -23,15 +18,9 @@ import java.util.Map;
 public class SkillWorkflowServiceImpl implements SkillWorkflowService {
 
     private final CompiledGraph skillWorkflowGraph;
-    private final ChatModel chatModel;
-    private final ObjectMapper objectMapper;
 
-    public SkillWorkflowServiceImpl(CompiledGraph skillWorkflowGraph,
-                                    ChatModel chatModel,
-                                    ObjectMapper objectMapper) {
+    public SkillWorkflowServiceImpl(CompiledGraph skillWorkflowGraph) {
         this.skillWorkflowGraph = skillWorkflowGraph;
-        this.chatModel = chatModel;
-        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -67,25 +56,6 @@ public class SkillWorkflowServiceImpl implements SkillWorkflowService {
                     .executionPlans(List.of())
                     .enhancedQuestion(question)
                     .build();
-        }
-    }
-
-    @Override
-    public <T> T executeStructuredOutput(List<Message> messages, Class<T> outputType) {
-        try {
-            ReactAgent agent = ReactAgent.builder()
-                    .name("StructuredOutputAgent")
-                    .model(chatModel)
-                    .outputType(outputType)
-                    .build();
-            AssistantMessage response = agent.call(messages);
-            String text = response == null ? null : response.getText();
-            if (text == null || text.isBlank()) {
-                throw new IllegalStateException("structured output 返回为空");
-            }
-            return objectMapper.readValue(text, outputType);
-        } catch (Exception e) {
-            throw new RuntimeException("structured output 执行失败", e);
         }
     }
 }

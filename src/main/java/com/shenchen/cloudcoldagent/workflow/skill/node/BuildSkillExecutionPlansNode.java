@@ -3,7 +3,6 @@ package com.shenchen.cloudcoldagent.workflow.skill.node;
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.shenchen.cloudcoldagent.model.vo.SkillResourceListVO;
 import com.shenchen.cloudcoldagent.prompts.SkillWorkflowPrompts;
-import com.shenchen.cloudcoldagent.workflow.skill.service.SkillWorkflowService;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillCandidate;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillArgumentSpec;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillExecutionPlan;
@@ -11,6 +10,7 @@ import com.shenchen.cloudcoldagent.workflow.skill.state.SkillExecutionPlanListRe
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillScriptExecutionRequest;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillToolCallPlan;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillWorkflowStateKeys;
+import com.shenchen.cloudcoldagent.workflow.skill.service.StructuredOutputAgentExecutor;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.stereotype.Component;
@@ -26,10 +26,10 @@ import java.util.stream.Collectors;
 @Component
 public class BuildSkillExecutionPlansNode {
 
-    private final SkillWorkflowService skillWorkflowService;
+    private final StructuredOutputAgentExecutor structuredOutputAgentExecutor;
 
-    public BuildSkillExecutionPlansNode(SkillWorkflowService skillWorkflowService) {
-        this.skillWorkflowService = skillWorkflowService;
+    public BuildSkillExecutionPlansNode(StructuredOutputAgentExecutor structuredOutputAgentExecutor) {
+        this.structuredOutputAgentExecutor = structuredOutputAgentExecutor;
     }
 
     @SuppressWarnings("unchecked")
@@ -62,7 +62,7 @@ public class BuildSkillExecutionPlansNode {
             batchSkillInputs.add(item);
         }
 
-        SkillExecutionPlanListResult result = skillWorkflowService.executeStructuredOutput(List.of(
+        SkillExecutionPlanListResult result = structuredOutputAgentExecutor.execute(List.of(
                 new SystemMessage(SkillWorkflowPrompts.buildExecutionPlanPrompt()),
                 new UserMessage(SkillWorkflowPrompts.buildExecutionPlanInput(
                         question,
