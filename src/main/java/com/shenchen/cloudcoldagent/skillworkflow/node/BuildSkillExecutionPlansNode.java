@@ -7,6 +7,7 @@ import com.shenchen.cloudcoldagent.prompts.SkillWorkflowPrompts;
 import com.shenchen.cloudcoldagent.skillworkflow.state.SkillCandidate;
 import com.shenchen.cloudcoldagent.skillworkflow.state.SkillArgumentSpec;
 import com.shenchen.cloudcoldagent.skillworkflow.state.SkillExecutionPlan;
+import com.shenchen.cloudcoldagent.skillworkflow.state.SkillExecutionPlanListResult;
 import com.shenchen.cloudcoldagent.skillworkflow.state.SkillScriptExecutionRequest;
 import com.shenchen.cloudcoldagent.skillworkflow.state.SkillToolCallPlan;
 import com.shenchen.cloudcoldagent.skillworkflow.state.SkillWorkflowStateKeys;
@@ -45,32 +46,38 @@ public class BuildSkillExecutionPlansNode {
         Map<String, SkillCandidate> candidateMap = candidates.stream()
                 .collect(Collectors.toMap(SkillCandidate::getSkillName, Function.identity(), (left, right) -> left, LinkedHashMap::new));
 
-        List<SkillExecutionPlan> plans = new ArrayList<>();
+        if (skillContents.isEmpty()) {
+            return CompletableFuture.completedFuture(Map.of(SkillWorkflowStateKeys.EXECUTION_PLANS, List.of()));
+        }
+
+        List<Map<String, Object>> batchSkillInputs = new ArrayList<>();
         for (Map.Entry<String, String> entry : skillContents.entrySet()) {
             String skillName = entry.getKey();
-            String content = entry.getValue();
-            SkillResourceListVO resourceList = skillResources.get(skillName);
             SkillCandidate candidate = candidateMap.get(skillName);
-            SkillExecutionPlan plan = structuredOutputAgentExecutor.execute(List.of(
-                    new SystemMessage(SkillWorkflowPrompts.buildExecutionPlanPrompt()),
-                    new UserMessage(SkillWorkflowPrompts.buildExecutionPlanInput(
-                            question,
-                            candidate,
-                            content,
-                            resourceList == null ? "{}" : JSONUtil.toJsonStr(resourceList)
-                    ))
-            ), SkillExecutionPlan.class);
-            if (plan == null) {
+            SkillResourceListVO resourceList = skillResources.get(skillName);
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("skillName", skillName);
+            item.put("candidate", candidate == null ? Map.of() : candidate);
+            item.put("resourceList", resourceList == null ? Map.of() : resourceList);
+            item.put("skillContent", entry.getValue());
+            batchSkillInputs.add(item);
+        }
+
+        SkillExecutionPlanListResult result = structuredOutputAgentExecutor.execute(List.of(
+                new SystemMessage(SkillWorkflowPrompts.buildExecutionPlanPrompt()),
+                new UserMessage(SkillWorkflowPrompts.buildExecutionPlanInput(
+                        question,
+                        SkillWorkflowPrompts.buildExecutionPlanBatchInput(batchSkillInputs)
+                ))
+        ), SkillExecutionPlanListResult.class);
+
+        List<SkillExecutionPlan> rawPlans = result == null || result.getItems() == null ? List.of() : result.getItems();
+        List<SkillExecutionPlan> plans = new ArrayList<>();
+        for (SkillExecutionPlan plan : rawPlans) {
+            if (plan == null || plan.getSkillName() == null || plan.getSkillName().isBlank()) {
                 continue;
             }
-            plan.setSkillName(skillName);
-            if (plan.getSource() == null && candidate != null) {
-                plan.setSource(candidate.getSource());
-            }
-            if (plan.getReason() == null && candidate != null) {
-                plan.setReason(candidate.getReason());
-            }
-            normalizeToolRequest(plan, skillName);
+            normalizeToolRequest(plan, plan.getSkillName());
             plans.add(plan);
         }
 

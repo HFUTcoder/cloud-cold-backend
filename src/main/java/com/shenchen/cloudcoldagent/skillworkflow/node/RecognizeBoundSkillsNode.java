@@ -51,10 +51,7 @@ public class RecognizeBoundSkillsNode {
                 .filter(candidate -> candidate != null && candidate.getSkillName() != null)
                 .map(candidate -> SkillCandidate.builder()
                         .skillName(candidate.getSkillName())
-                        .source("bound")
                         .relevant(Boolean.TRUE.equals(candidate.getRelevant()))
-                        .reason(candidate.getReason())
-                        .score(candidate.getScore())
                         .build())
                 .toList();
 

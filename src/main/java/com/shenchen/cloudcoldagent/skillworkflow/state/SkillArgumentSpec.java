@@ -26,6 +26,4 @@ public class SkillArgumentSpec implements Serializable {
     private Boolean optional;
 
     private Object defaultValue;
-
-    private String description;
 }

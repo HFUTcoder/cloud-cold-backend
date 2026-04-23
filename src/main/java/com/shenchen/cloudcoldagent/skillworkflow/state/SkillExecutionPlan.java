@@ -17,15 +17,9 @@ public class SkillExecutionPlan implements Serializable {
 
     private String skillName;
 
-    private String source;
-
     private Boolean selected;
 
-    private String reason;
-
     private Boolean executable;
-
-    private String userPromptAugmentation;
 
     private SkillToolCallPlan toolCallPlan;
 }

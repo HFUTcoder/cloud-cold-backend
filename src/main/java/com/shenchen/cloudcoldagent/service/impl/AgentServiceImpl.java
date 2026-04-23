@@ -39,7 +39,6 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -206,7 +205,7 @@ public class AgentServiceImpl implements AgentService {
                     toolCallPlan.getToolName(),
                     toolArguments,
                     order,
-                    Objects.toString(toolCallPlan.getSummary(), executionPlan.getReason())
+                    toolCallPlan.getToolName()
             ));
         }
         return tasks;

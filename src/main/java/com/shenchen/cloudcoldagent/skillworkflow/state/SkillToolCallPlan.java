@@ -18,6 +18,4 @@ public class SkillToolCallPlan implements Serializable {
     private String toolName;
 
     private SkillScriptExecutionRequest request;
-
-    private String summary;
 }

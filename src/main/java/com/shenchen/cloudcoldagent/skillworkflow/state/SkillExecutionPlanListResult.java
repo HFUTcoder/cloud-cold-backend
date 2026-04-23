@@ -6,16 +6,15 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
+import java.util.List;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class SkillCandidate implements Serializable {
+public class SkillExecutionPlanListResult implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
-    private String skillName;
-
-    private Boolean relevant;
+    private List<SkillExecutionPlan> items;
 }

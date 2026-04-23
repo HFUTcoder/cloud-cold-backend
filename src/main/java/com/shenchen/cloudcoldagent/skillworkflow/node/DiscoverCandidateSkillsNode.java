@@ -59,10 +59,7 @@ public class DiscoverCandidateSkillsNode {
                         .filter(candidate -> candidate != null && candidate.getSkillName() != null)
                         .map(candidate -> SkillCandidate.builder()
                                 .skillName(candidate.getSkillName())
-                                .source("discovered")
                                 .relevant(Boolean.TRUE.equals(candidate.getRelevant()))
-                                .reason(candidate.getReason())
-                                .score(candidate.getScore())
                                 .build())
                         .forEach(mergedCandidates::add);
             }

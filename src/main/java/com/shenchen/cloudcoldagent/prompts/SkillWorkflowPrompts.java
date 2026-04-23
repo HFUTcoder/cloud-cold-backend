@@ -24,7 +24,8 @@ public final class SkillWorkflowPrompts {
                 2. 如果某个 skill 与本轮问题无关，relevant 必须为 false。
                 3. skillName 必须使用输入里已有的原始名称，禁止改写。
                 4. 输出必须严格符合结构化 schema，不要附加解释。
-                5. 返回结果使用 items 字段承载数组。
+                5. 每个结果项只保留 skillName 和 relevant。
+                6. 返回结果使用 items 字段承载数组。
                 """;
     }
 
@@ -48,7 +49,8 @@ public final class SkillWorkflowPrompts {
                 2. skillName 必须使用输入里已有的原始名称，禁止自造或改写。
                 3. 如果没有相关 skill，items 返回空数组。
                 4. 输出必须严格符合结构化 schema，不要附加解释。
-                5. 返回结果使用 items 字段承载数组。
+                5. 每个结果项只保留 skillName 和 relevant。
+                6. 返回结果使用 items 字段承载数组。
                 """;
     }
 
@@ -65,7 +67,7 @@ public final class SkillWorkflowPrompts {
     public static String buildExecutionPlanPrompt() {
         return """
                 你是 skill 执行计划生成节点。
-                你需要基于用户问题、skill 说明正文和资源清单，产出后续执行阶段所需的结构化 skill execution plan。
+                你需要基于用户问题、多个 skill 的说明正文和资源清单，批量产出后续执行阶段所需的结构化 skill execution plans。
 
                 规则：
                 1. 不要猜测输入中不存在的 scriptPath 或 reference 路径，优先使用资源清单和正文中已有信息。
@@ -75,33 +77,31 @@ public final class SkillWorkflowPrompts {
                 5. 如果 skill 与当前问题无关，selected 必须为 false。
                 6. 如果可直接执行固定脚本，toolCallPlan.toolName 必须为 execute_skill_script。
                 7. request 中必须包含 skillName、scriptPath、argumentSpecs、arguments。
-                8. argumentSpecs 每个参数对象只允许使用 name、type、required、defaultValue、description 这 5 个字段，不要输出 optional。
-                9. 输出必须严格符合结构化 schema，不要附加解释。
+                8. argumentSpecs 每个参数对象只允许使用 name、type、required、defaultValue 这 4 个字段，不要输出 description，不要输出 optional。
+                9. 每个 execution plan 只保留 skillName、selected、executable、toolCallPlan。
+                10. toolCallPlan 只保留 toolName 和 request，不要输出 summary。
+                11. 必须返回 items 数组，数组中的每一项对应输入中的一个 skill。
+                12. skillName 必须使用输入里已有的原始名称，禁止改写。
+                13. 输出必须严格符合结构化 schema，不要附加解释。
                 """;
     }
 
     public static String buildExecutionPlanInput(String question,
-                                                 SkillCandidate candidate,
-                                                 String skillContent,
-                                                 String resourceListJson) {
+                                                 String batchSkillInputJson) {
         return """
                 用户问题：
                 %s
 
-                当前 skill 候选判断：
-                %s
-
-                资源清单：
-                %s
-
-                SKILL.md 正文：
+                待批量生成 execution plan 的 skills：
                 %s
                 """.formatted(
                 StringUtils.defaultString(question),
-                candidate == null ? "{}" : JSONUtil.toJsonStr(candidate),
-                StringUtils.defaultString(resourceListJson),
-                StringUtils.defaultString(skillContent)
+                StringUtils.defaultString(batchSkillInputJson)
         );
+    }
+
+    public static String buildExecutionPlanBatchInput(List<Map<String, Object>> skillInputs) {
+        return JSONUtil.toJsonStr(skillInputs == null ? List.of() : skillInputs);
     }
 
     public static String buildEnhancedQuestion(List<String> selectedSkills,
