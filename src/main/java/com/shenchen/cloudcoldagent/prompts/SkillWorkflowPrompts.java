@@ -1,8 +1,7 @@
 package com.shenchen.cloudcoldagent.prompts;
 
 import cn.hutool.json.JSONUtil;
-import com.shenchen.cloudcoldagent.skillworkflow.state.SkillCandidate;
-import com.shenchen.cloudcoldagent.skillworkflow.state.SkillExecutionPlan;
+import com.shenchen.cloudcoldagent.workflow.skill.state.SkillExecutionPlan;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.LinkedHashMap;

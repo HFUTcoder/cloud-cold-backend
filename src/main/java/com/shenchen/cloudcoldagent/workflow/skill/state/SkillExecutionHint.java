@@ -1,4 +1,4 @@
-package com.shenchen.cloudcoldagent.skillworkflow.state;
+package com.shenchen.cloudcoldagent.workflow.skill.state;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

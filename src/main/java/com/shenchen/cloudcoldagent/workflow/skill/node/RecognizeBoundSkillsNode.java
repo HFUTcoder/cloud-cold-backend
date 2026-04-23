@@ -1,14 +1,14 @@
-package com.shenchen.cloudcoldagent.skillworkflow.node;
+package com.shenchen.cloudcoldagent.workflow.skill.node;
 
 import cn.hutool.json.JSONUtil;
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.shenchen.cloudcoldagent.model.vo.SkillMetadataVO;
-import com.shenchen.cloudcoldagent.skillworkflow.state.SkillCandidate;
-import com.shenchen.cloudcoldagent.skillworkflow.state.SkillCandidateListResult;
-import com.shenchen.cloudcoldagent.skillworkflow.state.SkillWorkflowStateKeys;
+import com.shenchen.cloudcoldagent.workflow.skill.service.SkillWorkflowService;
+import com.shenchen.cloudcoldagent.workflow.skill.state.SkillCandidate;
+import com.shenchen.cloudcoldagent.workflow.skill.state.SkillCandidateListResult;
+import com.shenchen.cloudcoldagent.workflow.skill.state.SkillWorkflowStateKeys;
 import com.shenchen.cloudcoldagent.prompts.SkillWorkflowPrompts;
 import com.shenchen.cloudcoldagent.service.SkillService;
-import com.shenchen.cloudcoldagent.skillworkflow.support.StructuredOutputAgentExecutor;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.stereotype.Component;
@@ -22,12 +22,12 @@ import java.util.concurrent.CompletableFuture;
 public class RecognizeBoundSkillsNode {
 
     private final SkillService skillService;
-    private final StructuredOutputAgentExecutor structuredOutputAgentExecutor;
+    private final SkillWorkflowService skillWorkflowService;
 
     public RecognizeBoundSkillsNode(SkillService skillService,
-                                    StructuredOutputAgentExecutor structuredOutputAgentExecutor) {
+                                    SkillWorkflowService skillWorkflowService) {
         this.skillService = skillService;
-        this.structuredOutputAgentExecutor = structuredOutputAgentExecutor;
+        this.skillWorkflowService = skillWorkflowService;
     }
 
     @SuppressWarnings("unchecked")
@@ -42,7 +42,7 @@ public class RecognizeBoundSkillsNode {
                 .map(skillService::getSkillMetadata)
                 .toList();
 
-        SkillCandidateListResult result = structuredOutputAgentExecutor.execute(List.of(
+        SkillCandidateListResult result = skillWorkflowService.executeStructuredOutput(List.of(
                 new SystemMessage(SkillWorkflowPrompts.buildBoundSkillRecognitionPrompt()),
                 new UserMessage(SkillWorkflowPrompts.buildBoundSkillRecognitionInput(question, JSONUtil.toJsonStr(metadataList)))
         ), SkillCandidateListResult.class);

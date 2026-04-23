@@ -1,9 +1,9 @@
-package com.shenchen.cloudcoldagent.skillworkflow.node;
+package com.shenchen.cloudcoldagent.workflow.skill.node;
 
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.shenchen.cloudcoldagent.prompts.SkillWorkflowPrompts;
-import com.shenchen.cloudcoldagent.skillworkflow.state.SkillExecutionPlan;
-import com.shenchen.cloudcoldagent.skillworkflow.state.SkillWorkflowStateKeys;
+import com.shenchen.cloudcoldagent.workflow.skill.state.SkillExecutionPlan;
+import com.shenchen.cloudcoldagent.workflow.skill.state.SkillWorkflowStateKeys;
 import org.springframework.stereotype.Component;
 
 import java.util.List;

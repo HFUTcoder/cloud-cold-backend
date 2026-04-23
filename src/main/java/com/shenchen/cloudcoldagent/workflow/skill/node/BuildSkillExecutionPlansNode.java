@@ -1,17 +1,16 @@
-package com.shenchen.cloudcoldagent.skillworkflow.node;
+package com.shenchen.cloudcoldagent.workflow.skill.node;
 
-import cn.hutool.json.JSONUtil;
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.shenchen.cloudcoldagent.model.vo.SkillResourceListVO;
 import com.shenchen.cloudcoldagent.prompts.SkillWorkflowPrompts;
-import com.shenchen.cloudcoldagent.skillworkflow.state.SkillCandidate;
-import com.shenchen.cloudcoldagent.skillworkflow.state.SkillArgumentSpec;
-import com.shenchen.cloudcoldagent.skillworkflow.state.SkillExecutionPlan;
-import com.shenchen.cloudcoldagent.skillworkflow.state.SkillExecutionPlanListResult;
-import com.shenchen.cloudcoldagent.skillworkflow.state.SkillScriptExecutionRequest;
-import com.shenchen.cloudcoldagent.skillworkflow.state.SkillToolCallPlan;
-import com.shenchen.cloudcoldagent.skillworkflow.state.SkillWorkflowStateKeys;
-import com.shenchen.cloudcoldagent.skillworkflow.support.StructuredOutputAgentExecutor;
+import com.shenchen.cloudcoldagent.workflow.skill.service.SkillWorkflowService;
+import com.shenchen.cloudcoldagent.workflow.skill.state.SkillCandidate;
+import com.shenchen.cloudcoldagent.workflow.skill.state.SkillArgumentSpec;
+import com.shenchen.cloudcoldagent.workflow.skill.state.SkillExecutionPlan;
+import com.shenchen.cloudcoldagent.workflow.skill.state.SkillExecutionPlanListResult;
+import com.shenchen.cloudcoldagent.workflow.skill.state.SkillScriptExecutionRequest;
+import com.shenchen.cloudcoldagent.workflow.skill.state.SkillToolCallPlan;
+import com.shenchen.cloudcoldagent.workflow.skill.state.SkillWorkflowStateKeys;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.stereotype.Component;
@@ -27,10 +26,10 @@ import java.util.stream.Collectors;
 @Component
 public class BuildSkillExecutionPlansNode {
 
-    private final StructuredOutputAgentExecutor structuredOutputAgentExecutor;
+    private final SkillWorkflowService skillWorkflowService;
 
-    public BuildSkillExecutionPlansNode(StructuredOutputAgentExecutor structuredOutputAgentExecutor) {
-        this.structuredOutputAgentExecutor = structuredOutputAgentExecutor;
+    public BuildSkillExecutionPlansNode(SkillWorkflowService skillWorkflowService) {
+        this.skillWorkflowService = skillWorkflowService;
     }
 
     @SuppressWarnings("unchecked")
@@ -63,7 +62,7 @@ public class BuildSkillExecutionPlansNode {
             batchSkillInputs.add(item);
         }
 
-        SkillExecutionPlanListResult result = structuredOutputAgentExecutor.execute(List.of(
+        SkillExecutionPlanListResult result = skillWorkflowService.executeStructuredOutput(List.of(
                 new SystemMessage(SkillWorkflowPrompts.buildExecutionPlanPrompt()),
                 new UserMessage(SkillWorkflowPrompts.buildExecutionPlanInput(
                         question,

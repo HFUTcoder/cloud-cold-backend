@@ -1,13 +1,13 @@
-package com.shenchen.cloudcoldagent.skillworkflow.config;
+package com.shenchen.cloudcoldagent.workflow.skill.config;
 
 import com.alibaba.cloud.ai.graph.CompiledGraph;
 import com.alibaba.cloud.ai.graph.StateGraph;
-import com.shenchen.cloudcoldagent.skillworkflow.node.BuildEnhancedQuestionNode;
-import com.shenchen.cloudcoldagent.skillworkflow.node.BuildSkillExecutionPlansNode;
-import com.shenchen.cloudcoldagent.skillworkflow.node.DiscoverCandidateSkillsNode;
-import com.shenchen.cloudcoldagent.skillworkflow.node.LoadBoundSkillsNode;
-import com.shenchen.cloudcoldagent.skillworkflow.node.LoadSkillContentsNode;
-import com.shenchen.cloudcoldagent.skillworkflow.node.RecognizeBoundSkillsNode;
+import com.shenchen.cloudcoldagent.workflow.skill.node.BuildEnhancedQuestionNode;
+import com.shenchen.cloudcoldagent.workflow.skill.node.BuildSkillExecutionPlansNode;
+import com.shenchen.cloudcoldagent.workflow.skill.node.DiscoverCandidateSkillsNode;
+import com.shenchen.cloudcoldagent.workflow.skill.node.LoadBoundSkillsNode;
+import com.shenchen.cloudcoldagent.workflow.skill.node.LoadSkillContentsNode;
+import com.shenchen.cloudcoldagent.workflow.skill.node.RecognizeBoundSkillsNode;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
