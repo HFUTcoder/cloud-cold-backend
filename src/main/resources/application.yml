@@ -1,6 +1,11 @@
 spring:
   application:
     name: cloud-cold-agent
+  servlet:
+    multipart:
+      max-file-size: 10MB      # 单文件最大大小，根据需求调整
+      max-request-size: 10MB   # 单次请求总大小，根据需求调整
+      enabled: true            # 启用文件上传
   ai:
     alibaba:
       python:
@@ -15,7 +20,6 @@ spring:
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/cloud_cold
-    username: root
   session:
     store-type: redis
     timeout: 2592000
@@ -48,6 +52,11 @@ knife4j:
 mybatis-flex:
   configuration:
     map-underscore-to-camel-case: false
+
+minio:
+  url: http://localhost:9000
+  bucketName: cloud-cold
+  endpoint: http://localhost:9000
 
 cloudcold:
   search:

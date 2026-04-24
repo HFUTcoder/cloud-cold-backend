@@ -146,6 +146,11 @@
             <version>25.0.1</version>
             <type>pom</type>
         </dependency>
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>8.5.1</version>
+        </dependency>
     </dependencies>
 
     <build>
