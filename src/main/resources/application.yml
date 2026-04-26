@@ -11,6 +11,19 @@ spring:
       python:
         tool:
           enabled: true
+    vectorstore:
+      milvus:
+        client:
+          host: "localhost"
+          port: 19530
+          username: "root"
+          password: "milvus"
+        databaseName: "default"
+        collectionName: "vector_store"
+        embeddingDimension: 1536
+        indexType: IVF_FLAT
+        metricType: COSINE
+        initialize-schema: true
   profiles:
     active: local
   multipart:
