@@ -1,5 +1,6 @@
 package com.shenchen.cloudcoldagent.hitl;
 
+import com.shenchen.cloudcoldagent.model.entity.record.hitl.PendingToolCall;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisor;

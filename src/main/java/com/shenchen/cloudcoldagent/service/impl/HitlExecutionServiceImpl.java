@@ -2,7 +2,9 @@ package com.shenchen.cloudcoldagent.service.impl;
 
 import com.shenchen.cloudcoldagent.hitl.HITLAdvisor;
 import com.shenchen.cloudcoldagent.hitl.HITLState;
-import com.shenchen.cloudcoldagent.hitl.PendingToolCall;
+import com.shenchen.cloudcoldagent.model.entity.record.hitl.HitlExecutionRequest;
+import com.shenchen.cloudcoldagent.model.entity.record.hitl.HitlExecutionResult;
+import com.shenchen.cloudcoldagent.model.entity.record.hitl.PendingToolCall;
 import com.shenchen.cloudcoldagent.model.vo.HitlCheckpointVO;
 import com.shenchen.cloudcoldagent.service.HitlCheckpointService;
 import com.shenchen.cloudcoldagent.service.HitlExecutionService;

@@ -1,6 +1,6 @@
 package com.shenchen.cloudcoldagent.model.dto.hitl;
 
-import com.shenchen.cloudcoldagent.hitl.PendingToolCall;
+import com.shenchen.cloudcoldagent.model.entity.record.hitl.PendingToolCall;
 import lombok.Data;
 import org.springframework.ai.chat.messages.Message;
 

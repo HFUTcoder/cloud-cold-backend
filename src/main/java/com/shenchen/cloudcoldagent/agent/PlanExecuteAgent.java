@@ -1,10 +1,18 @@
 package com.shenchen.cloudcoldagent.agent;
 
 import cn.hutool.json.JSONUtil;
-import com.shenchen.cloudcoldagent.hitl.PendingToolCall;
+import com.shenchen.cloudcoldagent.common.AgentStreamEventFactory;
+import com.shenchen.cloudcoldagent.model.entity.record.hitl.HitlResumeRequest;
+import com.shenchen.cloudcoldagent.model.entity.record.hitl.HitlResumeResult;
+import com.shenchen.cloudcoldagent.model.entity.record.hitl.PendingToolCall;
+import com.shenchen.cloudcoldagent.model.entity.record.agent.planexecute.CritiqueResult;
+import com.shenchen.cloudcoldagent.model.entity.record.agent.planexecute.ExecutedTaskSnapshot;
+import com.shenchen.cloudcoldagent.model.entity.record.agent.planexecute.PlanTask;
+import com.shenchen.cloudcoldagent.model.entity.record.agent.planexecute.ResumeContext;
+import com.shenchen.cloudcoldagent.model.entity.record.agent.planexecute.TaskResult;
 import com.shenchen.cloudcoldagent.model.vo.HitlCheckpointVO;
 import com.shenchen.cloudcoldagent.model.vo.AgentStreamEvent;
-import com.shenchen.cloudcoldagent.prompts.PlanExecutePromptsFactory;
+import com.shenchen.cloudcoldagent.prompts.PlanExecutePrompts;
 import com.shenchen.cloudcoldagent.service.HitlCheckpointService;
 import com.shenchen.cloudcoldagent.service.HitlExecutionService;
 import com.shenchen.cloudcoldagent.service.HitlResumeService;
@@ -64,8 +72,6 @@ public class PlanExecuteAgent extends BaseAgent {
 
     private final String agentType;
 
-    private PlanExecutePromptsFactory planExecutePrompts;
-
     private final ChatClient chatClient;
 
     public PlanExecuteAgent(ChatModel chatModel,
@@ -74,7 +80,6 @@ public class PlanExecuteAgent extends BaseAgent {
                             int maxRounds,
                             int contextCharLimit,
                             int maxToolRetries,
-                            PlanExecutePromptsFactory planExecutePrompts,
                             ChatMemory chatMemory,
                             HitlExecutionService hitlExecutionService,
                             HitlCheckpointService hitlCheckpointService,
@@ -85,7 +90,6 @@ public class PlanExecuteAgent extends BaseAgent {
         this.contextCharLimit = contextCharLimit;
         this.maxToolRetries = maxToolRetries;
         this.toolSemaphore = new Semaphore(3);
-        this.planExecutePrompts = planExecutePrompts;
         this.hitlExecutionService = hitlExecutionService;
         this.hitlCheckpointService = hitlCheckpointService;
         this.hitlResumeService = hitlResumeService;
@@ -115,8 +119,6 @@ public class PlanExecuteAgent extends BaseAgent {
 
         // 默认工具重试次数2次
         private int maxToolRetries = 2;
-
-        private PlanExecutePromptsFactory planExecutePrompts;
 
         private ChatMemory chatMemory;
 
@@ -200,15 +202,10 @@ public class PlanExecuteAgent extends BaseAgent {
             return this;
         }
 
-        public Builder planExecutePrompts(PlanExecutePromptsFactory planExecutePrompts) {
-            this.planExecutePrompts = planExecutePrompts;
-            return this;
-        }
-
         public PlanExecuteAgent build() {
             Objects.requireNonNull(chatModel, "chatModel must not be null");
             return new PlanExecuteAgent(chatModel, tools, advisors, maxRounds, contextCharLimit, maxToolRetries,
-                    planExecutePrompts, chatMemory, hitlExecutionService, hitlCheckpointService, hitlResumeService,
+                    chatMemory, hitlExecutionService, hitlCheckpointService, hitlResumeService,
                     agentType, hitlInterceptToolNames);
         }
     }
@@ -357,7 +354,7 @@ public class PlanExecuteAgent extends BaseAgent {
                         break;
                     }
 
-                    log.info("===== critique Goal not satisfied, continue round =====,\n reason is {} ", critique.feedback);
+                    log.info("===== critique Goal not satisfied, continue round =====,\n reason is {} ", critique.feedback());
                     state.add(new AssistantMessage(critiqueText));
                     emitStep(sink, state.getConversationId(), "critique", "Critique Feedback", critique.feedback());
 
@@ -396,15 +393,7 @@ public class PlanExecuteAgent extends BaseAgent {
         if (sink == null || StringUtils.isBlank(content)) {
             return;
         }
-        Map<String, Object> stepData = new LinkedHashMap<>();
-        stepData.put("stage", type);
-        stepData.put("title", title);
-        stepData.put("content", content);
-        sink.tryEmitNext(AgentStreamEvent.builder()
-                .type("thinking_step")
-                .conversationId(conversationId)
-                .data(stepData)
-                .build());
+        sink.tryEmitNext(AgentStreamEventFactory.thinkingStep(conversationId, type, title, content));
     }
 
     private String renderPlanForDisplay(List<PlanTask> plan) {
@@ -515,7 +504,7 @@ public class PlanExecuteAgent extends BaseAgent {
                 break;
             }
 
-            log.info("===== critique Goal not satisfied, continue round =====,\n reason is {} ", critique.feedback);
+            log.info("===== critique Goal not satisfied, continue round =====,\n reason is {} ", critique.feedback());
             state.add(new AssistantMessage(String.format("【Critique Feedback】%n%s", critique.feedback())));
 
             // 4. 压缩context
@@ -538,7 +527,7 @@ public class PlanExecuteAgent extends BaseAgent {
         BeanOutputConverter<List<PlanTask>> converter = new BeanOutputConverter<>(new ParameterizedTypeReference<>() {
         });
 
-        String planPrompt = PlanExecutePromptsFactory.buildPrompts(planExecutePrompts).formatPlanPrompt(
+        String planPrompt = PlanExecutePrompts.formatPlanPrompt(
                 LocalDateTime.now(ZoneId.of("Asia/Shanghai")),
                 state.round,
                 toolDesc,
@@ -729,7 +718,7 @@ public class PlanExecuteAgent extends BaseAgent {
         Schedulers.boundedElastic().schedule(() -> {
             try {
                 HitlCheckpointVO checkpoint = hitlCheckpointService.getByInterruptId(interruptId);
-                PlanExecuteResumeUtils.ResumeContext resumeContext = PlanExecuteResumeUtils.readContext(checkpoint.getContext());
+                ResumeContext resumeContext = PlanExecuteResumeUtils.readContext(checkpoint.getContext());
                 OverAllState state = restoreResumeState(checkpoint.getConversationId(), resumeContext);
                 String runtimeSystemPrompt = resumeContext.runtimeSystemPrompt();
                 emitStep(sink, state.getConversationId(), "resume", "Resume", "正在恢复上次被 HITL 中断的执行链...");
@@ -886,7 +875,7 @@ public class PlanExecuteAgent extends BaseAgent {
         }
     }
 
-    private OverAllState restoreResumeState(String conversationId, PlanExecuteResumeUtils.ResumeContext resumeContext) {
+    private OverAllState restoreResumeState(String conversationId, ResumeContext resumeContext) {
         OverAllState state = new OverAllState(conversationId, resumeContext.question(), List.of());
         state.messages.addAll(resumeContext.messages() == null ? List.of() : resumeContext.messages());
         state.executedTasks.putAll(resumeContext.executedTasks() == null ? Map.of() : resumeContext.executedTasks());
@@ -899,8 +888,8 @@ public class PlanExecuteAgent extends BaseAgent {
         if (hitlResumeService == null) {
             throw new IllegalStateException("hitlResumeService 未配置，无法 resume");
         }
-        HitlResumeService.HitlResumeResult resumeResult = hitlResumeService.resume(
-                new HitlResumeService.HitlResumeRequest(
+        HitlResumeResult resumeResult = hitlResumeService.resume(
+                new HitlResumeRequest(
                         interruptId,
                         chatModel,
                         tools,
@@ -942,7 +931,7 @@ public class PlanExecuteAgent extends BaseAgent {
             return false;
         }
 
-        log.info("===== critique Goal not satisfied, continue round =====,\n reason is {} ", critique.feedback);
+        log.info("===== critique Goal not satisfied, continue round =====,\n reason is {} ", critique.feedback());
         state.add(new AssistantMessage("【Critique Feedback】\n" + critique.feedback()));
         emitStep(sink, state.getConversationId(), "critique", "Critique Feedback", critique.feedback());
         compressIfNeeded(state);
@@ -1148,22 +1137,15 @@ public class PlanExecuteAgent extends BaseAgent {
 
     private AgentStreamEvent buildHitlInterruptEvent(String conversationId, HitlCheckpointVO checkpoint) {
         if (checkpoint == null) {
-            return AgentStreamEvent.builder()
-                    .type("hitl_interrupt")
-                    .conversationId(conversationId)
-                    .data(Map.of())
-                    .build();
+            return AgentStreamEventFactory.emptyHitlInterrupt(conversationId);
         }
-        Map<String, Object> interruptData = new LinkedHashMap<>();
-        interruptData.put("agentType", checkpoint.getAgentType());
-        interruptData.put("pendingToolCalls", checkpoint.getPendingToolCalls());
-        interruptData.put("status", checkpoint.getStatus());
-        return AgentStreamEvent.builder()
-                .type("hitl_interrupt")
-                .conversationId(conversationId)
-                .interruptId(checkpoint.getInterruptId())
-                .data(interruptData)
-                .build();
+        return AgentStreamEventFactory.hitlInterrupt(
+                conversationId,
+                checkpoint.getInterruptId(),
+                checkpoint.getAgentType(),
+                checkpoint.getStatus(),
+                checkpoint.getPendingToolCalls()
+        );
     }
 
     private String renderDependencySnapshot(Map<String, String> results) {
@@ -1212,7 +1194,7 @@ public class PlanExecuteAgent extends BaseAgent {
         });
 
         Prompt prompt = new Prompt(List.of(
-                new SystemMessage(PlanExecutePromptsFactory.buildPrompts(planExecutePrompts).getCritiquePrompt()),
+                new SystemMessage(PlanExecutePrompts.getCritiquePrompt()),
                 new UserMessage(renderMessages(state.getMessages()))
         ));
         String raw = chatModel.call(prompt).getResult().getOutput().getText();
@@ -1228,15 +1210,7 @@ public class PlanExecuteAgent extends BaseAgent {
 
         log.warn("===== Context too large, compressing ,size is {} =====", state.currentChars());
 
-        String compressLimitPrompt = String.format(
-                "## 最大压缩限制（必须遵守）%n" +
-                        "- 你输出的最终内容【总字符数（包含所有标签、空格、换行）】%n" +
-                        "  不得超过：%s%n" +
-                        "- 这是硬性上限，不是建议%n" +
-                        "- 如超过该限制，视为压缩失败%n%n%s",
-                contextCharLimit,
-                PlanExecutePromptsFactory.buildPrompts(planExecutePrompts).getCompressPrompt()
-        );
+        String compressLimitPrompt = PlanExecutePrompts.formatCompressPrompt(contextCharLimit);
 
         Prompt prompt = new Prompt(List.of(
                 new SystemMessage(compressLimitPrompt),
@@ -1298,13 +1272,7 @@ public class PlanExecuteAgent extends BaseAgent {
             return;
         }
         finalAnswerBuffer.append(text);
-        Map<String, Object> deltaData = new LinkedHashMap<>();
-        deltaData.put("content", text);
-        sink.tryEmitNext(AgentStreamEvent.builder()
-                .type("assistant_delta")
-                .conversationId(conversationId)
-                .data(deltaData)
-                .build());
+        sink.tryEmitNext(AgentStreamEventFactory.assistantDelta(conversationId, text));
     }
 
     private void completeSummaryStream(Sinks.Many<AgentStreamEvent> sink,
@@ -1316,13 +1284,7 @@ public class PlanExecuteAgent extends BaseAgent {
         }
         String answer = finalAnswerBuffer.toString();
         addAssistantMemory(state.conversationId, answer);
-        Map<String, Object> finalData = new LinkedHashMap<>();
-        finalData.put("content", answer);
-        sink.tryEmitNext(AgentStreamEvent.builder()
-                .type("final_answer")
-                .conversationId(state.getConversationId())
-                .data(finalData)
-                .build());
+        sink.tryEmitNext(AgentStreamEventFactory.finalAnswer(state.getConversationId(), answer));
         hasSentFinalResult.set(true);
         sink.tryEmitComplete();
     }
@@ -1334,32 +1296,14 @@ public class PlanExecuteAgent extends BaseAgent {
         if (hasSentFinalResult.get()) {
             return;
         }
-        Map<String, Object> finalData = new LinkedHashMap<>();
-        finalData.put("content", content == null ? "" : content);
-        sink.tryEmitNext(AgentStreamEvent.builder()
-                .type("final_answer")
-                .conversationId(conversationId)
-                .data(finalData)
-                .build());
+        sink.tryEmitNext(AgentStreamEventFactory.finalAnswer(conversationId, content == null ? "" : content));
         hasSentFinalResult.set(true);
         sink.tryEmitComplete();
     }
 
     private Prompt buildSummarizePrompt(OverAllState state) {
-        // 1. 先获取外部 Prompt
-        String externalSummarizePrompt = PlanExecutePromptsFactory.buildPrompts(planExecutePrompts).getSummarizePrompt();
+        String systemMessageContent = PlanExecutePrompts.buildSummarySystemPrompt();
 
-        // 2. 构建系统提示词：先拼接固定部分和外部 Prompt，不在这里用 formatted
-        String systemMessageContent =
-                "## 核心规则（必须100%严格遵守）\n" +
-                        "1.  你必须完全、仅基于下方【执行上下文】里的工具返回的真实数据生成最终答案，禁止编造任何不在上下文里的日期、天气、数值、景点等信息。\n" +
-                        "2.  若上下文出现“用户原始提问参数”与“实际工具执行参数（尤其 HITL 编辑后参数）”不一致，必须以实际工具执行参数为准，并在答案中明确说明“按确认参数计算”。\n" +
-                        "3.  禁止输出【Execution Plan】【Critique Feedback】【Task Result】等任何中间执行过程的标签和内容，只输出给用户看的最终答案。\n" +
-                        "4.  输出内容必须连贯、完整，符合用户的原始问题要求，禁止重复内容。\n" +
-                        "5.  如果上下文里的工具数据有明确的时间，必须以工具返回的时间为准，禁止使用与当前时间不符的虚假日期。\n\n" +
-                        externalSummarizePrompt;
-
-        // 3. 构建用户消息：这里只有两个变量，安全地使用 formatted
         String userMessageContent = String.format(
                 "【用户原始问题】%n%s%n%n【HITL 确认后的实际执行参数（若有）】%n%s%n%n【执行上下文（含工具返回的真实结果）】%n%s",
                 state.getQuestion(),
@@ -1399,17 +1343,6 @@ public class PlanExecuteAgent extends BaseAgent {
                 .findFirst()
                 .map(JSONUtil::toJsonStr)
                 .orElse("无");
-    }
-
-    // 内部对象实体
-    public record PlanTask(String id,
-                           String toolName,
-                           Map<String, Object> arguments,
-                           int order,
-                           String summary) {
-    }
-
-    public record CritiqueResult(boolean passed, String feedback) {
     }
 
     @Getter
@@ -1488,24 +1421,4 @@ public class PlanExecuteAgent extends BaseAgent {
             ));
         }
     }
-
-
-    public record TaskResult(
-            String taskId,
-            boolean success,
-            boolean interrupted,
-            String output,
-            String error,
-            HitlCheckpointVO checkpoint) { }
-
-    public record ExecutedTaskSnapshot(
-            String taskId,
-            String toolName,
-            Map<String, Object> arguments,
-            String summary,
-            boolean success,
-            String output,
-            String error,
-            int round) { }
-
 }

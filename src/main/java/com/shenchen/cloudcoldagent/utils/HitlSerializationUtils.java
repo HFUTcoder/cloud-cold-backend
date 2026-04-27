@@ -7,6 +7,8 @@ import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.hitl.HITLAdvisor;
 import com.shenchen.cloudcoldagent.hitl.HITLState;
+import com.shenchen.cloudcoldagent.model.entity.record.support.ToolCallSnapshot;
+import com.shenchen.cloudcoldagent.model.entity.record.support.ToolResponseSnapshot;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
@@ -215,11 +217,5 @@ public final class HitlSerializationUtils {
         public void setToolResponses(List<ToolResponseSnapshot> toolResponses) {
             this.toolResponses = toolResponses;
         }
-    }
-
-    public record ToolCallSnapshot(String id, String type, String name, String arguments) {
-    }
-
-    public record ToolResponseSnapshot(String id, String name, String responseData) {
     }
 }

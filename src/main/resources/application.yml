@@ -12,18 +12,11 @@ spring:
         tool:
           enabled: true
     vectorstore:
-      milvus:
-        client:
-          host: "localhost"
-          port: 19530
-          username: "root"
-          password: "milvus"
-        databaseName: "default"
-        collectionName: "vector_store"
-        embeddingDimension: 1536
-        indexType: IVF_FLAT
-        metricType: COSINE
+      elasticsearch:
         initialize-schema: true
+        index-name: rag_docs_vector
+        dimensions: 1536
+        similarity: cosine
   profiles:
     active: local
   multipart:
@@ -42,6 +35,8 @@ spring:
       port: 6379
       database: 0
       timeout: 5s
+  elasticsearch:
+    uris: http://localhost:9200
 
 server:
   port: 8080

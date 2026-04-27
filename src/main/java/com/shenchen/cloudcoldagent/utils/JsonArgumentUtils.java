@@ -2,6 +2,7 @@ package com.shenchen.cloudcoldagent.utils;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.shenchen.cloudcoldagent.model.entity.record.support.NormalizationResult;
 
 public final class JsonArgumentUtils {
 
@@ -23,6 +24,4 @@ public final class JsonArgumentUtils {
         }
     }
 
-    public record NormalizationResult(String normalizedJson, boolean valid, String errorMessage) {
-    }
 }

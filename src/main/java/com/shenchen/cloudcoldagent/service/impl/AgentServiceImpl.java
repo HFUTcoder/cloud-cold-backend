@@ -16,6 +16,7 @@ import com.shenchen.cloudcoldagent.service.HitlCheckpointService;
 import com.shenchen.cloudcoldagent.service.HitlExecutionService;
 import com.shenchen.cloudcoldagent.service.HitlResumeService;
 import com.shenchen.cloudcoldagent.workflow.skill.service.SkillWorkflowService;
+import com.shenchen.cloudcoldagent.model.entity.record.agent.planexecute.PlanTask;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillExecutionPlan;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillScriptExecutionRequest;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillToolCallPlan;
@@ -133,7 +134,7 @@ public class AgentServiceImpl implements AgentService {
         chatConversationService.generateTitleOnFirstMessage(userId, conversationId, question);
         SkillWorkflowResult workflowResult = skillWorkflowService.preprocess(userId, conversationId, question);
         String effectiveQuestion = workflowResult.getEnhancedQuestion();
-        List<PlanExecuteAgent.PlanTask> preferredPlan = buildPreferredPlan(workflowResult);
+        List<PlanTask> preferredPlan = buildPreferredPlan(workflowResult);
 
         switch (mode) {
             case AgentModeConstant.FAST:
@@ -172,11 +173,11 @@ public class AgentServiceImpl implements AgentService {
         return new LinkedHashSet<>(hitlProperties.getInterceptToolNames());
     }
 
-    private List<PlanExecuteAgent.PlanTask> buildPreferredPlan(SkillWorkflowResult workflowResult) {
+    private List<PlanTask> buildPreferredPlan(SkillWorkflowResult workflowResult) {
         if (workflowResult == null || workflowResult.getExecutionPlans() == null || workflowResult.getExecutionPlans().isEmpty()) {
             return List.of();
         }
-        List<PlanExecuteAgent.PlanTask> tasks = new ArrayList<>();
+        List<PlanTask> tasks = new ArrayList<>();
         int order = 1;
         int index = 1;
         for (Object rawExecutionPlan : workflowResult.getExecutionPlans()) {
@@ -201,7 +202,7 @@ public class AgentServiceImpl implements AgentService {
             toolArguments.put("scriptPath", request.getScriptPath());
             toolArguments.put("arguments", request.getArguments() == null ? Map.of() : request.getArguments());
             toolArguments.put("argumentSpecs", request.getArgumentSpecs() == null ? Map.of() : request.getArgumentSpecs());
-            tasks.add(new PlanExecuteAgent.PlanTask(
+            tasks.add(new PlanTask(
                     toolCallPlan.getToolName() + "_" + index++,
                     toolCallPlan.getToolName(),
                     toolArguments,

@@ -1,8 +1,8 @@
 package com.shenchen.cloudcoldagent.service;
 
 import com.mybatisflex.core.service.IService;
-import com.shenchen.cloudcoldagent.hitl.AgentInterrupted;
-import com.shenchen.cloudcoldagent.hitl.PendingToolCall;
+import com.shenchen.cloudcoldagent.model.entity.record.hitl.AgentInterrupted;
+import com.shenchen.cloudcoldagent.model.entity.record.hitl.PendingToolCall;
 import com.shenchen.cloudcoldagent.model.entity.HitlCheckpoint;
 import com.shenchen.cloudcoldagent.model.vo.HitlCheckpointVO;
 import org.springframework.ai.chat.messages.Message;

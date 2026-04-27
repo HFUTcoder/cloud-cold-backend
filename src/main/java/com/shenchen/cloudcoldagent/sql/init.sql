@@ -85,3 +85,39 @@ create table if not exists hitl_checkpoint
     unique key uk_interruptId (interruptId),
     index idx_conversationId_status (conversationId, status)
 ) comment 'HITL 中断检查点' collate = utf8mb4_unicode_ci;
+
+create table if not exists knowledge
+(
+    id                     bigint auto_increment comment '主键 id' primary key,
+    userId                 bigint                               not null comment '所属用户 id',
+    knowledgeName          varchar(255)                         not null comment '知识库名称',
+    description            varchar(1024)                        null comment '知识库描述',
+    documentCount          int        default 0                 not null comment '知识库下文档数量',
+    lastDocumentUploadTime datetime                             null comment '最后一次上传文档时间',
+    createTime             datetime   default CURRENT_TIMESTAMP not null comment '创建时间',
+    updateTime             datetime   default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    isDelete               tinyint    default 0                 not null comment '是否删除',
+    index idx_userId_isDelete (userId, isDelete),
+    index idx_knowledgeName (knowledgeName)
+) comment '知识库' collate = utf8mb4_unicode_ci;
+
+create table if not exists knowledge_document
+(
+    id             bigint auto_increment comment '主键 id' primary key,
+    userId         bigint                               not null comment '所属用户 id',
+    knowledgeId    bigint                               not null comment '所属知识库 id',
+    documentName   varchar(255)                         not null comment '文档名称',
+    documentUrl    varchar(1024)                        null comment '文档访问链接（通常来自 MinIO）',
+    objectName     varchar(512)                         null comment 'MinIO 对象名称',
+    documentSource varchar(1024)                        null comment 'ES 文档 source 标识',
+    fileType       varchar(64)                          null comment '文件类型',
+    contentType    varchar(128)                         null comment 'Content-Type',
+    fileSize       bigint                               null comment '文件大小（字节）',
+    indexStatus    varchar(64) default 'pending'        not null comment '索引状态',
+    createTime     datetime   default CURRENT_TIMESTAMP not null comment '创建时间',
+    updateTime     datetime   default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    isDelete       tinyint    default 0                 not null comment '是否删除',
+    index idx_userId_knowledgeId (userId, knowledgeId),
+    index idx_documentName (documentName),
+    index idx_documentSource (documentSource(255))
+) comment '知识库文档元数据' collate = utf8mb4_unicode_ci;

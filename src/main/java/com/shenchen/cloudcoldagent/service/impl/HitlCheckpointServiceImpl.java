@@ -5,8 +5,8 @@ import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
-import com.shenchen.cloudcoldagent.hitl.AgentInterrupted;
-import com.shenchen.cloudcoldagent.hitl.PendingToolCall;
+import com.shenchen.cloudcoldagent.model.entity.record.hitl.AgentInterrupted;
+import com.shenchen.cloudcoldagent.model.entity.record.hitl.PendingToolCall;
 import com.shenchen.cloudcoldagent.mapper.HitlCheckpointMapper;
 import com.shenchen.cloudcoldagent.model.entity.ChatConversation;
 import com.shenchen.cloudcoldagent.model.entity.HitlCheckpoint;
@@ -14,7 +14,6 @@ import com.shenchen.cloudcoldagent.model.vo.HitlCheckpointVO;
 import com.shenchen.cloudcoldagent.service.ChatConversationService;
 import com.shenchen.cloudcoldagent.service.HitlCheckpointService;
 import com.shenchen.cloudcoldagent.utils.HitlSerializationUtils;
-import com.fasterxml.jackson.core.type.TypeReference;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.stereotype.Service;
 

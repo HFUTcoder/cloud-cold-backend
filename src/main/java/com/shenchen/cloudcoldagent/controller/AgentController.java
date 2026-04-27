@@ -1,6 +1,7 @@
 package com.shenchen.cloudcoldagent.controller;
 
 import com.shenchen.cloudcoldagent.annotation.AuthCheck;
+import com.shenchen.cloudcoldagent.common.AgentStreamEventFactory;
 import com.shenchen.cloudcoldagent.constant.UserConstant;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.exception.ThrowUtils;
@@ -20,7 +21,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.Disposable;
 
 import java.io.IOException;
-import java.util.LinkedHashMap;
 import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
@@ -52,13 +52,11 @@ public class AgentController {
         Disposable disposable = agentService.call(agentCallRequest, loginUser.getId()).subscribe(
                 data -> sendEvent(emitter, data),
                 throwable -> {
-                    LinkedHashMap<String, Object> errorData = new LinkedHashMap<>();
-                    errorData.put("message", throwable == null ? "" : String.valueOf(throwable.getMessage()));
-                    sendEvent(emitter, AgentStreamEvent.builder()
-                            .type("error")
-                            .conversationId(conversationId)
-                            .data(errorData)
-                            .build());
+                    sendEvent(emitter, AgentStreamEventFactory.error(
+                            conversationId,
+                            null,
+                            throwable == null ? "" : String.valueOf(throwable.getMessage())
+                    ));
                     emitter.completeWithError(throwable);
                 },
                 emitter::complete
@@ -85,13 +83,11 @@ public class AgentController {
         Disposable disposable = agentService.resume(agentResumeRequest.getInterruptId()).subscribe(
                 data -> sendEvent(emitter, data),
                 throwable -> {
-                    LinkedHashMap<String, Object> errorData = new LinkedHashMap<>();
-                    errorData.put("message", throwable == null ? "" : String.valueOf(throwable.getMessage()));
-                    sendEvent(emitter, AgentStreamEvent.builder()
-                            .type("error")
-                            .interruptId(agentResumeRequest.getInterruptId())
-                            .data(errorData)
-                            .build());
+                    sendEvent(emitter, AgentStreamEventFactory.error(
+                            null,
+                            agentResumeRequest.getInterruptId(),
+                            throwable == null ? "" : String.valueOf(throwable.getMessage())
+                    ));
                     emitter.completeWithError(throwable);
                 },
                 emitter::complete

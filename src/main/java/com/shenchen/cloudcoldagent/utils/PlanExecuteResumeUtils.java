@@ -5,6 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shenchen.cloudcoldagent.agent.PlanExecuteAgent;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
+import com.shenchen.cloudcoldagent.model.entity.record.agent.planexecute.ExecutedTaskSnapshot;
+import com.shenchen.cloudcoldagent.model.entity.record.agent.planexecute.PlanTask;
+import com.shenchen.cloudcoldagent.model.entity.record.agent.planexecute.ResumeContext;
 import org.springframework.ai.chat.messages.Message;
 
 import java.util.LinkedHashMap;
@@ -21,8 +24,8 @@ public final class PlanExecuteResumeUtils {
     }
 
     public static Map<String, Object> buildContext(PlanExecuteAgent.OverAllState state,
-                                                   List<PlanExecuteAgent.PlanTask> currentPlan,
-                                                   PlanExecuteAgent.PlanTask currentTask,
+                                                   List<PlanTask> currentPlan,
+                                                   PlanTask currentTask,
                                                    String runtimeSystemPrompt) {
         Map<String, Object> context = new LinkedHashMap<>();
         Map<String, Object> payload = new LinkedHashMap<>();
@@ -56,7 +59,7 @@ public final class PlanExecuteResumeUtils {
             String currentTaskJson = stringValue(normalized.get("currentTaskJson"));
 
             List<Message> messages = HitlSerializationUtils.readMessages(messagesJson);
-            Map<String, PlanExecuteAgent.ExecutedTaskSnapshot> executedTasks = executedTasksJson == null || executedTasksJson.isBlank()
+            Map<String, ExecutedTaskSnapshot> executedTasks = executedTasksJson == null || executedTasksJson.isBlank()
                     ? new LinkedHashMap<>()
                     : OBJECT_MAPPER.readValue(executedTasksJson, new TypeReference<>() {
                     });
@@ -64,13 +67,13 @@ public final class PlanExecuteResumeUtils {
                     ? List.of()
                     : OBJECT_MAPPER.readValue(approvedToolNamesJson, new TypeReference<>() {
                     });
-            List<PlanExecuteAgent.PlanTask> currentPlan = currentPlanJson == null || currentPlanJson.isBlank()
+            List<PlanTask> currentPlan = currentPlanJson == null || currentPlanJson.isBlank()
                     ? List.of()
                     : OBJECT_MAPPER.readValue(currentPlanJson, new TypeReference<>() {
                     });
-            PlanExecuteAgent.PlanTask currentTask = currentTaskJson == null || currentTaskJson.isBlank() || "null".equals(currentTaskJson)
+            PlanTask currentTask = currentTaskJson == null || currentTaskJson.isBlank() || "null".equals(currentTaskJson)
                     ? null
-                    : OBJECT_MAPPER.readValue(currentTaskJson, PlanExecuteAgent.PlanTask.class);
+                    : OBJECT_MAPPER.readValue(currentTaskJson, PlanTask.class);
 
             return new ResumeContext(question, round, runtimeSystemPrompt, messages, executedTasks, approvedToolNames, currentPlan, currentTask);
         } catch (BusinessException e) {
@@ -92,17 +95,5 @@ public final class PlanExecuteResumeUtils {
             return 0;
         }
         return Integer.parseInt(String.valueOf(value));
-    }
-
-    public record ResumeContext(
-            String question,
-            int round,
-            String runtimeSystemPrompt,
-            List<Message> messages,
-            Map<String, PlanExecuteAgent.ExecutedTaskSnapshot> executedTasks,
-            List<String> approvedToolNames,
-            List<PlanExecuteAgent.PlanTask> currentPlan,
-            PlanExecuteAgent.PlanTask currentTask
-    ) {
     }
 }

@@ -2,9 +2,12 @@ package com.shenchen.cloudcoldagent.service.impl;
 
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
-import com.shenchen.cloudcoldagent.hitl.AgentInterrupted;
 import com.shenchen.cloudcoldagent.hitl.HITLAdvisor;
-import com.shenchen.cloudcoldagent.hitl.PendingToolCall;
+import com.shenchen.cloudcoldagent.model.entity.record.support.NormalizationResult;
+import com.shenchen.cloudcoldagent.model.entity.record.hitl.AgentInterrupted;
+import com.shenchen.cloudcoldagent.model.entity.record.hitl.HitlResumeRequest;
+import com.shenchen.cloudcoldagent.model.entity.record.hitl.HitlResumeResult;
+import com.shenchen.cloudcoldagent.model.entity.record.hitl.PendingToolCall;
 import com.shenchen.cloudcoldagent.model.vo.HitlCheckpointVO;
 import com.shenchen.cloudcoldagent.service.HitlCheckpointService;
 import com.shenchen.cloudcoldagent.service.HitlResumeService;
@@ -211,7 +214,7 @@ public class HitlResumeServiceImpl implements HitlResumeService {
         if (tool == null) {
             return "{\"error\":\"工具未找到：" + escapeJson(toolName) + "\"}";
         }
-        JsonArgumentUtils.NormalizationResult normalizationResult = JsonArgumentUtils.normalizeJsonArguments(rawArguments);
+        NormalizationResult normalizationResult = JsonArgumentUtils.normalizeJsonArguments(rawArguments);
         if (!normalizationResult.valid()) {
             return "{\"error\":\"工具参数不是合法 JSON：" + escapeJson(StringUtils.defaultIfBlank(
                     normalizationResult.errorMessage(), "unknown error")) +
@@ -236,7 +239,7 @@ public class HitlResumeServiceImpl implements HitlResumeService {
             if (tool == null) {
                 result = "工具未找到：" + toolCall.name();
             } else {
-                JsonArgumentUtils.NormalizationResult normalizationResult = JsonArgumentUtils.normalizeJsonArguments(toolCall.arguments());
+                NormalizationResult normalizationResult = JsonArgumentUtils.normalizeJsonArguments(toolCall.arguments());
                 if (!normalizationResult.valid()) {
                     result = "{\"error\":\"工具参数不是合法 JSON：" + escapeJson(StringUtils.defaultIfBlank(
                             normalizationResult.errorMessage(), "unknown error")) + "\"}";

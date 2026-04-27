@@ -1,4 +1,4 @@
-package com.shenchen.cloudcoldagent.hitl;
+package com.shenchen.cloudcoldagent.model.entity.record.hitl;
 
 import org.springframework.ai.chat.messages.Message;
 

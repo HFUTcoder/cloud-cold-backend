@@ -1,7 +1,9 @@
 package com.shenchen.cloudcoldagent.agent;
 
+import com.shenchen.cloudcoldagent.common.AgentStreamEventFactory;
+import com.shenchen.cloudcoldagent.model.entity.record.support.NormalizationResult;
 import com.shenchen.cloudcoldagent.model.vo.AgentStreamEvent;
-import com.shenchen.cloudcoldagent.prompts.DefaultPrompts;
+import com.shenchen.cloudcoldagent.prompts.ReactAgentPrompts;
 import com.shenchen.cloudcoldagent.utils.JsonArgumentUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -26,7 +28,7 @@ import java.util.concurrent.atomic.AtomicLong;
 @Slf4j
 public class SimpleReactAgent extends BaseAgent {
 
-    private final String REACT_AGENT_SYSTEM_PROMPT = DefaultPrompts.REACT_AGENT_SYSTEM_PROMPT;
+    private final String REACT_AGENT_SYSTEM_PROMPT = ReactAgentPrompts.STRICT_REACT_SYSTEM_PROMPT;
     private final String name;
     private final String systemPrompt;
     private ChatClient chatClient;
@@ -164,7 +166,7 @@ public class SimpleReactAgent extends BaseAgent {
                             addErrorToolResponse(messages, toolCall, "工具未找到：" + toolName);
                             return;
                         }
-                        JsonArgumentUtils.NormalizationResult normalizationResult = JsonArgumentUtils.normalizeJsonArguments(argsJson);
+                        NormalizationResult normalizationResult = JsonArgumentUtils.normalizeJsonArguments(argsJson);
                         if (!normalizationResult.valid()) {
                             addErrorToolResponse(messages, toolCall, "工具参数不是合法 JSON：" + normalizationResult.errorMessage());
                             return;
@@ -316,13 +318,7 @@ public class SimpleReactAgent extends BaseAgent {
 
         // 还没出现 tool_call，发送并缓存文本
         if (text != null) {
-            Map<String, Object> deltaData = new LinkedHashMap<>();
-            deltaData.put("content", text);
-            sink.tryEmitNext(AgentStreamEvent.builder()
-                    .type("assistant_delta")
-                    .conversationId(conversationId)
-                    .data(deltaData)
-                    .build());
+            sink.tryEmitNext(AgentStreamEventFactory.assistantDelta(conversationId, text));
             state.textBuffer.append(text);
         }
     }
@@ -367,13 +363,7 @@ public class SimpleReactAgent extends BaseAgent {
             String finalText = state.textBuffer.toString();
             finalAnswerBuffer.setLength(0);
             finalAnswerBuffer.append(finalText);
-            Map<String, Object> finalData = new LinkedHashMap<>();
-            finalData.put("content", finalText);
-            sink.tryEmitNext(AgentStreamEvent.builder()
-                    .type("final_answer")
-                    .conversationId(conversationId)
-                    .data(finalData)
-                    .build());
+            sink.tryEmitNext(AgentStreamEventFactory.finalAnswer(conversationId, finalText));
             sink.tryEmitComplete();
             hasSentFinalResult.set(true);
 
@@ -428,24 +418,12 @@ public class SimpleReactAgent extends BaseAgent {
                             .getText();
 
                     if (text != null && !hasSentFinalResult.get()) {
-                        Map<String, Object> deltaData = new LinkedHashMap<>();
-                        deltaData.put("content", text);
-                        sink.tryEmitNext(AgentStreamEvent.builder()
-                                .type("assistant_delta")
-                                .conversationId(conversationId)
-                                .data(deltaData)
-                                .build());
+                        sink.tryEmitNext(AgentStreamEventFactory.assistantDelta(conversationId, text));
                         stringBuilder.append(text);
                     }
                 })
                 .doOnComplete(() -> {
-                    Map<String, Object> finalData = new LinkedHashMap<>();
-                    finalData.put("content", stringBuilder.toString());
-                    sink.tryEmitNext(AgentStreamEvent.builder()
-                            .type("final_answer")
-                            .conversationId(conversationId)
-                            .data(finalData)
-                            .build());
+                    sink.tryEmitNext(AgentStreamEventFactory.finalAnswer(conversationId, stringBuilder.toString()));
                     hasSentFinalResult.set(true);
                     sink.tryEmitComplete();
                     if (useMemory) {
@@ -479,7 +457,7 @@ public class SimpleReactAgent extends BaseAgent {
                     completeToolCall(completedCount, totalToolCalls, onComplete);
                     return;
                 }
-                JsonArgumentUtils.NormalizationResult normalizationResult = JsonArgumentUtils.normalizeJsonArguments(argsJson);
+                NormalizationResult normalizationResult = JsonArgumentUtils.normalizeJsonArguments(argsJson);
                 if (!normalizationResult.valid()) {
                     addErrorToolResponse(messages, tc, "工具参数不是合法 JSON：" + normalizationResult.errorMessage());
                     completeToolCall(completedCount, totalToolCalls, onComplete);
@@ -543,7 +521,7 @@ public class SimpleReactAgent extends BaseAgent {
 
     private String normalizeArguments(AssistantMessage.ToolCall toolCall) {
         String rawArguments = toolCall == null ? null : toolCall.arguments();
-        JsonArgumentUtils.NormalizationResult result = JsonArgumentUtils.normalizeJsonArguments(rawArguments);
+        NormalizationResult result = JsonArgumentUtils.normalizeJsonArguments(rawArguments);
         if (!result.valid()) {
             log.warn("Tool call arguments are not valid JSON. toolName={}, toolId={}, rawArguments={}, error={}",
                     toolCall == null ? null : toolCall.name(),

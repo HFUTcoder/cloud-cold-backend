@@ -1,4 +1,4 @@
-package com.shenchen.cloudcoldagent.hitl;
+package com.shenchen.cloudcoldagent.model.entity.record.hitl;
 
 public record PendingToolCall(String id, String name, String arguments, FeedbackResult result, String description) {
 
