@@ -27,5 +27,13 @@ public class DocumentUpdateRequest implements Serializable {
 
     private String indexStatus;
 
+    private Integer chunkCount;
+
+    private String indexErrorMessage;
+
+    private java.time.LocalDateTime indexStartTime;
+
+    private java.time.LocalDateTime indexEndTime;
+
     private static final long serialVersionUID = 1L;
 }

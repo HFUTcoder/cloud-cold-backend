@@ -30,6 +30,14 @@ public class DocumentVO implements Serializable {
 
     private String indexStatus;
 
+    private Integer chunkCount;
+
+    private String indexErrorMessage;
+
+    private LocalDateTime indexStartTime;
+
+    private LocalDateTime indexEndTime;
+
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;

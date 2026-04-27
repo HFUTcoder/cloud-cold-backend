@@ -7,6 +7,8 @@ import java.io.Serializable;
 @Data
 public class KnowledgeHybridSearchRequest implements Serializable {
 
+    private Long knowledgeId;
+
     private String query;
 
     private Integer keywordSize;
@@ -16,8 +18,6 @@ public class KnowledgeHybridSearchRequest implements Serializable {
     private Integer vectorTopK;
 
     private Double similarityThreshold;
-
-    private String filterExpression;
 
     private static final long serialVersionUID = 1L;
 }

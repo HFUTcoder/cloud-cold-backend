@@ -7,6 +7,8 @@ import java.io.Serializable;
 @Data
 public class KnowledgeScalarSearchRequest implements Serializable {
 
+    private Long knowledgeId;
+
     private String query;
 
     private Integer size;

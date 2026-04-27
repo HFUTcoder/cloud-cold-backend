@@ -1,6 +1,7 @@
 package com.shenchen.cloudcoldagent.service.impl;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.Refresh;
 import co.elastic.clients.elasticsearch.core.*;
 import co.elastic.clients.elasticsearch.indices.CreateIndexRequest;
@@ -110,9 +111,17 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
                       "metadata": {
                         "type": "object",
                         "properties": {
+                          "userId": { "type": "long" },
+                          "knowledgeId": { "type": "long" },
+                          "documentId": { "type": "long" },
+                          "objectName": { "type": "keyword" },
                           "source": { "type": "keyword" },
-                          "category": { "type": "keyword" },
-                          "orderId": { "type": "keyword" }
+                          "fileName": { "type": "keyword" },
+                          "documentName": { "type": "keyword" },
+                          "fileType": { "type": "keyword" },
+                          "contentType": { "type": "keyword" },
+                          "chunk_index": { "type": "integer" },
+                          "chunk_total": { "type": "integer" }
                         }
                       }
                     }
@@ -219,6 +228,24 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
     }
 
     @Override
+    public void deleteByDocumentId(Long documentId) throws Exception {
+        if (documentId == null || documentId <= 0) {
+            return;
+        }
+
+        client.deleteByQuery(DeleteByQueryRequest.of(b -> b
+                .index(INDEX_NAME)
+                .refresh(true)
+                .query(q -> q
+                        .term(t -> t
+                                .field("metadata.documentId")
+                                .value(documentId)
+                        )
+                )
+        ));
+    }
+
+    @Override
     public void deleteBySource(String source) throws Exception {
         if (source == null || source.isBlank()) {
             return;
@@ -255,14 +282,26 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
      */
     @Override
     public List<EsDocumentChunk> searchByKeyword(String keyword, int size, boolean useSmartAnalyzer) throws Exception {
+        return searchByKeyword(keyword, size, useSmartAnalyzer, Collections.emptyMap());
+    }
+
+    @Override
+    public List<EsDocumentChunk> searchByKeyword(String keyword, int size, boolean useSmartAnalyzer,
+                                                 Map<String, Object> metadataFilters) throws Exception {
         String field = useSmartAnalyzer ? FIELD_CONTENT + ".smart" : FIELD_CONTENT;
+        List<co.elastic.clients.elasticsearch._types.query_dsl.Query> filters = buildMetadataFilterQueries(metadataFilters);
 
         SearchRequest request = SearchRequest.of(b -> b
                 .index(INDEX_NAME)
                 .query(q -> q
-                        .match(m -> m
-                                .field(field)
-                                .query(keyword)
+                        .bool(bool -> bool
+                                .must(must -> must
+                                        .match(m -> m
+                                                .field(field)
+                                                .query(keyword)
+                                        )
+                                )
+                                .filter(filters)
                         )
                 )
                 .size(size)
@@ -287,19 +326,7 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
 
     @Override
     public List<EsDocumentChunk> searchByMetadata(Map<String, Object> metadataFilters, int size) throws Exception {
-        if (metadataFilters == null || metadataFilters.isEmpty()) {
-            return Collections.emptyList();
-        }
-
-        List<co.elastic.clients.elasticsearch._types.query_dsl.Query> filters = metadataFilters.entrySet().stream()
-                .filter(entry -> entry.getKey() != null && !entry.getKey().isBlank() && entry.getValue() != null)
-                .map(entry -> co.elastic.clients.elasticsearch._types.query_dsl.Query.of(q -> q
-                        .term(t -> t
-                                .field("metadata." + entry.getKey())
-                                .value(entry.getValue().toString())
-                        )))
-                .toList();
-
+        List<co.elastic.clients.elasticsearch._types.query_dsl.Query> filters = buildMetadataFilterQueries(metadataFilters);
         if (filters.isEmpty()) {
             return Collections.emptyList();
         }
@@ -361,7 +388,7 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
     @Override
     public List<Document> similaritySearch(String query) throws Exception {
         return similaritySearch(query, org.springframework.ai.vectorstore.SearchRequest.DEFAULT_TOP_K,
-                org.springframework.ai.vectorstore.SearchRequest.SIMILARITY_THRESHOLD_ACCEPT_ALL, null);
+                org.springframework.ai.vectorstore.SearchRequest.SIMILARITY_THRESHOLD_ACCEPT_ALL, (String) null);
     }
 
     @Override
@@ -383,6 +410,13 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         }
 
         return vectorStore.similaritySearch(builder.build());
+    }
+
+    @Override
+    public List<Document> similaritySearch(String query, int topK, double similarityThreshold,
+                                           Map<String, Object> metadataFilters) throws Exception {
+        String filterExpression = buildFilterExpression(metadataFilters);
+        return similaritySearch(query, topK, similarityThreshold, filterExpression);
     }
 
     @Override
@@ -420,5 +454,57 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
                 .text(chunk.getContent())
                 .metadata(Collections.unmodifiableMap(metadata))
                 .build();
+    }
+
+    private List<co.elastic.clients.elasticsearch._types.query_dsl.Query> buildMetadataFilterQueries(
+            Map<String, Object> metadataFilters) {
+        if (metadataFilters == null || metadataFilters.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        return metadataFilters.entrySet().stream()
+                .filter(entry -> entry.getKey() != null && !entry.getKey().isBlank() && entry.getValue() != null)
+                .map(entry -> co.elastic.clients.elasticsearch._types.query_dsl.Query.of(q -> q
+                        .term(t -> t
+                                .field("metadata." + entry.getKey())
+                                .value(toFieldValue(entry.getValue()))
+                        )))
+                .toList();
+    }
+
+    private FieldValue toFieldValue(Object value) {
+        if (value instanceof Integer || value instanceof Long || value instanceof Short || value instanceof Byte) {
+            return FieldValue.of(((Number) value).longValue());
+        }
+        if (value instanceof Float || value instanceof Double) {
+            return FieldValue.of(((Number) value).doubleValue());
+        }
+        if (value instanceof Boolean booleanValue) {
+            return FieldValue.of(booleanValue);
+        }
+        return FieldValue.of(value.toString());
+    }
+
+    private String buildFilterExpression(Map<String, Object> metadataFilters) {
+        if (metadataFilters == null || metadataFilters.isEmpty()) {
+            return null;
+        }
+
+        return metadataFilters.entrySet().stream()
+                .filter(entry -> entry.getKey() != null && !entry.getKey().isBlank() && entry.getValue() != null)
+                .map(entry -> entry.getKey() + " == " + formatFilterValue(entry.getValue()))
+                .reduce((left, right) -> left + " && " + right)
+                .orElse(null);
+    }
+
+    private String formatFilterValue(Object value) {
+        if (value instanceof Number || value instanceof Boolean) {
+            return value.toString();
+        }
+
+        String text = value.toString()
+                .replace("\\", "\\\\")
+                .replace("'", "\\'");
+        return "'" + text + "'";
     }
 }

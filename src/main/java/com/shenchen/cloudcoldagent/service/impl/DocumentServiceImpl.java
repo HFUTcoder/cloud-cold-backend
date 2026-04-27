@@ -11,9 +11,11 @@ import com.shenchen.cloudcoldagent.mapper.DocumentMapper;
 import com.shenchen.cloudcoldagent.model.dto.document.DocumentAddRequest;
 import com.shenchen.cloudcoldagent.model.dto.document.DocumentQueryRequest;
 import com.shenchen.cloudcoldagent.model.dto.document.DocumentUpdateRequest;
+import com.shenchen.cloudcoldagent.model.enums.DocumentIndexStatusEnum;
 import com.shenchen.cloudcoldagent.model.vo.DocumentVO;
 import com.shenchen.cloudcoldagent.service.DocumentService;
 import com.shenchen.cloudcoldagent.service.KnowledgeService;
+import com.shenchen.cloudcoldagent.service.MinioService;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -24,9 +26,11 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
         implements DocumentService {
 
     private final KnowledgeService knowledgeService;
+    private final MinioService minioService;
 
-    public DocumentServiceImpl(KnowledgeService knowledgeService) {
+    public DocumentServiceImpl(KnowledgeService knowledgeService, MinioService minioService) {
         this.knowledgeService = knowledgeService;
+        this.minioService = minioService;
     }
 
     @Override
@@ -42,6 +46,12 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
         com.shenchen.cloudcoldagent.model.entity.Document document = new com.shenchen.cloudcoldagent.model.entity.Document();
         BeanUtil.copyProperties(request, document);
         document.setUserId(userId);
+        if (document.getIndexStatus() == null || document.getIndexStatus().isBlank()) {
+            document.setIndexStatus(DocumentIndexStatusEnum.PENDING.getValue());
+        }
+        if (document.getChunkCount() == null) {
+            document.setChunkCount(0);
+        }
         boolean result = this.save(document);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "创建文档失败");
         knowledgeService.refreshKnowledgeStats(userId, request.getKnowledgeId());
@@ -68,6 +78,10 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
         existing.setContentType(request.getContentType());
         existing.setFileSize(request.getFileSize());
         existing.setIndexStatus(request.getIndexStatus());
+        existing.setChunkCount(request.getChunkCount());
+        existing.setIndexErrorMessage(request.getIndexErrorMessage());
+        existing.setIndexStartTime(request.getIndexStartTime());
+        existing.setIndexEndTime(request.getIndexEndTime());
         boolean result = this.updateById(existing);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "更新文档失败");
         knowledgeService.refreshKnowledgeStats(userId, oldKnowledgeId);
@@ -81,12 +95,14 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
         ThrowUtils.throwIf(id == null || id <= 0, ErrorCode.PARAMS_ERROR);
 
         com.shenchen.cloudcoldagent.model.entity.Document document = getDocumentById(userId, id);
-        if (document.getDocumentSource() != null && !document.getDocumentSource().isBlank()) {
-            try {
+        try {
+            knowledgeService.deleteByDocumentId(document.getId());
+            if (document.getDocumentSource() != null && !document.getDocumentSource().isBlank()) {
                 knowledgeService.deleteBySource(document.getDocumentSource());
-            } catch (Exception e) {
-                throw new BusinessException(ErrorCode.OPERATION_ERROR, "删除文档对应的索引内容失败");
             }
+            deleteDocumentObject(document);
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "删除文档关联资源失败");
         }
         boolean result = this.removeById(id);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "删除文档失败");
@@ -157,5 +173,12 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
             return new ArrayList<>();
         }
         return documents.stream().map(this::getDocumentVO).toList();
+    }
+
+    private void deleteDocumentObject(com.shenchen.cloudcoldagent.model.entity.Document document) throws Exception {
+        if (document == null || document.getObjectName() == null || document.getObjectName().isBlank()) {
+            return;
+        }
+        minioService.deleteFile(document.getObjectName());
     }
 }

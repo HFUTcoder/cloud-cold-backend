@@ -77,6 +77,26 @@ public class Document implements Serializable {
      */
     private String indexStatus;
 
+    /**
+     * 分片数量
+     */
+    private Integer chunkCount;
+
+    /**
+     * 索引失败原因
+     */
+    private String indexErrorMessage;
+
+    /**
+     * 索引开始时间
+     */
+    private LocalDateTime indexStartTime;
+
+    /**
+     * 索引结束时间
+     */
+    private LocalDateTime indexEndTime;
+
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;

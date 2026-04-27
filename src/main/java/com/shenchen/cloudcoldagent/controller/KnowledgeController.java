@@ -91,66 +91,97 @@ public class KnowledgeController {
      * 1. 文档写入
      */
     @PostMapping("/write")
-    public List<EsDocumentChunk> write(@RequestBody KnowledgeWriteRequest request) throws Exception {
-        return knowledgeService.add(request.getFilePath());
+    @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
+    public BaseResponse<List<EsDocumentChunk>> write(@RequestBody KnowledgeWriteRequest request,
+                                                     HttpServletRequest httpServletRequest) throws Exception {
+        ThrowUtils.throwIf(request == null || request.getFilePath() == null || request.getFilePath().isBlank(),
+                ErrorCode.PARAMS_ERROR);
+        userService.getLoginUser(httpServletRequest);
+        return ResultUtils.success(knowledgeService.add(request.getFilePath()));
     }
 
     /**
      * 2. 文档标量检索
      */
     @PostMapping("/scalar-search")
-    public List<EsDocumentChunk> scalarSearch(@RequestBody KnowledgeScalarSearchRequest request)
+    @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
+    public BaseResponse<List<EsDocumentChunk>> scalarSearch(@RequestBody KnowledgeScalarSearchRequest request,
+                                                            HttpServletRequest httpServletRequest)
             throws Exception {
+        ThrowUtils.throwIf(request == null || request.getKnowledgeId() == null || request.getKnowledgeId() <= 0,
+                ErrorCode.PARAMS_ERROR, "知识库 id 非法");
+        User loginUser = userService.getLoginUser(httpServletRequest);
         if (request.getSize() == null && request.getUseSmartAnalyzer() == null) {
-            return knowledgeService.scalarSearch(request.getQuery());
+            return ResultUtils.success(knowledgeService.scalarSearch(loginUser.getId(), request.getKnowledgeId(),
+                    request.getQuery()));
         }
-        return knowledgeService.scalarSearch(request.getQuery(),
+        return ResultUtils.success(knowledgeService.scalarSearch(loginUser.getId(), request.getKnowledgeId(),
+                request.getQuery(),
                 request.getSize() == null ? 5 : request.getSize(),
-                Boolean.TRUE.equals(request.getUseSmartAnalyzer()));
+                Boolean.TRUE.equals(request.getUseSmartAnalyzer())));
     }
 
     /**
      * 3. 文档元数据检索
      */
     @PostMapping("/metadata-search")
-    public List<EsDocumentChunk> metadataSearch(@RequestBody KnowledgeMetadataSearchRequest request)
+    @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
+    public BaseResponse<List<EsDocumentChunk>> metadataSearch(@RequestBody KnowledgeMetadataSearchRequest request,
+                                                              HttpServletRequest httpServletRequest)
             throws Exception {
+        ThrowUtils.throwIf(request == null || request.getKnowledgeId() == null || request.getKnowledgeId() <= 0,
+                ErrorCode.PARAMS_ERROR, "知识库 id 非法");
+        User loginUser = userService.getLoginUser(httpServletRequest);
         if (request.getSize() == null) {
-            return knowledgeService.metadataSearch(request.getMetadataFilters());
+            return ResultUtils.success(knowledgeService.metadataSearch(loginUser.getId(), request.getKnowledgeId(),
+                    request.getMetadataFilters()));
         }
-        return knowledgeService.metadataSearch(request.getMetadataFilters(), request.getSize());
+        return ResultUtils.success(knowledgeService.metadataSearch(loginUser.getId(), request.getKnowledgeId(),
+                request.getMetadataFilters(), request.getSize()));
     }
 
     /**
      * 4. 文档相似度检索
      */
     @PostMapping("/vector-search")
-    public List<EsDocumentChunk> vectorSearch(@RequestBody KnowledgeVectorSearchRequest request)
+    @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
+    public BaseResponse<List<EsDocumentChunk>> vectorSearch(@RequestBody KnowledgeVectorSearchRequest request,
+                                                            HttpServletRequest httpServletRequest)
             throws Exception {
-        if (request.getTopK() == null && request.getSimilarityThreshold() == null && request.getFilterExpression() == null) {
-            return knowledgeService.vectorSearch(request.getQuery());
+        ThrowUtils.throwIf(request == null || request.getKnowledgeId() == null || request.getKnowledgeId() <= 0,
+                ErrorCode.PARAMS_ERROR, "知识库 id 非法");
+        User loginUser = userService.getLoginUser(httpServletRequest);
+        if (request.getTopK() == null && request.getSimilarityThreshold() == null) {
+            return ResultUtils.success(knowledgeService.vectorSearch(loginUser.getId(), request.getKnowledgeId(),
+                    request.getQuery()));
         }
-        return knowledgeService.vectorSearch(request.getQuery(),
+        return ResultUtils.success(knowledgeService.vectorSearch(loginUser.getId(), request.getKnowledgeId(),
+                request.getQuery(),
                 request.getTopK() == null ? 5 : request.getTopK(),
-                request.getSimilarityThreshold() == null ? 0.0d : request.getSimilarityThreshold(),
-                request.getFilterExpression());
+                request.getSimilarityThreshold() == null ? 0.0d : request.getSimilarityThreshold()));
     }
 
     /**
      * 5. 文档混合检索
      */
     @PostMapping("/hybrid-search")
-    public List<EsDocumentChunk> hybridSearch(@RequestBody KnowledgeHybridSearchRequest request)
+    @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
+    public BaseResponse<List<EsDocumentChunk>> hybridSearch(@RequestBody KnowledgeHybridSearchRequest request,
+                                                            HttpServletRequest httpServletRequest)
             throws Exception {
+        ThrowUtils.throwIf(request == null || request.getKnowledgeId() == null || request.getKnowledgeId() <= 0,
+                ErrorCode.PARAMS_ERROR, "知识库 id 非法");
+        User loginUser = userService.getLoginUser(httpServletRequest);
         if (request.getKeywordSize() == null && request.getUseSmartAnalyzer() == null && request.getVectorTopK() == null
-                && request.getSimilarityThreshold() == null && request.getFilterExpression() == null) {
-            return knowledgeService.hybridSearch(request.getQuery());
+                && request.getSimilarityThreshold() == null) {
+            return ResultUtils.success(knowledgeService.hybridSearch(loginUser.getId(), request.getKnowledgeId(),
+                    request.getQuery()));
         }
-        return knowledgeService.hybridSearch(request.getQuery(),
+        return ResultUtils.success(knowledgeService.hybridSearch(loginUser.getId(), request.getKnowledgeId(),
+                request.getQuery(),
                 request.getKeywordSize() == null ? 5 : request.getKeywordSize(),
                 Boolean.TRUE.equals(request.getUseSmartAnalyzer()),
                 request.getVectorTopK() == null ? 5 : request.getVectorTopK(),
-                request.getSimilarityThreshold() == null ? 0.0d : request.getSimilarityThreshold(),
-                request.getFilterExpression());
+                request.getSimilarityThreshold() == null ? 0.0d : request.getSimilarityThreshold()));
     }
 }

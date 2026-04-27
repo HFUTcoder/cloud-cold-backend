@@ -7,8 +7,10 @@ import com.shenchen.cloudcoldagent.model.dto.knowledge.KnowledgeAddRequest;
 import com.shenchen.cloudcoldagent.model.dto.knowledge.KnowledgeQueryRequest;
 import com.shenchen.cloudcoldagent.model.dto.knowledge.KnowledgeUpdateRequest;
 import com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk;
+import com.shenchen.cloudcoldagent.model.entity.record.knowledge.DocumentIndexContext;
 import com.shenchen.cloudcoldagent.model.vo.KnowledgeVO;
 
+import java.io.File;
 import java.util.List;
 import java.util.Map;
 
@@ -32,11 +34,15 @@ public interface KnowledgeService extends IService<com.shenchen.cloudcoldagent.m
 
     void refreshKnowledgeStats(Long userId, Long knowledgeId);
 
+    List<EsDocumentChunk> indexDocument(File file, DocumentIndexContext context) throws Exception;
+
     List<EsDocumentChunk> add(String filePath) throws Exception;
 
     List<EsDocumentChunk> update(String filePath) throws Exception;
 
     void deleteByIds(List<String> ids) throws Exception;
+
+    void deleteByDocumentId(Long documentId) throws Exception;
 
     void deleteBySource(String source) throws Exception;
 
@@ -44,16 +50,38 @@ public interface KnowledgeService extends IService<com.shenchen.cloudcoldagent.m
 
     List<EsDocumentChunk> scalarSearch(String query, int size, boolean useSmartAnalyzer) throws Exception;
 
+    List<EsDocumentChunk> scalarSearch(Long userId, Long knowledgeId, String query) throws Exception;
+
+    List<EsDocumentChunk> scalarSearch(Long userId, Long knowledgeId, String query, int size,
+                                       boolean useSmartAnalyzer) throws Exception;
+
     List<EsDocumentChunk> metadataSearch(Map<String, Object> metadataFilters) throws Exception;
 
     List<EsDocumentChunk> metadataSearch(Map<String, Object> metadataFilters, int size) throws Exception;
+
+    List<EsDocumentChunk> metadataSearch(Long userId, Long knowledgeId, Map<String, Object> metadataFilters)
+            throws Exception;
+
+    List<EsDocumentChunk> metadataSearch(Long userId, Long knowledgeId, Map<String, Object> metadataFilters, int size)
+            throws Exception;
 
     List<EsDocumentChunk> vectorSearch(String query) throws Exception;
 
     List<EsDocumentChunk> vectorSearch(String query, int topK, double similarityThreshold, String filterExpression) throws Exception;
 
+    List<EsDocumentChunk> vectorSearch(Long userId, Long knowledgeId, String query) throws Exception;
+
+    List<EsDocumentChunk> vectorSearch(Long userId, Long knowledgeId, String query, int topK,
+                                       double similarityThreshold) throws Exception;
+
     List<EsDocumentChunk> hybridSearch(String query) throws Exception;
 
     List<EsDocumentChunk> hybridSearch(String query, int keywordSize, boolean useSmartAnalyzer, int vectorTopK,
                                        double similarityThreshold, String filterExpression) throws Exception;
+
+    List<EsDocumentChunk> hybridSearch(Long userId, Long knowledgeId, String query) throws Exception;
+
+    List<EsDocumentChunk> hybridSearch(Long userId, Long knowledgeId, String query, int keywordSize,
+                                       boolean useSmartAnalyzer, int vectorTopK,
+                                       double similarityThreshold) throws Exception;
 }

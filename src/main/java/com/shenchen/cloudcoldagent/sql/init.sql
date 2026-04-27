@@ -113,11 +113,17 @@ create table if not exists knowledge_document
     fileType       varchar(64)                          null comment '文件类型',
     contentType    varchar(128)                         null comment 'Content-Type',
     fileSize       bigint                               null comment '文件大小（字节）',
-    indexStatus    varchar(64) default 'pending'        not null comment '索引状态',
+    indexStatus    varchar(64) default 'PENDING'        not null comment '索引状态',
+    chunkCount     int        default 0                 not null comment '切片数量',
+    indexErrorMessage varchar(1024)                     null comment '索引失败原因',
+    indexStartTime datetime                             null comment '索引开始时间',
+    indexEndTime   datetime                             null comment '索引结束时间',
     createTime     datetime   default CURRENT_TIMESTAMP not null comment '创建时间',
     updateTime     datetime   default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
     isDelete       tinyint    default 0                 not null comment '是否删除',
     index idx_userId_knowledgeId (userId, knowledgeId),
     index idx_documentName (documentName),
-    index idx_documentSource (documentSource(255))
+    index idx_documentSource (documentSource(255)),
+    index idx_objectName (objectName),
+    index idx_indexStatus (indexStatus)
 ) comment '知识库文档元数据' collate = utf8mb4_unicode_ci;

@@ -8,6 +8,8 @@ import java.util.Map;
 @Data
 public class KnowledgeMetadataSearchRequest implements Serializable {
 
+    private Long knowledgeId;
+
     private Map<String, Object> metadataFilters;
 
     private Integer size;

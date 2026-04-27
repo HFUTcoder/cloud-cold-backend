@@ -7,13 +7,13 @@ import java.io.Serializable;
 @Data
 public class KnowledgeVectorSearchRequest implements Serializable {
 
+    private Long knowledgeId;
+
     private String query;
 
     private Integer topK;
 
     private Double similarityThreshold;
-
-    private String filterExpression;
 
     private static final long serialVersionUID = 1L;
 }
