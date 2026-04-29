@@ -10,6 +10,7 @@ import com.shenchen.cloudcoldagent.prompts.SkillWorkflowPrompts;
 import com.shenchen.cloudcoldagent.service.SkillService;
 import com.shenchen.cloudcoldagent.workflow.skill.service.StructuredOutputAgentExecutor;
 import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.stereotype.Component;
 
@@ -33,6 +34,8 @@ public class RecognizeBoundSkillsNode {
     @SuppressWarnings("unchecked")
     public CompletableFuture<Map<String, Object>> apply(OverAllState state) {
         String question = state.value(SkillWorkflowStateKeys.USER_QUESTION, String.class).orElse("");
+        List<Message> conversationHistory =
+                (List<Message>) state.value(SkillWorkflowStateKeys.CONVERSATION_HISTORY).orElse(List.of());
         List<String> boundSkills = (List<String>) state.value(SkillWorkflowStateKeys.BOUND_SKILLS).orElse(List.of());
         if (boundSkills.isEmpty()) {
             return CompletableFuture.completedFuture(Map.of(SkillWorkflowStateKeys.CANDIDATE_SKILLS, List.of()));
@@ -44,7 +47,11 @@ public class RecognizeBoundSkillsNode {
 
         SkillCandidateListResult result = structuredOutputAgentExecutor.execute(List.of(
                 new SystemMessage(SkillWorkflowPrompts.buildBoundSkillRecognitionPrompt()),
-                new UserMessage(SkillWorkflowPrompts.buildBoundSkillRecognitionInput(question, JSONUtil.toJsonStr(metadataList)))
+                new UserMessage(SkillWorkflowPrompts.buildBoundSkillRecognitionInput(
+                        question,
+                        SkillWorkflowPrompts.renderConversationHistory(conversationHistory),
+                        JSONUtil.toJsonStr(metadataList)
+                ))
         ), SkillCandidateListResult.class);
         List<SkillCandidate> candidates = result == null ? List.of() : result.getItems();
         List<SkillCandidate> normalizedCandidates = candidates == null ? List.of() : candidates.stream()

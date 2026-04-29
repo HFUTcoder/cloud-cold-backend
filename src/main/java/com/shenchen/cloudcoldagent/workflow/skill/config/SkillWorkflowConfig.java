@@ -6,6 +6,7 @@ import com.shenchen.cloudcoldagent.workflow.skill.node.BuildEnhancedQuestionNode
 import com.shenchen.cloudcoldagent.workflow.skill.node.BuildSkillExecutionPlansNode;
 import com.shenchen.cloudcoldagent.workflow.skill.node.DiscoverCandidateSkillsNode;
 import com.shenchen.cloudcoldagent.workflow.skill.node.LoadBoundSkillsNode;
+import com.shenchen.cloudcoldagent.workflow.skill.node.LoadConversationHistoryNode;
 import com.shenchen.cloudcoldagent.workflow.skill.node.LoadSkillContentsNode;
 import com.shenchen.cloudcoldagent.workflow.skill.node.RecognizeBoundSkillsNode;
 import org.springframework.context.annotation.Bean;
@@ -16,6 +17,7 @@ public class SkillWorkflowConfig {
 
     @Bean
     public CompiledGraph skillWorkflowGraph(LoadBoundSkillsNode loadBoundSkillsNode,
+                                            LoadConversationHistoryNode loadConversationHistoryNode,
                                             RecognizeBoundSkillsNode recognizeBoundSkillsNode,
                                             DiscoverCandidateSkillsNode discoverCandidateSkillsNode,
                                             LoadSkillContentsNode loadSkillContentsNode,
@@ -23,6 +25,7 @@ public class SkillWorkflowConfig {
                                             BuildEnhancedQuestionNode buildEnhancedQuestionNode) throws Exception {
         StateGraph graph = new StateGraph();
         graph.addNode("loadBoundSkills", loadBoundSkillsNode::apply);
+        graph.addNode("loadConversationHistory", loadConversationHistoryNode::apply);
         graph.addNode("recognizeBoundSkills", recognizeBoundSkillsNode::apply);
         graph.addNode("discoverCandidateSkills", discoverCandidateSkillsNode::apply);
         graph.addNode("loadSkillContents", loadSkillContentsNode::apply);
@@ -30,7 +33,8 @@ public class SkillWorkflowConfig {
         graph.addNode("buildEnhancedQuestion", buildEnhancedQuestionNode::apply);
 
         graph.addEdge(StateGraph.START, "loadBoundSkills");
-        graph.addEdge("loadBoundSkills", "recognizeBoundSkills");
+        graph.addEdge("loadBoundSkills", "loadConversationHistory");
+        graph.addEdge("loadConversationHistory", "recognizeBoundSkills");
         graph.addEdge("recognizeBoundSkills", "discoverCandidateSkills");
         graph.addEdge("discoverCandidateSkills", "loadSkillContents");
         graph.addEdge("loadSkillContents", "buildSkillExecutionPlans");

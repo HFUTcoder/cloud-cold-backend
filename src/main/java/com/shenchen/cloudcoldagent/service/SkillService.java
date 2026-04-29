@@ -4,6 +4,7 @@ import com.shenchen.cloudcoldagent.model.vo.SkillMetadataVO;
 import com.shenchen.cloudcoldagent.model.vo.SkillResourceContentVO;
 import com.shenchen.cloudcoldagent.model.vo.SkillScriptExecutionVO;
 import com.shenchen.cloudcoldagent.model.vo.SkillResourceListVO;
+import com.shenchen.cloudcoldagent.workflow.skill.state.SkillArgumentSpec;
 
 import java.io.IOException;
 import java.util.List;
@@ -42,4 +43,9 @@ public interface SkillService {
      */
     SkillScriptExecutionVO executeSkillScript(String skillName, String scriptPath, Map<String, Object> arguments)
             throws IOException;
+
+    /**
+     * 从 SKILL.md 中解析指定脚本的参数定义，用于 HITL 等场景展示中文参数名。
+     */
+    Map<String, SkillArgumentSpec> resolveSkillArgumentSpecs(String skillName, String scriptPath) throws IOException;
 }

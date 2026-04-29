@@ -16,12 +16,15 @@ import com.shenchen.cloudcoldagent.model.vo.DocumentVO;
 import com.shenchen.cloudcoldagent.service.DocumentService;
 import com.shenchen.cloudcoldagent.service.KnowledgeService;
 import com.shenchen.cloudcoldagent.service.MinioService;
+import io.minio.errors.ErrorResponseException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
 
 @Service
+@Slf4j
 public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenchen.cloudcoldagent.model.entity.Document>
         implements DocumentService {
 
@@ -96,12 +99,24 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
 
         com.shenchen.cloudcoldagent.model.entity.Document document = getDocumentById(userId, id);
         try {
-            knowledgeService.deleteByDocumentId(document.getId());
-            if (document.getDocumentSource() != null && !document.getDocumentSource().isBlank()) {
+            try {
+                knowledgeService.deleteByDocumentId(document.getId());
+            } catch (Exception primaryDeleteException) {
+                if (document.getDocumentSource() == null || document.getDocumentSource().isBlank()) {
+                    throw primaryDeleteException;
+                }
+                log.warn("按 documentId 删除文档索引失败，回退按 source 删除。documentId={}, source={}",
+                        document.getId(), document.getDocumentSource(), primaryDeleteException);
                 knowledgeService.deleteBySource(document.getDocumentSource());
             }
             deleteDocumentObject(document);
         } catch (Exception e) {
+            log.error("删除文档关联资源失败。documentId={}, documentName={}, source={}, objectName={}",
+                    document.getId(),
+                    document.getDocumentName(),
+                    document.getDocumentSource(),
+                    document.getObjectName(),
+                    e);
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "删除文档关联资源失败");
         }
         boolean result = this.removeById(id);
@@ -179,6 +194,36 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
         if (document == null || document.getObjectName() == null || document.getObjectName().isBlank()) {
             return;
         }
-        minioService.deleteFile(document.getObjectName());
+        try {
+            minioService.deleteFile(document.getObjectName());
+        } catch (Exception e) {
+            if (!isIgnorableDeleteException(e)) {
+                throw e;
+            }
+            log.info("MinIO 原文件已不存在，跳过删除。documentId={}, objectName={}", document.getId(),
+                    document.getObjectName());
+        }
+    }
+
+    private boolean isIgnorableDeleteException(Exception exception) {
+        if (exception instanceof ErrorResponseException errorResponseException) {
+            String code = errorResponseException.errorResponse() == null
+                    ? null
+                    : errorResponseException.errorResponse().code();
+            return "NoSuchKey".equals(code)
+                    || "NoSuchObject".equals(code)
+                    || "NoSuchBucket".equals(code);
+        }
+
+        String message = exception.getMessage();
+        if (message == null || message.isBlank()) {
+            return false;
+        }
+        String normalized = message.toLowerCase();
+        return normalized.contains("no such key")
+                || normalized.contains("no such object")
+                || normalized.contains("no such bucket")
+                || normalized.contains("object does not exist")
+                || normalized.contains("index_not_found_exception");
     }
 }

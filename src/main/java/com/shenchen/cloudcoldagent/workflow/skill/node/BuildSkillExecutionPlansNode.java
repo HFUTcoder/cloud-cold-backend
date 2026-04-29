@@ -11,6 +11,7 @@ import com.shenchen.cloudcoldagent.workflow.skill.state.SkillScriptExecutionRequ
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillToolCallPlan;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillWorkflowStateKeys;
 import com.shenchen.cloudcoldagent.workflow.skill.service.StructuredOutputAgentExecutor;
+import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.stereotype.Component;
@@ -35,6 +36,8 @@ public class BuildSkillExecutionPlansNode {
     @SuppressWarnings("unchecked")
     public CompletableFuture<Map<String, Object>> apply(OverAllState state) {
         String question = state.value(SkillWorkflowStateKeys.USER_QUESTION, String.class).orElse("");
+        List<Message> conversationHistory =
+                (List<Message>) state.value(SkillWorkflowStateKeys.CONVERSATION_HISTORY).orElse(List.of());
         List<SkillCandidate> candidates =
                 (List<SkillCandidate>) state.value(SkillWorkflowStateKeys.CANDIDATE_SKILLS).orElse(List.of());
         Map<String, String> skillContents =
@@ -66,6 +69,7 @@ public class BuildSkillExecutionPlansNode {
                 new SystemMessage(SkillWorkflowPrompts.buildExecutionPlanPrompt()),
                 new UserMessage(SkillWorkflowPrompts.buildExecutionPlanInput(
                         question,
+                        SkillWorkflowPrompts.renderConversationHistory(conversationHistory),
                         SkillWorkflowPrompts.buildExecutionPlanBatchInput(batchSkillInputs)
                 ))
         ), SkillExecutionPlanListResult.class);

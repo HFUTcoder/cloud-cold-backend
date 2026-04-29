@@ -221,6 +221,12 @@ public class HitlResumeServiceImpl implements HitlResumeService {
                     "\",\"toolId\":\"" + escapeJson(toolId) + "\"}";
         }
         String arguments = normalizationResult.normalizedJson();
+        Map<String, Object> structuredArguments = JsonArgumentUtils.readObjectMap(arguments);
+        String validationError = JsonArgumentUtils.validateStructuredToolArguments(toolName, structuredArguments);
+        if (StringUtils.isNotBlank(validationError)) {
+            return "{\"error\":\"" + escapeJson(validationError) +
+                    "\",\"toolId\":\"" + escapeJson(toolId) + "\"}";
+        }
         try {
             return String.valueOf(tool.call(arguments));
         } catch (Exception e) {

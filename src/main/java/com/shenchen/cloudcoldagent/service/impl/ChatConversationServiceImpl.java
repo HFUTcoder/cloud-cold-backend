@@ -8,12 +8,13 @@ import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.mapper.ChatConversationMapper;
 import com.shenchen.cloudcoldagent.mapper.ChatMemoryHistoryMapper;
+import com.shenchen.cloudcoldagent.mapper.HitlCheckpointMapper;
 import com.shenchen.cloudcoldagent.model.entity.ChatConversation;
+import com.shenchen.cloudcoldagent.model.entity.HitlCheckpoint;
 import com.shenchen.cloudcoldagent.service.ChatConversationService;
 import com.shenchen.cloudcoldagent.service.UserConversationRelationService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemoryRepository;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -37,20 +38,20 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
     private final ChatMemoryRepository chatMemoryRepository;
     private final ChatMemoryHistoryMapper chatMemoryHistoryMapper;
     private final UserConversationRelationService userConversationRelationService;
-    private final JdbcTemplate jdbcTemplate;
+    private final HitlCheckpointMapper hitlCheckpointMapper;
 
     public ChatConversationServiceImpl(SkillRegistry skillRegistry,
                                        ChatConversationMapper chatConversationMapper,
                                        ChatMemoryRepository chatMemoryRepository,
                                        ChatMemoryHistoryMapper chatMemoryHistoryMapper,
                                        UserConversationRelationService userConversationRelationService,
-                                       JdbcTemplate jdbcTemplate) {
+                                       HitlCheckpointMapper hitlCheckpointMapper) {
         this.skillRegistry = skillRegistry;
         this.chatConversationMapper = chatConversationMapper;
         this.chatMemoryRepository = chatMemoryRepository;
         this.chatMemoryHistoryMapper = chatMemoryHistoryMapper;
         this.userConversationRelationService = userConversationRelationService;
-        this.jdbcTemplate = jdbcTemplate;
+        this.hitlCheckpointMapper = hitlCheckpointMapper;
     }
 
     @Override
@@ -154,7 +155,18 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         chatMemoryRepository.deleteByConversationId(normalizedConversationId);
 
         userConversationRelationService.deleteByConversationId(normalizedConversationId);
-        return jdbcTemplate.update("DELETE FROM chat_conversation WHERE id = ?", existing.getId()) > 0;
+        hitlCheckpointMapper.updateByQuery(
+                HitlCheckpoint.builder().isDelete(1).build(),
+                QueryWrapper.create()
+                        .eq("conversationId", normalizedConversationId)
+                        .eq("isDelete", 0)
+        );
+        return this.mapper.updateByQuery(
+                ChatConversation.builder().isDelete(1).build(),
+                QueryWrapper.create()
+                        .eq("id", existing.getId())
+                        .eq("isDelete", 0)
+        ) > 0;
     }
 
     @Override

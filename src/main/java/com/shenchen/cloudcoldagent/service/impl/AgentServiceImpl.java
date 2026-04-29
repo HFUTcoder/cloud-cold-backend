@@ -15,6 +15,7 @@ import com.shenchen.cloudcoldagent.service.ChatConversationService;
 import com.shenchen.cloudcoldagent.service.HitlCheckpointService;
 import com.shenchen.cloudcoldagent.service.HitlExecutionService;
 import com.shenchen.cloudcoldagent.service.HitlResumeService;
+import com.shenchen.cloudcoldagent.service.SkillService;
 import com.shenchen.cloudcoldagent.workflow.skill.service.SkillWorkflowService;
 import com.shenchen.cloudcoldagent.model.entity.record.agent.planexecute.PlanTask;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillExecutionPlan;
@@ -75,6 +76,9 @@ public class AgentServiceImpl implements AgentService {
     private SkillWorkflowService skillWorkflowService;
 
     @Autowired
+    private SkillService skillService;
+
+    @Autowired
     private ObjectProvider<Advisor> advisorProvider;
 
     @Autowired
@@ -113,13 +117,14 @@ public class AgentServiceImpl implements AgentService {
                 .chatModel(openAiChatModel)
                 .tools(allToolCallbacks)
                 .advisors(allAdvisors)
-                .maxRounds(3)
-                .maxToolRetries(3)
+                .maxRounds(5)
+                .maxToolRetries(5)
                 .chatMemory(chatMemory)
                 .contextCharLimit(5000)
                 .hitlExecutionService(hitlExecutionService)
                 .hitlCheckpointService(hitlCheckpointService)
                 .hitlResumeService(hitlResumeService)
+                .skillService(skillService)
                 .hitlInterceptToolNames(resolveHitlInterceptToolNames())
                 .build();
     }

@@ -9,6 +9,7 @@ import com.shenchen.cloudcoldagent.workflow.skill.state.SkillCandidate;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillCandidateListResult;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillWorkflowStateKeys;
 import com.shenchen.cloudcoldagent.workflow.skill.service.StructuredOutputAgentExecutor;
+import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.stereotype.Component;
@@ -36,6 +37,8 @@ public class DiscoverCandidateSkillsNode {
     @SuppressWarnings("unchecked")
     public CompletableFuture<Map<String, Object>> apply(OverAllState state) {
         String question = state.value(SkillWorkflowStateKeys.USER_QUESTION, String.class).orElse("");
+        List<Message> conversationHistory =
+                (List<Message>) state.value(SkillWorkflowStateKeys.CONVERSATION_HISTORY).orElse(List.of());
         List<String> boundSkills = (List<String>) state.value(SkillWorkflowStateKeys.BOUND_SKILLS).orElse(List.of());
         List<SkillCandidate> currentCandidates =
                 (List<SkillCandidate>) state.value(SkillWorkflowStateKeys.CANDIDATE_SKILLS).orElse(List.of());
@@ -51,7 +54,11 @@ public class DiscoverCandidateSkillsNode {
         if (!unboundMetadatas.isEmpty()) {
             SkillCandidateListResult result = structuredOutputAgentExecutor.execute(List.of(
                     new SystemMessage(SkillWorkflowPrompts.buildUnboundSkillDiscoveryPrompt()),
-                    new UserMessage(SkillWorkflowPrompts.buildUnboundSkillDiscoveryInput(question, JSONUtil.toJsonStr(unboundMetadatas)))
+                    new UserMessage(SkillWorkflowPrompts.buildUnboundSkillDiscoveryInput(
+                            question,
+                            SkillWorkflowPrompts.renderConversationHistory(conversationHistory),
+                            JSONUtil.toJsonStr(unboundMetadatas)
+                    ))
             ), SkillCandidateListResult.class);
             List<SkillCandidate> discoveredCandidates = result == null ? List.of() : result.getItems();
             if (discoveredCandidates != null) {

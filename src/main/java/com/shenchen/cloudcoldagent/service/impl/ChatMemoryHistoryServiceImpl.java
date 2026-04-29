@@ -8,7 +8,6 @@ import com.shenchen.cloudcoldagent.mapper.ChatMemoryHistoryMapper;
 import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistory;
 import com.shenchen.cloudcoldagent.service.ChatConversationService;
 import com.shenchen.cloudcoldagent.service.ChatMemoryHistoryService;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -21,12 +20,9 @@ public class ChatMemoryHistoryServiceImpl extends ServiceImpl<ChatMemoryHistoryM
         implements ChatMemoryHistoryService {
 
     private final ChatConversationService chatConversationService;
-    private final JdbcTemplate jdbcTemplate;
 
-    public ChatMemoryHistoryServiceImpl(ChatConversationService chatConversationService,
-                                        JdbcTemplate jdbcTemplate) {
+    public ChatMemoryHistoryServiceImpl(ChatConversationService chatConversationService) {
         this.chatConversationService = chatConversationService;
-        this.jdbcTemplate = jdbcTemplate;
     }
 
     @Override
@@ -74,6 +70,14 @@ public class ChatMemoryHistoryServiceImpl extends ServiceImpl<ChatMemoryHistoryM
         if (!owned) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限删除该消息");
         }
-        return jdbcTemplate.update("DELETE FROM chat_memory_history WHERE id = ?", id) > 0;
+        ChatMemoryHistory updating = ChatMemoryHistory.builder()
+                .isDelete(1)
+                .build();
+        return this.mapper.updateByQuery(
+                updating,
+                QueryWrapper.create()
+                        .eq("id", id)
+                        .eq("isDelete", 0)
+        ) > 0;
     }
 }

@@ -3,6 +3,8 @@ package com.shenchen.cloudcoldagent.prompts;
 import cn.hutool.json.JSONUtil;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillExecutionPlan;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.MessageType;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -28,14 +30,21 @@ public final class SkillWorkflowPrompts {
                 """;
     }
 
-    public static String buildBoundSkillRecognitionInput(String question, String metadataJson) {
+    public static String buildBoundSkillRecognitionInput(String question, String historyText, String metadataJson) {
         return """
+                最近对话历史（按时间顺序，若为空则忽略）：
+                %s
+
                 用户问题：
                 %s
 
                 已绑定 skill metadata 列表：
                 %s
-                """.formatted(StringUtils.defaultString(question), StringUtils.defaultString(metadataJson));
+                """.formatted(
+                StringUtils.defaultIfBlank(historyText, "（无）"),
+                StringUtils.defaultString(question),
+                StringUtils.defaultString(metadataJson)
+        );
     }
 
     public static String buildUnboundSkillDiscoveryPrompt() {
@@ -53,14 +62,21 @@ public final class SkillWorkflowPrompts {
                 """;
     }
 
-    public static String buildUnboundSkillDiscoveryInput(String question, String metadataJson) {
+    public static String buildUnboundSkillDiscoveryInput(String question, String historyText, String metadataJson) {
         return """
+                最近对话历史（按时间顺序，若为空则忽略）：
+                %s
+
                 用户问题：
                 %s
 
                 可供发现的未绑定 skill metadata 列表：
                 %s
-                """.formatted(StringUtils.defaultString(question), StringUtils.defaultString(metadataJson));
+                """.formatted(
+                StringUtils.defaultIfBlank(historyText, "（无）"),
+                StringUtils.defaultString(question),
+                StringUtils.defaultString(metadataJson)
+        );
     }
 
     public static String buildExecutionPlanPrompt() {
@@ -76,24 +92,30 @@ public final class SkillWorkflowPrompts {
                 5. 如果 skill 与当前问题无关，selected 必须为 false。
                 6. 如果可直接执行固定脚本，toolCallPlan.toolName 必须为 execute_skill_script。
                 7. request 中必须包含 skillName、scriptPath、argumentSpecs、arguments。
-                8. argumentSpecs 每个参数对象只允许使用 name、type、required、defaultValue 这 4 个字段，不要输出 description，不要输出 optional。
-                9. 每个 execution plan 只保留 skillName、selected、executable、toolCallPlan。
-                10. toolCallPlan 只保留 toolName 和 request，不要输出 summary。
-                11. 必须返回 items 数组，数组中的每一项对应输入中的一个 skill。
-                12. skillName 必须使用输入里已有的原始名称，禁止改写。
-                13. 输出必须严格符合结构化 schema，不要附加解释。
+                8. argumentSpecs 每个参数对象只允许使用 name、displayName、type、required、defaultValue 这 5 个字段，不要输出 description，不要输出 optional。
+                9. displayName 由模型直接输出，要求使用清晰的中文参数名称，便于前端在 HITL 弹窗中展示。
+                10. 每个 execution plan 只保留 skillName、selected、executable、toolCallPlan。
+                11. toolCallPlan 只保留 toolName 和 request，不要输出 summary。
+                12. 必须返回 items 数组，数组中的每一项对应输入中的一个 skill。
+                13. skillName 必须使用输入里已有的原始名称，禁止改写。
+                14. 输出必须严格符合结构化 schema，不要附加解释。
                 """;
     }
 
     public static String buildExecutionPlanInput(String question,
+                                                 String historyText,
                                                  String batchSkillInputJson) {
         return """
+                最近对话历史（按时间顺序，若为空则忽略）：
+                %s
+
                 用户问题：
                 %s
 
                 待批量生成 execution plan 的 skills：
                 %s
                 """.formatted(
+                StringUtils.defaultIfBlank(historyText, "（无）"),
                 StringUtils.defaultString(question),
                 StringUtils.defaultString(batchSkillInputJson)
         );
@@ -161,5 +183,31 @@ public final class SkillWorkflowPrompts {
                     return item;
                 })
                 .toList();
+    }
+
+    public static String renderConversationHistory(List<Message> history) {
+        if (history == null || history.isEmpty()) {
+            return "（无）";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        for (Message message : history) {
+            if (message == null) {
+                continue;
+            }
+            MessageType messageType = message.getMessageType();
+            String role = switch (messageType) {
+                case USER -> "用户";
+                case ASSISTANT -> "助手";
+                case SYSTEM -> "系统";
+                case TOOL -> "工具";
+            };
+            sb.append(role)
+                    .append("：")
+                    .append(StringUtils.defaultString(message.getText()))
+                    .append("\n");
+        }
+        String rendered = sb.toString().trim();
+        return rendered.isEmpty() ? "（无）" : rendered;
     }
 }

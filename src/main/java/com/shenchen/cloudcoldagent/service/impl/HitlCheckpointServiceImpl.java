@@ -125,6 +125,19 @@ public class HitlCheckpointServiceImpl extends ServiceImpl<HitlCheckpointMapper,
         return toVO(checkpoint);
     }
 
+    @Override
+    public boolean deleteByConversationId(String conversationId) {
+        String normalizedConversationId = validateConversation(conversationId);
+        return this.mapper.updateByQuery(
+                HitlCheckpoint.builder()
+                        .isDelete(1)
+                        .build(),
+                QueryWrapper.create()
+                        .eq("conversationId", normalizedConversationId)
+                        .eq("isDelete", 0)
+        ) > 0;
+    }
+
     private HitlCheckpoint getCheckpointEntity(String interruptId) {
         if (interruptId == null || interruptId.isBlank()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "interruptId 不能为空");

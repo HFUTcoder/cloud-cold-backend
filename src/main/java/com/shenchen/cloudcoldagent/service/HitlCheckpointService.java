@@ -26,4 +26,6 @@ public interface HitlCheckpointService extends IService<HitlCheckpoint> {
     AgentInterrupted loadInterrupted(String interruptId);
 
     HitlCheckpointVO appendContext(String interruptId, Map<String, Object> additionalContext);
+
+    boolean deleteByConversationId(String conversationId);
 }

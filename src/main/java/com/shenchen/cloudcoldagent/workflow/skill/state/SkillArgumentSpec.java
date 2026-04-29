@@ -19,6 +19,8 @@ public class SkillArgumentSpec implements Serializable {
 
     private String name;
 
+    private String displayName;
+
     private String type;
 
     private Boolean required;

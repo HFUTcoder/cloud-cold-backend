@@ -65,9 +65,15 @@ public class UserConversationRelationServiceImpl extends ServiceImpl<UserConvers
     @Override
     public boolean deleteByConversationId(String conversationId) {
         validateConversationId(conversationId);
-        return this.remove(QueryWrapper.create()
-                .eq("conversationId", conversationId.trim())
-                .eq("isDelete", 0));
+        UserConversationRelation updating = UserConversationRelation.builder()
+                .isDelete(1)
+                .build();
+        return this.mapper.updateByQuery(
+                updating,
+                QueryWrapper.create()
+                        .eq("conversationId", conversationId.trim())
+                        .eq("isDelete", 0)
+        ) > 0;
     }
 
     private void validateUserId(Long userId) {

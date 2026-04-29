@@ -23,6 +23,7 @@ import com.shenchen.cloudcoldagent.model.vo.KnowledgeVO;
 import com.shenchen.cloudcoldagent.service.ElasticSearchService;
 import com.shenchen.cloudcoldagent.service.KnowledgeService;
 import com.shenchen.cloudcoldagent.service.MinioService;
+import io.minio.errors.ErrorResponseException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.stereotype.Service;
@@ -111,6 +112,13 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
             try {
                 deleteDocumentIndex(document);
             } catch (Exception e) {
+                log.error("删除知识库关联资源失败。knowledgeId={}, documentId={}, documentName={}, source={}, objectName={}",
+                        knowledgeId,
+                        document.getId(),
+                        document.getDocumentName(),
+                        document.getDocumentSource(),
+                        document.getObjectName(),
+                        e);
                 throw new BusinessException(ErrorCode.OPERATION_ERROR, "删除知识库关联的索引内容失败: " + document.getDocumentName());
             }
         }
@@ -220,8 +228,19 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         if (documentId == null || documentId <= 0) {
             return;
         }
+        List<EsDocumentChunk> chunks = elasticSearchService.searchByMetadata(Map.of("documentId", documentId), 10_000);
+        List<String> chunkIds = chunks.stream()
+                .map(EsDocumentChunk::getId)
+                .filter(Objects::nonNull)
+                .filter(id -> !id.isBlank())
+                .toList();
+
+        if (!chunkIds.isEmpty()) {
+            deleteByIds(chunkIds);
+            return;
+        }
+
         elasticSearchService.deleteByDocumentId(documentId);
-        elasticSearchService.vectorDeleteByFilter(buildNumericFilterExpression("documentId", documentId));
     }
 
     @Override
@@ -449,13 +468,49 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         if (document == null) {
             return;
         }
-        deleteByDocumentId(document.getId());
-        if (document.getDocumentSource() != null && !document.getDocumentSource().isBlank()) {
+        try {
+            deleteByDocumentId(document.getId());
+        } catch (Exception primaryDeleteException) {
+            if (document.getDocumentSource() == null || document.getDocumentSource().isBlank()) {
+                throw primaryDeleteException;
+            }
+            log.warn("按 documentId 删除文档索引失败，回退按 source 删除。documentId={}, source={}",
+                    document.getId(), document.getDocumentSource(), primaryDeleteException);
             deleteBySource(document.getDocumentSource());
         }
         if (document.getObjectName() != null && !document.getObjectName().isBlank()) {
-            minioService.deleteFile(document.getObjectName());
+            try {
+                minioService.deleteFile(document.getObjectName());
+            } catch (Exception e) {
+                if (!isIgnorableDeleteException(e)) {
+                    throw e;
+                }
+                log.info("MinIO 原文件已不存在，跳过删除。documentId={}, objectName={}", document.getId(),
+                        document.getObjectName());
+            }
         }
+    }
+
+    private boolean isIgnorableDeleteException(Exception exception) {
+        if (exception instanceof ErrorResponseException errorResponseException) {
+            String code = errorResponseException.errorResponse() == null
+                    ? null
+                    : errorResponseException.errorResponse().code();
+            return "NoSuchKey".equals(code)
+                    || "NoSuchObject".equals(code)
+                    || "NoSuchBucket".equals(code);
+        }
+
+        String message = exception.getMessage();
+        if (message == null || message.isBlank()) {
+            return false;
+        }
+        String normalized = message.toLowerCase();
+        return normalized.contains("no such key")
+                || normalized.contains("no such object")
+                || normalized.contains("no such bucket")
+                || normalized.contains("object does not exist")
+                || normalized.contains("index_not_found_exception");
     }
 
     /**

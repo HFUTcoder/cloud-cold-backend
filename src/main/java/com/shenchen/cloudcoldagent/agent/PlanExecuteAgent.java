@@ -16,7 +16,10 @@ import com.shenchen.cloudcoldagent.prompts.PlanExecutePrompts;
 import com.shenchen.cloudcoldagent.service.HitlCheckpointService;
 import com.shenchen.cloudcoldagent.service.HitlExecutionService;
 import com.shenchen.cloudcoldagent.service.HitlResumeService;
+import com.shenchen.cloudcoldagent.service.SkillService;
 import com.shenchen.cloudcoldagent.utils.PlanExecuteResumeUtils;
+import com.shenchen.cloudcoldagent.utils.JsonArgumentUtils;
+import com.shenchen.cloudcoldagent.workflow.skill.state.SkillArgumentSpec;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -70,6 +73,8 @@ public class PlanExecuteAgent extends BaseAgent {
 
     private final Set<String> hitlInterceptToolNames;
 
+    private final SkillService skillService;
+
     private final String agentType;
 
     private final ChatClient chatClient;
@@ -84,6 +89,7 @@ public class PlanExecuteAgent extends BaseAgent {
                             HitlExecutionService hitlExecutionService,
                             HitlCheckpointService hitlCheckpointService,
                             HitlResumeService hitlResumeService,
+                            SkillService skillService,
                             String agentType,
                             Set<String> hitlInterceptToolNames) {
         super(chatModel, tools, advisors, maxRounds, chatMemory);
@@ -93,6 +99,7 @@ public class PlanExecuteAgent extends BaseAgent {
         this.hitlExecutionService = hitlExecutionService;
         this.hitlCheckpointService = hitlCheckpointService;
         this.hitlResumeService = hitlResumeService;
+        this.skillService = skillService;
         this.agentType = StringUtils.isBlank(agentType) ? "PlanExecuteAgent" : agentType;
         this.hitlInterceptToolNames = hitlInterceptToolNames == null ? Set.of() : new LinkedHashSet<>(hitlInterceptToolNames);
         ChatClient.Builder builder = ChatClient.builder(chatModel);
@@ -114,7 +121,7 @@ public class PlanExecuteAgent extends BaseAgent {
         // 默认迭代5轮
         private int maxRounds = 5;
 
-        // 默认context压缩阈值20000字符
+        // 默认context压缩阈值50000字符
         private int contextCharLimit = 50000;
 
         // 默认工具重试次数2次
@@ -127,6 +134,8 @@ public class PlanExecuteAgent extends BaseAgent {
         private HitlCheckpointService hitlCheckpointService;
 
         private HitlResumeService hitlResumeService;
+
+        private SkillService skillService;
 
         private String agentType = "PlanExecuteAgent";
 
@@ -149,6 +158,11 @@ public class PlanExecuteAgent extends BaseAgent {
 
         public Builder hitlResumeService(HitlResumeService hitlResumeService) {
             this.hitlResumeService = hitlResumeService;
+            return this;
+        }
+
+        public Builder skillService(SkillService skillService) {
+            this.skillService = skillService;
             return this;
         }
 
@@ -205,7 +219,7 @@ public class PlanExecuteAgent extends BaseAgent {
         public PlanExecuteAgent build() {
             Objects.requireNonNull(chatModel, "chatModel must not be null");
             return new PlanExecuteAgent(chatModel, tools, advisors, maxRounds, contextCharLimit, maxToolRetries,
-                    chatMemory, hitlExecutionService, hitlCheckpointService, hitlResumeService,
+                    chatMemory, hitlExecutionService, hitlCheckpointService, hitlResumeService, skillService,
                     agentType, hitlInterceptToolNames);
         }
     }
@@ -302,7 +316,7 @@ public class PlanExecuteAgent extends BaseAgent {
                     emitStep(sink, state.getConversationId(), "round", "Plan-Execute Round " + state.getRound(), "开始规划与执行");
 
                     // 1.生成计划
-                    List<PlanTask> plan = sanitizePlan(generatePlan(state));
+                    List<PlanTask> plan = sanitizePlan(generatePlan(state), state);
                     String planText = "【Execution Plan】\n" + plan;
                     log.info(planText);
                     state.add(new AssistantMessage(planText));
@@ -464,7 +478,7 @@ public class PlanExecuteAgent extends BaseAgent {
             state.nextRound();
             log.info("===== Plan-Execute Round {} =====", state.getRound());
 
-            List<PlanTask> plan = sanitizePlan(generatePlan(state));
+            List<PlanTask> plan = sanitizePlan(generatePlan(state), state);
             log.info("【Execution Plan】\n\n" + plan);
             state.add(new AssistantMessage("【Execution Plan】\n" + plan));
 
@@ -564,13 +578,14 @@ public class PlanExecuteAgent extends BaseAgent {
         }
     }
 
-    private List<PlanTask> sanitizePlan(List<PlanTask> plan) {
+    private List<PlanTask> sanitizePlan(List<PlanTask> plan, OverAllState state) {
         if (plan == null || plan.isEmpty()) {
             return List.of();
         }
         return plan.stream()
                 .filter(Objects::nonNull)
                 .filter(task -> task.id() == null || StringUtils.isNotBlank(task.toolName()))
+                .map(task -> repairStructuredToolTask(task, state))
                 .toList();
     }
 
@@ -778,7 +793,7 @@ public class PlanExecuteAgent extends BaseAgent {
                     log.info("===== Plan-Execute Round {} =====", state.getRound());
                     emitStep(sink, state.getConversationId(), "round", "Plan-Execute Round " + state.getRound(), "开始规划与执行");
 
-                    List<PlanTask> plan = sanitizePlan(generatePlan(state));
+                    List<PlanTask> plan = sanitizePlan(generatePlan(state), state);
                     String planText = "【Execution Plan】\n" + plan;
                     log.info(planText);
                     state.add(new AssistantMessage(planText));
@@ -979,7 +994,7 @@ public class PlanExecuteAgent extends BaseAgent {
     }
 
     private List<PlanTask> excludeCurrentTask(List<PlanTask> plan, PlanTask currentTask) {
-        List<PlanTask> sanitizedPlan = sanitizePlan(plan);
+        List<PlanTask> sanitizedPlan = sanitizePlan(plan, null);
         if (currentTask == null || sanitizedPlan.isEmpty()) {
             return sanitizedPlan;
         }
@@ -1004,33 +1019,82 @@ public class PlanExecuteAgent extends BaseAgent {
         if (task == null || StringUtils.isBlank(task.toolName())) {
             return new TaskResult(task == null ? null : task.id(), false, false, null, "结构化任务缺少 toolName", null);
         }
+        PlanTask effectiveTask = repairStructuredToolTask(task, state);
         ToolCallback callback = findTool(task.toolName());
         if (callback == null) {
-            return new TaskResult(task.id(), false, false, null, "工具未找到：" + task.toolName(), null);
+            return new TaskResult(effectiveTask.id(), false, false, null, "工具未找到：" + effectiveTask.toolName(), null);
         }
-        Map<String, Object> requestArguments = task.arguments() == null ? Map.of() : task.arguments();
+        Map<String, Object> requestArguments = effectiveTask.arguments() == null ? Map.of() : effectiveTask.arguments();
+        String validationError = JsonArgumentUtils.validateStructuredToolArguments(effectiveTask.toolName(), requestArguments);
+        if (StringUtils.isNotBlank(validationError)) {
+            return new TaskResult(effectiveTask.id(), false, false, null, validationError, null);
+        }
         String argsJson = JSONUtil.toJsonStr(requestArguments);
         log.info("===== Direct execute structured tool task, taskId={}, tool={}, arguments={} =====",
-                task.id(), task.toolName(), argsJson);
+                effectiveTask.id(), effectiveTask.toolName(), argsJson);
 
         try {
             if (isHitlEnabled(state)
-                    && hitlInterceptToolNames.contains(task.toolName())
-                    && !state.hasApprovedToolName(task.toolName())) {
+                    && hitlInterceptToolNames.contains(effectiveTask.toolName())
+                    && !state.hasApprovedToolName(effectiveTask.toolName())) {
                 HitlCheckpointVO checkpoint = createDirectToolCheckpoint(
                         state,
-                        task.toolName(),
+                        effectiveTask.toolName(),
                         argsJson,
                         "该工具需要用户手动确认。已锁定结构化 toolName 和 arguments。"
                 );
-                return new TaskResult(task.id(), false, true, null, "Task execution interrupted by HITL", checkpoint);
+                return new TaskResult(effectiveTask.id(), false, true, null, "Task execution interrupted by HITL", checkpoint);
             }
 
             String result = String.valueOf(callback.call(argsJson));
-            return new TaskResult(task.id(), true, false, result, null, null);
+            return new TaskResult(effectiveTask.id(), true, false, result, null, null);
         } catch (Exception e) {
-            return new TaskResult(task.id(), false, false, null, e.getMessage(), null);
+            return new TaskResult(effectiveTask.id(), false, false, null, e.getMessage(), null);
         }
+    }
+
+    private PlanTask repairStructuredToolTask(PlanTask task, OverAllState state) {
+        if (task == null || StringUtils.isBlank(task.toolName())) {
+            return task;
+        }
+        Map<String, Object> templateArguments = findTemplateArguments(task, state);
+        Map<String, Object> repairedArguments = JsonArgumentUtils.repairStructuredToolArguments(
+                task.toolName(),
+                task.arguments(),
+                templateArguments
+        );
+        if (Objects.equals(repairedArguments, task.arguments())) {
+            return task;
+        }
+        return new PlanTask(task.id(), task.toolName(), repairedArguments, task.order(), task.summary());
+    }
+
+    private Map<String, Object> findTemplateArguments(PlanTask task, OverAllState state) {
+        if (task == null || state == null || state.getPreferredPlan().isEmpty()) {
+            return Map.of();
+        }
+        List<PlanTask> candidates = state.getPreferredPlan().stream()
+                .filter(Objects::nonNull)
+                .filter(candidate -> StringUtils.equals(candidate.toolName(), task.toolName()))
+                .toList();
+        if (candidates.isEmpty()) {
+            return Map.of();
+        }
+
+        if (StringUtils.isNotBlank(task.summary())) {
+            PlanTask summaryMatched = candidates.stream()
+                    .filter(candidate -> StringUtils.equals(candidate.summary(), task.summary()))
+                    .findFirst()
+                    .orElse(null);
+            if (summaryMatched != null && summaryMatched.arguments() != null) {
+                return summaryMatched.arguments();
+            }
+        }
+
+        if (candidates.size() == 1 && candidates.getFirst().arguments() != null) {
+            return candidates.getFirst().arguments();
+        }
+        return Map.of();
     }
 
     private HitlCheckpointVO createDirectToolCheckpoint(OverAllState state,
@@ -1041,11 +1105,12 @@ public class PlanExecuteAgent extends BaseAgent {
             throw new IllegalStateException("hitlCheckpointService 未配置，无法创建直接工具确认 checkpoint");
         }
         String toolCallId = "call_" + UUID.randomUUID().toString().replace("-", "");
+        String enrichedArgumentsJson = enrichHitlArgumentsJson(toolName, argumentsJson);
         AssistantMessage.ToolCall toolCall = new AssistantMessage.ToolCall(
                 toolCallId,
                 "function",
                 toolName,
-                argumentsJson
+                enrichedArgumentsJson
         );
 
         List<Message> checkpointMessages = new ArrayList<>(state.getMessages());
@@ -1054,7 +1119,7 @@ public class PlanExecuteAgent extends BaseAgent {
         PendingToolCall pendingToolCall = new PendingToolCall(
                 toolCallId,
                 toolName,
-                argumentsJson,
+                enrichedArgumentsJson,
                 null,
                 description
         );
@@ -1065,6 +1130,32 @@ public class PlanExecuteAgent extends BaseAgent {
                 checkpointMessages,
                 Map.of()
         );
+    }
+
+    private String enrichHitlArgumentsJson(String toolName, String argumentsJson) {
+        if (!"execute_skill_script".equals(toolName) || StringUtils.isBlank(argumentsJson) || skillService == null) {
+            return argumentsJson;
+        }
+        try {
+            cn.hutool.json.JSONObject jsonObject = JSONUtil.parseObj(argumentsJson);
+            if (jsonObject.containsKey("argumentSpecs")) {
+                return argumentsJson;
+            }
+            String skillName = jsonObject.getStr("skillName");
+            String scriptPath = jsonObject.getStr("scriptPath");
+            if (StringUtils.isAnyBlank(skillName, scriptPath)) {
+                return argumentsJson;
+            }
+            Map<String, SkillArgumentSpec> argumentSpecs = skillService.resolveSkillArgumentSpecs(skillName, scriptPath);
+            if (argumentSpecs == null || argumentSpecs.isEmpty()) {
+                return argumentsJson;
+            }
+            jsonObject.set("argumentSpecs", argumentSpecs);
+            return jsonObject.toString();
+        } catch (Exception ex) {
+            log.warn("补充 HITL argumentSpecs 失败，toolName={}, error={}", toolName, ex.getMessage());
+            return argumentsJson;
+        }
     }
 
     private ToolCallback findTool(String toolName) {

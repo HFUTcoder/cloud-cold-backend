@@ -5,9 +5,9 @@ import com.shenchen.cloudcoldagent.mapper.ChatMemoryHistoryMapper;
 import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemoryRepository;
+import org.springframework.context.annotation.Primary;
 import org.springframework.ai.chat.messages.*;
 import org.springframework.stereotype.Component;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.util.CollectionUtils;
 
 import java.time.LocalDateTime;
@@ -23,15 +23,13 @@ import java.util.Set;
  */
 @Slf4j
 @Component
+@Primary
 public class MysqlChatMemoryRepository implements ChatMemoryRepository {
 
     private final ChatMemoryHistoryMapper chatMemoryHistoryMapper;
-    private final JdbcTemplate jdbcTemplate;
 
-    public MysqlChatMemoryRepository(ChatMemoryHistoryMapper chatMemoryHistoryMapper,
-                                     JdbcTemplate jdbcTemplate) {
+    public MysqlChatMemoryRepository(ChatMemoryHistoryMapper chatMemoryHistoryMapper) {
         this.chatMemoryHistoryMapper = chatMemoryHistoryMapper;
-        this.jdbcTemplate = jdbcTemplate;
     }
 
     @Override
@@ -79,16 +77,26 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
             return;
         }
 
-        // 与 Spring AI ChatMemoryRepository 语义保持一致：保存完整快照（覆盖旧记录）
-        deleteByConversationId(conversationId);
-
         if (CollectionUtils.isEmpty(messages)) {
             return;
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        List<Message> existingMessages = findByConversationId(conversationId);
+        int commonPrefixLength = commonPrefixLength(existingMessages, messages);
 
-        for (Message message : messages) {
+        if (commonPrefixLength < existingMessages.size()) {
+            log.warn("Conversation {} memory snapshot diverged. existingSize={}, incomingSize={}, commonPrefix={}. " +
+                            "Falling back to append-only for the unmatched suffix.",
+                    conversationId, existingMessages.size(), messages.size(), commonPrefixLength);
+        }
+
+        if (commonPrefixLength >= messages.size()) {
+            return;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        for (int i = commonPrefixLength; i < messages.size(); i++) {
+            Message message = messages.get(i);
             if (message == null || message.getMessageType() == null) {
                 continue;
             }
@@ -110,7 +118,15 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
         if (conversationId == null || conversationId.isBlank()) {
             return;
         }
-        jdbcTemplate.update("DELETE FROM chat_memory_history WHERE conversationId = ?", conversationId);
+        ChatMemoryHistory updating = ChatMemoryHistory.builder()
+                .isDelete(1)
+                .build();
+        chatMemoryHistoryMapper.updateByQuery(
+                updating,
+                QueryWrapper.create()
+                        .eq("conversationId", conversationId)
+                        .eq("isDelete", 0)
+        );
     }
 
     private Message toMessage(ChatMemoryHistory row) {
@@ -129,6 +145,28 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
             case SYSTEM -> new SystemMessage(content);
             case TOOL -> new AssistantMessage(content);
         };
+    }
+
+    private int commonPrefixLength(List<Message> existingMessages, List<Message> incomingMessages) {
+        int prefixLength = 0;
+        int limit = Math.min(existingMessages.size(), incomingMessages.size());
+        while (prefixLength < limit && sameMessage(existingMessages.get(prefixLength), incomingMessages.get(prefixLength))) {
+            prefixLength++;
+        }
+        return prefixLength;
+    }
+
+    private boolean sameMessage(Message left, Message right) {
+        if (left == right) {
+            return true;
+        }
+        if (left == null || right == null) {
+            return false;
+        }
+        if (left.getMessageType() != right.getMessageType()) {
+            return false;
+        }
+        return Objects.equals(Objects.toString(left.getText(), ""), Objects.toString(right.getText(), ""));
     }
 
 }
