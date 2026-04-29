@@ -12,6 +12,7 @@ import com.shenchen.cloudcoldagent.model.vo.HitlCheckpointVO;
 import com.shenchen.cloudcoldagent.service.HitlCheckpointService;
 import com.shenchen.cloudcoldagent.service.HitlResumeService;
 import com.shenchen.cloudcoldagent.utils.JsonArgumentUtils;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientResponse;
@@ -31,9 +32,8 @@ import java.util.Map;
 import java.util.Set;
 
 @Service
+@Slf4j
 public class HitlResumeServiceImpl implements HitlResumeService {
-
-    private static final String STATUS_RESOLVED = "RESOLVED";
 
     private final HitlCheckpointService hitlCheckpointService;
 
@@ -46,16 +46,19 @@ public class HitlResumeServiceImpl implements HitlResumeService {
         if (request == null || StringUtils.isBlank(request.interruptId())) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "interruptId 不能为空");
         }
-        HitlCheckpointVO checkpoint = hitlCheckpointService.getByInterruptId(request.interruptId());
-        if (!STATUS_RESOLVED.equals(checkpoint.getStatus())) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前 checkpoint 尚未 resolve，不能 resume");
-        }
+        log.info("开始恢复 HITL 中断执行，interruptId={}", request.interruptId());
+        HitlCheckpointVO checkpoint = hitlCheckpointService.consumeResolvedCheckpoint(request.interruptId());
 
         AgentInterrupted interrupted = hitlCheckpointService.loadInterrupted(request.interruptId());
         List<Message> messages = new ArrayList<>(interrupted.checkpointMessages() == null
                 ? List.of()
                 : interrupted.checkpointMessages());
         applyFeedbacks(messages, interrupted.pendingToolCalls(), checkpoint.getFeedbacks(), request.tools());
+        log.info("已将 HITL 反馈应用到执行上下文，interruptId={}, conversationId={}, pendingToolCount={}, feedbackCount={}",
+                request.interruptId(),
+                checkpoint.getConversationId(),
+                interrupted.pendingToolCalls() == null ? 0 : interrupted.pendingToolCalls().size(),
+                checkpoint.getFeedbacks() == null ? 0 : checkpoint.getFeedbacks().size());
 
         Set<String> approvedToolNames = new LinkedHashSet<>(
                 request.approvedToolNames() == null ? Set.of() : request.approvedToolNames()
@@ -99,11 +102,21 @@ public class HitlResumeServiceImpl implements HitlResumeService {
                         List.copyOf(messages),
                         context
                 );
+                log.info("恢复执行后再次命中 HITL 中断，interruptId={}, conversationId={}, nextInterruptId={}, pendingToolCount={}",
+                        request.interruptId(),
+                        checkpoint.getConversationId(),
+                        nextCheckpoint.getInterruptId(),
+                        pendingToolCalls == null ? 0 : pendingToolCalls.size());
                 return new HitlResumeResult(true, null, "Task execution interrupted by HITL", nextCheckpoint);
             }
 
             String text = response.chatResponse().getResult().getOutput().getText();
             if (!response.chatResponse().hasToolCalls()) {
+                log.info("HITL 恢复执行完成，interruptId={}, conversationId={}, rounds={}, finalAnswerLength={}",
+                        request.interruptId(),
+                        checkpoint.getConversationId(),
+                        round,
+                        text == null ? 0 : text.length());
                 return new HitlResumeResult(false, text, null, null);
             }
 
@@ -113,6 +126,11 @@ public class HitlResumeServiceImpl implements HitlResumeService {
         }
 
         String finalContent = chatClient.prompt().messages(messages).call().content();
+        log.info("HITL 恢复执行完成，interruptId={}, conversationId={}, rounds={}, finalAnswerLength={}",
+                request.interruptId(),
+                checkpoint.getConversationId(),
+                request.maxRounds(),
+                finalContent == null ? 0 : finalContent.length());
         return new HitlResumeResult(false, finalContent, null, null);
     }
 

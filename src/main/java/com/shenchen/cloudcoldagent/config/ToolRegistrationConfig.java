@@ -27,16 +27,4 @@ public class ToolRegistrationConfig {
         return ToolCallbacks.from(sortedTools.toArray());
     }
 
-    @Bean("skillTools")
-    public ToolCallback[] skillTools(ReadSkillTool readSkillTool,
-                                     ReadSkillResourceTool readSkillResourceTool,
-                                     ListSkillResourcesTool listSkillResourcesTool,
-                                     ExecuteSkillScriptTool executeSkillScriptTool) {
-        return ToolCallbacks.from(
-                readSkillTool,
-                readSkillResourceTool,
-                listSkillResourcesTool,
-                executeSkillScriptTool
-        );
-    }
 }

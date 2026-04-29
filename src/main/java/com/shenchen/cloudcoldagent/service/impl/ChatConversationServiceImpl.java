@@ -13,6 +13,7 @@ import com.shenchen.cloudcoldagent.model.entity.ChatConversation;
 import com.shenchen.cloudcoldagent.model.entity.HitlCheckpoint;
 import com.shenchen.cloudcoldagent.service.ChatConversationService;
 import com.shenchen.cloudcoldagent.service.UserConversationRelationService;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemoryRepository;
 import org.springframework.stereotype.Service;
@@ -28,31 +29,23 @@ import java.util.UUID;
  */
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMapper, ChatConversation>
         implements ChatConversationService {
 
     private static final String DEFAULT_CONVERSATION_TITLE = "新会话";
 
     private final SkillRegistry skillRegistry;
-    private final ChatConversationMapper chatConversationMapper;
-    private final ChatMemoryRepository chatMemoryRepository;
-    private final ChatMemoryHistoryMapper chatMemoryHistoryMapper;
-    private final UserConversationRelationService userConversationRelationService;
-    private final HitlCheckpointMapper hitlCheckpointMapper;
 
-    public ChatConversationServiceImpl(SkillRegistry skillRegistry,
-                                       ChatConversationMapper chatConversationMapper,
-                                       ChatMemoryRepository chatMemoryRepository,
-                                       ChatMemoryHistoryMapper chatMemoryHistoryMapper,
-                                       UserConversationRelationService userConversationRelationService,
-                                       HitlCheckpointMapper hitlCheckpointMapper) {
-        this.skillRegistry = skillRegistry;
-        this.chatConversationMapper = chatConversationMapper;
-        this.chatMemoryRepository = chatMemoryRepository;
-        this.chatMemoryHistoryMapper = chatMemoryHistoryMapper;
-        this.userConversationRelationService = userConversationRelationService;
-        this.hitlCheckpointMapper = hitlCheckpointMapper;
-    }
+    private final ChatConversationMapper chatConversationMapper;
+
+    private final ChatMemoryRepository chatMemoryRepository;
+
+    private final ChatMemoryHistoryMapper chatMemoryHistoryMapper;
+
+    private final UserConversationRelationService userConversationRelationService;
+
+    private final HitlCheckpointMapper hitlCheckpointMapper;
 
     @Override
     public List<String> listConversationIdsByUserId(Long userId) {

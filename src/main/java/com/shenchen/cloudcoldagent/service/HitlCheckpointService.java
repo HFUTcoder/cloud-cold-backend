@@ -23,6 +23,8 @@ public interface HitlCheckpointService extends IService<HitlCheckpoint> {
 
     HitlCheckpointVO resolveCheckpoint(String interruptId, List<PendingToolCall> feedbacks);
 
+    HitlCheckpointVO consumeResolvedCheckpoint(String interruptId);
+
     AgentInterrupted loadInterrupted(String interruptId);
 
     HitlCheckpointVO appendContext(String interruptId, Map<String, Object> additionalContext);

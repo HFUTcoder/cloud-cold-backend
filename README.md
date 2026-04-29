@@ -107,6 +107,7 @@ cloud-cold-agent
 - Redis：`localhost:6379`
 - Elasticsearch：`http://localhost:9200`
 - MinIO：`http://localhost:9000`
+- 上传限制来源：`cloudcold.upload.*`
 - 向量索引名：`rag_docs_vector`
 - 当前默认开启 `cloudcold.search.mock.enabled=true`
 
@@ -142,12 +143,18 @@ spring:
 minio:
   access-key: your_minio_access_key
   secret-key: your_minio_secret_key
+
+cloudcold:
+  upload:
+    max-file-size: 100MB
+    max-request-size: 100MB
 ```
 
 说明：
 
 - `spring.ai.openai.api-key` 是必填项，项目中的 Agent 与部分文档处理逻辑都会依赖它
 - `minio.access-key` / `minio.secret-key` 是必填项，否则 MinIO 客户端无法初始化
+- 上传大小限制统一由 `cloudcold.upload.max-file-size` 和 `cloudcold.upload.max-request-size` 控制
 - 当前代码默认使用 `spring.profiles.active=local`，因此建议把本地覆盖配置写在 `application-local.yml`
 - 如果后续关闭 `cloudcold.search.mock.enabled`，还需要补齐真实联网搜索工具所需配置
 

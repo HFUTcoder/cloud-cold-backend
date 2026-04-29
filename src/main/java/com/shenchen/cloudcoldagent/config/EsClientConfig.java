@@ -13,9 +13,9 @@ import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.apache.http.ssl.SSLContexts;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestClientBuilder;
+import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
@@ -23,26 +23,21 @@ import org.springframework.context.annotation.Lazy;
 import javax.net.ssl.SSLContext;
 
 @Configuration
+@RequiredArgsConstructor
 public class EsClientConfig {
 
     private static final Logger logger = LoggerFactory.getLogger(EsClientConfig.class);
 
-    @Value("${spring.elasticsearch.uris}")
-    private String uris;
-
-    @Value("${spring.elasticsearch.username:}")
-    private String username;
-
-    @Value("${spring.elasticsearch.password:}")
-    private String password;
-
-    @Value("${spring.elasticsearch.insecure:false}")
-    private boolean insecure;
+    private final ElasticsearchClientProperties elasticsearchClientProperties;
 
     @Bean
     @Lazy
     public ElasticsearchClient elasticsearchClient() {
         try {
+            String uris = elasticsearchClientProperties.getUris();
+            String username = elasticsearchClientProperties.getUsername();
+            String password = elasticsearchClientProperties.getPassword();
+            boolean insecure = elasticsearchClientProperties.isInsecure();
             RestClientBuilder builder = RestClient.builder(HttpHost.create(uris));
 
             // 如果需要 Basic Auth，配置 CredentialsProvider

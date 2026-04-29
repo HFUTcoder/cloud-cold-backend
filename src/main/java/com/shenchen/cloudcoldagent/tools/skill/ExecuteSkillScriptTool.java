@@ -27,11 +27,9 @@ public class ExecuteSkillScriptTool extends BaseTool {
                                      @ToolParam(description = "脚本参数，使用结构化 JSON 对象，例如 {\"key\":\"value\"}") Map<String, Object> arguments) {
         String inputSummary = "skillName=%s, scriptPath=%s, arguments=%s"
                 .formatted(defaultText(skillName), defaultText(scriptPath), arguments == null ? "{}" : arguments);
-        logToolStart(TOOL_NAME, "input", inputSummary);
         try {
             SkillScriptExecutionVO result = skillService.executeSkillScript(skillName, scriptPath, arguments);
             String formattedResult = formatResult(result);
-            logToolSuccess(TOOL_NAME, inputSummary, formattedResult);
             return formattedResult;
         } catch (Exception e) {
             return handleToolException(TOOL_NAME, inputSummary, e, "执行 skill script 失败：");

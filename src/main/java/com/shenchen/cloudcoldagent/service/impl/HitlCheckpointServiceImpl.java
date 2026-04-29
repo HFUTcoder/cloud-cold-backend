@@ -14,6 +14,7 @@ import com.shenchen.cloudcoldagent.model.vo.HitlCheckpointVO;
 import com.shenchen.cloudcoldagent.service.ChatConversationService;
 import com.shenchen.cloudcoldagent.service.HitlCheckpointService;
 import com.shenchen.cloudcoldagent.utils.HitlSerializationUtils;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.stereotype.Service;
 
@@ -24,11 +25,13 @@ import java.util.Map;
 import java.util.UUID;
 
 @Service
+@Slf4j
 public class HitlCheckpointServiceImpl extends ServiceImpl<HitlCheckpointMapper, HitlCheckpoint>
         implements HitlCheckpointService {
 
     private static final String STATUS_PENDING = "PENDING";
     private static final String STATUS_RESOLVED = "RESOLVED";
+    private static final String STATUS_CONSUMED = "CONSUMED";
 
     private final ChatConversationService chatConversationService;
 
@@ -57,6 +60,12 @@ public class HitlCheckpointServiceImpl extends ServiceImpl<HitlCheckpointMapper,
                 .isDelete(0)
                 .build();
         this.save(checkpoint);
+        log.info("已创建 HITL checkpoint，conversationId={}, interruptId={}, agentType={}, pendingToolCount={}, contextKeys={}",
+                normalizedConversationId,
+                checkpoint.getInterruptId(),
+                checkpoint.getAgentType(),
+                pendingToolCalls.size(),
+                context == null ? List.of() : context.keySet());
         return toVO(checkpoint);
     }
 
@@ -98,6 +107,35 @@ public class HitlCheckpointServiceImpl extends ServiceImpl<HitlCheckpointMapper,
         checkpoint.setStatus(STATUS_RESOLVED);
         checkpoint.setResolvedTime(LocalDateTime.now());
         this.updateById(checkpoint);
+        log.info("已提交 HITL 处理结果，interruptId={}, conversationId={}, feedbackCount={}",
+                checkpoint.getInterruptId(),
+                checkpoint.getConversationId(),
+                feedbacks == null ? 0 : feedbacks.size());
+        return toVO(checkpoint);
+    }
+
+    @Override
+    public HitlCheckpointVO consumeResolvedCheckpoint(String interruptId) {
+        HitlCheckpoint checkpoint = getCheckpointEntity(interruptId);
+        if (!STATUS_RESOLVED.equals(checkpoint.getStatus())) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前 checkpoint 尚未 resolve，不能 resume");
+        }
+        int updatedRows = this.mapper.updateByQuery(
+                HitlCheckpoint.builder()
+                        .status(STATUS_CONSUMED)
+                        .build(),
+                QueryWrapper.create()
+                        .eq("id", checkpoint.getId())
+                        .eq("status", STATUS_RESOLVED)
+                        .eq("isDelete", 0)
+        );
+        if (updatedRows <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前 checkpoint 已被 resume，不能重复执行");
+        }
+        checkpoint.setStatus(STATUS_CONSUMED);
+        log.info("HITL checkpoint 已被消费，interruptId={}, conversationId={}",
+                checkpoint.getInterruptId(),
+                checkpoint.getConversationId());
         return toVO(checkpoint);
     }
 
@@ -122,6 +160,10 @@ public class HitlCheckpointServiceImpl extends ServiceImpl<HitlCheckpointMapper,
         mergedContext.putAll(additionalContext);
         checkpoint.setContextJson(HitlSerializationUtils.writeContext(mergedContext));
         this.updateById(checkpoint);
+        log.info("已追加 HITL 上下文，interruptId={}, conversationId={}, appendedKeys={}",
+                checkpoint.getInterruptId(),
+                checkpoint.getConversationId(),
+                additionalContext.keySet());
         return toVO(checkpoint);
     }
 

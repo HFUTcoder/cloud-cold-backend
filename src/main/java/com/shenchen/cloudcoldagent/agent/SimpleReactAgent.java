@@ -232,6 +232,10 @@ public class SimpleReactAgent extends BaseAgent {
     public Flux<AgentStreamEvent> streamInternal(String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
         List<Message> messages = Collections.synchronizedList(new ArrayList<>());
         boolean useMemory = useMemory(conversationId);
+        log.info("开始执行快速模式流式回答，conversationId={}, questionLength={}, useMemory={}",
+                conversationId,
+                question == null ? 0 : question.length(),
+                useMemory);
 
         messages.add(new SystemMessage(REACT_AGENT_SYSTEM_PROMPT));
         messages.add(new SystemMessage(systemPrompt));
@@ -271,7 +275,10 @@ public class SimpleReactAgent extends BaseAgent {
         return sink.asFlux()
                 .doOnCancel(() -> hasSentFinalResult.set(true))
                 .doFinally(signalType -> {
-                    log.info("最终答案: {}", finalAnswerBuffer);
+                    log.info("快速模式流式回答结束，conversationId={}, rounds={}, finalAnswerLength={}",
+                            conversationId,
+                            roundCounter.get(),
+                            finalAnswerBuffer.length());
                 });
     }
 
@@ -279,6 +286,9 @@ public class SimpleReactAgent extends BaseAgent {
                                StringBuilder finalAnswerBuffer, boolean useMemory, String conversationId) {
         // 轮次+1
         roundCounter.incrementAndGet();
+        log.info("快速模式开始第 {} 轮处理，conversationId={}",
+                roundCounter.get(),
+                conversationId);
         RoundState state = new RoundState();
 
         chatClient.prompt()
@@ -363,6 +373,10 @@ public class SimpleReactAgent extends BaseAgent {
             String finalText = state.textBuffer.toString();
             finalAnswerBuffer.setLength(0);
             finalAnswerBuffer.append(finalText);
+            log.info("快速模式第 {} 轮直接产出最终答案，conversationId={}, answerLength={}",
+                    roundCounter.get(),
+                    conversationId,
+                    finalText.length());
             sink.tryEmitNext(AgentStreamEventFactory.finalAnswer(conversationId, finalText));
             sink.tryEmitComplete();
             hasSentFinalResult.set(true);
@@ -374,12 +388,20 @@ public class SimpleReactAgent extends BaseAgent {
         }
 
         if (maxRounds > 0 && roundCounter.get() >= maxRounds) {
+            log.warn("快速模式达到最大轮次限制，开始强制总结。conversationId={}, round={}",
+                    conversationId,
+                    roundCounter.get());
             forceFinalStream(conversationId, useMemory, messages, sink, hasSentFinalResult);
             return;
         }
 
         // TOOL_CALL
         List<AssistantMessage.ToolCall> normalizedToolCalls = normalizeToolCalls(state.toolCalls);
+        log.info("快速模式第 {} 轮识别到工具调用，conversationId={}, toolCallCount={}, tools={}",
+                roundCounter.get(),
+                conversationId,
+                normalizedToolCalls.size(),
+                normalizedToolCalls.stream().map(AssistantMessage.ToolCall::name).toList());
         AssistantMessage assistantMsg = AssistantMessage.builder().toolCalls(normalizedToolCalls).build();
 
         messages.add(assistantMsg);
@@ -523,7 +545,7 @@ public class SimpleReactAgent extends BaseAgent {
         String rawArguments = toolCall == null ? null : toolCall.arguments();
         NormalizationResult result = JsonArgumentUtils.normalizeJsonArguments(rawArguments);
         if (!result.valid()) {
-            log.warn("Tool call arguments are not valid JSON. toolName={}, toolId={}, rawArguments={}, error={}",
+            log.warn("工具调用参数不是合法 JSON，toolName={}, toolId={}, rawArguments={}, error={}",
                     toolCall == null ? null : toolCall.name(),
                     toolCall == null ? null : toolCall.id(),
                     rawArguments,

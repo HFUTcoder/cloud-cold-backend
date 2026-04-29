@@ -312,18 +312,27 @@ public class PlanExecuteAgent extends BaseAgent {
             try {
                 while (maxRounds <= 0 || state.getRound() < maxRounds) {
                     state.nextRound();
-                    log.info("===== Plan-Execute Round {} =====", state.getRound());
+                    log.info("开始执行 Plan-Execute 第 {} 轮，conversationId={}, preferredPlanAvailable={}",
+                            state.getRound(),
+                            state.getConversationId(),
+                            !state.getPreferredPlan().isEmpty() && !state.preferredPlanConsumed);
                     emitStep(sink, state.getConversationId(), "round", "Plan-Execute Round " + state.getRound(), "开始规划与执行");
 
                     // 1.生成计划
                     List<PlanTask> plan = sanitizePlan(generatePlan(state), state);
                     String planText = "【Execution Plan】\n" + plan;
-                    log.info(planText);
+                    log.info("本轮执行计划已生成，conversationId={}, round={}, taskCount={}, summary={}",
+                            state.getConversationId(),
+                            state.getRound(),
+                            plan.size(),
+                            summarizePlan(plan));
                     state.add(new AssistantMessage(planText));
                     emitStep(sink, state.getConversationId(), "plan", "Execution Plan", renderPlanForDisplay(plan));
 
                     if (plan.isEmpty() || plan.stream().allMatch(t -> t.id() == null)) {
-                        log.info("===== No execution needed, direct answer =====");
+                        log.info("本轮未生成可执行任务，直接进入总结阶段。conversationId={}, round={}",
+                                state.getConversationId(),
+                                state.getRound());
                         emitStep(sink, state.getConversationId(), "execution", "Execution", "当前无需执行工具任务，进入总结阶段。");
                         break;
                     }
@@ -346,7 +355,9 @@ public class PlanExecuteAgent extends BaseAgent {
                     String critiqueText = "【Critique Feedback】\n" + critique.feedback();
 
                     if (critique.passed()) {
-                        log.info("===== Goal satisfied, finish =====");
+                        log.info("批判阶段判断目标已满足，准备进入总结。conversationId={}, round={}",
+                                state.getConversationId(),
+                                state.getRound());
                         emitStep(sink, state.getConversationId(), "critique", "Critique", "目标已满足，进入总结阶段。");
                         break;
                     }
@@ -357,18 +368,26 @@ public class PlanExecuteAgent extends BaseAgent {
                             && results != null && !results.isEmpty();
 
                     if (isOnlyMissingSummary) {
-                        log.info("===== 数据已收集完毕，直接进入总结阶段 =====");
+                        log.info("批判阶段判断数据已足够，直接进入总结。conversationId={}, round={}, feedback={}",
+                                state.getConversationId(),
+                                state.getRound(),
+                                abbreviate(critique.feedback(), 200));
                         emitStep(sink, state.getConversationId(), "critique", "Critique", "已收集到足够数据，直接生成最终总结。");
                         break;
                     }
 
                     if (shouldStopAfterSkillResourceExhausted(state)) {
-                        log.info("===== Skill resources exhausted, stop retrying and summarize =====");
+                        log.info("批判阶段判断 skill 资源已穷尽，停止继续规划。conversationId={}, round={}",
+                                state.getConversationId(),
+                                state.getRound());
                         emitStep(sink, state.getConversationId(), "critique", "Critique", "已确认 skill 可读资源已穷尽，停止无效重试并直接总结。");
                         break;
                     }
 
-                    log.info("===== critique Goal not satisfied, continue round =====,\n reason is {} ", critique.feedback());
+                    log.info("批判阶段要求继续下一轮规划。conversationId={}, round={}, feedback={}",
+                            state.getConversationId(),
+                            state.getRound(),
+                            abbreviate(critique.feedback(), 200));
                     state.add(new AssistantMessage(critiqueText));
                     emitStep(sink, state.getConversationId(), "critique", "Critique Feedback", critique.feedback());
 
@@ -376,7 +395,9 @@ public class PlanExecuteAgent extends BaseAgent {
                     compressIfNeeded(state);
                 }
                 if (state.round == maxRounds) {
-                    log.info("===== Max rounds reached, force finish =====");
+                    log.info("Plan-Execute 达到最大轮次限制，强制进入总结阶段。conversationId={}, round={}",
+                            state.getConversationId(),
+                            state.getRound());
                     emitStep(sink, state.getConversationId(), "round", "Plan-Execute", "达到最大轮次，强制进入总结阶段。");
                 }
 
@@ -396,10 +417,12 @@ public class PlanExecuteAgent extends BaseAgent {
                 .doOnCancel(() -> hasSentFinalResult.set(true))
                 .doFinally(signalType -> {
                     if (interruptedByHitl.get()) {
-                        log.info("执行链已因 HITL 中断，等待用户处理，conversationId={}", conversationId);
+                        log.info("Plan-Execute 执行链已因 HITL 中断，等待用户处理。conversationId={}", conversationId);
                         return;
                     }
-                    log.info("最终答案: {}", finalAnswerBuffer);
+                    log.info("Plan-Execute 流式执行结束，conversationId={}, finalAnswerLength={}",
+                            conversationId,
+                            finalAnswerBuffer.length());
                 });
     }
 
@@ -476,14 +499,23 @@ public class PlanExecuteAgent extends BaseAgent {
 
         while (maxRounds <= 0 || state.getRound() < maxRounds) {
             state.nextRound();
-            log.info("===== Plan-Execute Round {} =====", state.getRound());
+            log.info("开始执行 Plan-Execute 第 {} 轮，conversationId={}, preferredPlanAvailable={}",
+                    state.getRound(),
+                    state.getConversationId(),
+                    !state.getPreferredPlan().isEmpty() && !state.preferredPlanConsumed);
 
             List<PlanTask> plan = sanitizePlan(generatePlan(state), state);
-            log.info("【Execution Plan】\n\n" + plan);
+            log.info("本轮执行计划已生成，conversationId={}, round={}, taskCount={}, summary={}",
+                    state.getConversationId(),
+                    state.getRound(),
+                    plan.size(),
+                    summarizePlan(plan));
             state.add(new AssistantMessage("【Execution Plan】\n" + plan));
 
             if (plan.isEmpty() || plan.stream().allMatch(t -> t.id() == null)) {
-                log.info("===== No execution needed, direct answer =====");
+                log.info("本轮未生成可执行任务，直接进入总结阶段。conversationId={}, round={}",
+                        state.getConversationId(),
+                        state.getRound());
                 break;
             }
 
@@ -499,7 +531,9 @@ public class PlanExecuteAgent extends BaseAgent {
             CritiqueResult critique = critique(state);
 
             if (critique.passed()) {
-                log.info("===== Goal satisfied, finish =====");
+                log.info("批判阶段判断目标已满足，准备进入总结。conversationId={}, round={}",
+                        state.getConversationId(),
+                        state.getRound());
                 break;
             }
 
@@ -509,23 +543,33 @@ public class PlanExecuteAgent extends BaseAgent {
                     && hasExecutedTools;
 
             if (isOnlyMissingSummary) {
-                log.info("===== 数据已收集完毕，跳过规划直接总结 =====");
+                log.info("批判阶段判断数据已足够，直接进入总结。conversationId={}, round={}, feedback={}",
+                        state.getConversationId(),
+                        state.getRound(),
+                        abbreviate(critique.feedback(), 200));
                 break;
             }
 
             if (shouldStopAfterSkillResourceExhausted(state)) {
-                log.info("===== Skill resources exhausted, stop retrying and summarize =====");
+                log.info("批判阶段判断 skill 资源已穷尽，停止继续规划。conversationId={}, round={}",
+                        state.getConversationId(),
+                        state.getRound());
                 break;
             }
 
-            log.info("===== critique Goal not satisfied, continue round =====,\n reason is {} ", critique.feedback());
+            log.info("批判阶段要求继续下一轮规划。conversationId={}, round={}, feedback={}",
+                    state.getConversationId(),
+                    state.getRound(),
+                    abbreviate(critique.feedback(), 200));
             state.add(new AssistantMessage(String.format("【Critique Feedback】%n%s", critique.feedback())));
 
             // 4. 压缩context
             compressIfNeeded(state);
         }
         if (state.round == maxRounds)
-            log.info("===== Max rounds reached, force finish =====");
+            log.info("Plan-Execute 达到最大轮次限制，强制进入总结阶段。conversationId={}, round={}",
+                    state.getConversationId(),
+                    state.getRound());
 
         // 5.总结输出
         return summarize(state);
@@ -556,7 +600,9 @@ public class PlanExecuteAgent extends BaseAgent {
 
         String json = chatModel.call(prompt).getResult().getOutput().getText();
         if (StringUtils.isBlank(json)) {
-            log.warn("generatePlan 返回为空，降级为空计划。");
+            log.warn("执行计划生成结果为空，降级为空计划。conversationId={}, round={}",
+                    state.getConversationId(),
+                    state.getRound());
             return List.of();
         }
 
@@ -569,11 +615,19 @@ public class PlanExecuteAgent extends BaseAgent {
                 try {
                     return converter.convert("[" + raw + "]");
                 } catch (Exception secondEx) {
-                    log.warn("generatePlan 解析失败(对象包装后仍失败)，降级为空计划。raw={}", raw, secondEx);
+                    log.warn("执行计划解析失败（对象包装后仍失败），降级为空计划。conversationId={}, round={}, rawSnippet={}",
+                            state.getConversationId(),
+                            state.getRound(),
+                            abbreviate(raw, 400),
+                            secondEx);
                     return List.of();
                 }
             }
-            log.warn("generatePlan 解析失败，降级为空计划。raw={}", raw, firstEx);
+            log.warn("执行计划解析失败，降级为空计划。conversationId={}, round={}, rawSnippet={}",
+                    state.getConversationId(),
+                    state.getRound(),
+                    abbreviate(raw, 400),
+                    firstEx);
             return List.of();
         }
     }
@@ -623,6 +677,12 @@ public class PlanExecuteAgent extends BaseAgent {
             String dependencySnapshot = renderDependencySnapshot(accumulatedResults);
 
             List<PlanTask> tasks = grouped.get(order);
+            log.info("开始执行 order={} 的任务组，conversationId={}, round={}, taskCount={}, summary={}",
+                    order,
+                    state.getConversationId(),
+                    state.getRound(),
+                    tasks == null ? 0 : tasks.size(),
+                    summarizePlan(tasks));
 
             List<CompletableFuture<Void>> futures = tasks.stream()
                     .map(task -> CompletableFuture.runAsync(() -> {
@@ -636,6 +696,7 @@ public class PlanExecuteAgent extends BaseAgent {
                             TaskResult result = executeWithRetry(task, dependencySnapshot, runtimeSystemPrompt, state);
                             results.put(task.id(), result);
                             state.recordTask(task, result);
+                            logTaskResult(state, task, result);
 
                             if (result.success() && result.output() != null) {
                                 accumulatedResults.put(task.id(), result.output());
@@ -683,6 +744,11 @@ public class PlanExecuteAgent extends BaseAgent {
             CompletableFuture.allOf(
                     futures.toArray(new CompletableFuture[0])
             ).join();
+            log.info("order={} 的任务组执行完成，conversationId={}, round={}, interrupted={}",
+                    order,
+                    state.getConversationId(),
+                    state.getRound(),
+                    state.getInterruptedCheckpoint() != null);
 
             if (state.getInterruptedCheckpoint() != null) {
                 break;
@@ -704,7 +770,15 @@ public class PlanExecuteAgent extends BaseAgent {
                 return executeStructuredToolTask(task, state);
             } catch (Exception e) {
                 lastError = e;
-                log.warn("Task {} failed attempt {}/{}", task.id(), attempt, maxToolRetries, e);
+                log.warn("任务执行失败，准备重试。conversationId={}, round={}, taskId={}, tool={}, attempt={}, maxRetries={}, message={}",
+                        state == null ? null : state.getConversationId(),
+                        state == null ? null : state.getRound(),
+                        task == null ? null : task.id(),
+                        task == null ? null : task.toolName(),
+                        attempt,
+                        maxToolRetries,
+                        e.getMessage(),
+                        e);
             }
         }
 
@@ -790,17 +864,28 @@ public class PlanExecuteAgent extends BaseAgent {
 
                 while (maxRounds <= 0 || state.getRound() < maxRounds) {
                     state.nextRound();
-                    log.info("===== Plan-Execute Round {} =====", state.getRound());
+                    log.info("恢复执行进入第 {} 轮，conversationId={}, interruptId={}",
+                            state.getRound(),
+                            state.getConversationId(),
+                            interruptId);
                     emitStep(sink, state.getConversationId(), "round", "Plan-Execute Round " + state.getRound(), "开始规划与执行");
 
                     List<PlanTask> plan = sanitizePlan(generatePlan(state), state);
                     String planText = "【Execution Plan】\n" + plan;
-                    log.info(planText);
+                    log.info("恢复执行阶段已生成本轮计划，conversationId={}, interruptId={}, round={}, taskCount={}, summary={}",
+                            state.getConversationId(),
+                            interruptId,
+                            state.getRound(),
+                            plan.size(),
+                            summarizePlan(plan));
                     state.add(new AssistantMessage(planText));
                     emitStep(sink, state.getConversationId(), "plan", "Execution Plan", renderPlanForDisplay(plan));
 
                     if (plan.isEmpty() || plan.stream().allMatch(t -> t.id() == null)) {
-                        log.info("===== No execution needed, direct answer =====");
+                        log.info("恢复执行阶段未生成可执行任务，直接进入总结。conversationId={}, interruptId={}, round={}",
+                                state.getConversationId(),
+                                interruptId,
+                                state.getRound());
                         emitStep(sink, state.getConversationId(), "execution", "Execution", "当前无需执行工具任务，进入总结阶段。");
                         break;
                     }
@@ -823,7 +908,10 @@ public class PlanExecuteAgent extends BaseAgent {
                 }
 
                 if (state.round == maxRounds) {
-                    log.info("===== Max rounds reached, force finish =====");
+                    log.info("恢复执行达到最大轮次限制，强制进入总结阶段。conversationId={}, interruptId={}, round={}",
+                            state.getConversationId(),
+                            interruptId,
+                            state.getRound());
                     emitStep(sink, state.getConversationId(), "round", "Plan-Execute", "达到最大轮次，强制进入总结阶段。");
                 }
 
@@ -840,10 +928,12 @@ public class PlanExecuteAgent extends BaseAgent {
                 .doOnCancel(() -> hasSentFinalResult.set(true))
                 .doFinally(signalType -> {
                     if (interruptedByHitl.get()) {
-                        log.info("resume 执行链再次因 HITL 中断，等待用户处理，interruptId={}", interruptId);
+                        log.info("恢复执行再次因 HITL 中断，等待用户处理。interruptId={}", interruptId);
                         return;
                     }
-                    log.info("resume 最终答案: {}", finalAnswerBuffer);
+                    log.info("恢复执行链已完成，interruptId={}, finalAnswerLength={}",
+                            interruptId,
+                            finalAnswerBuffer.length());
                 });
     }
 
@@ -885,7 +975,10 @@ public class PlanExecuteAgent extends BaseAgent {
                     task.summary()
             );
         } catch (Exception ex) {
-            log.warn("解析 EDIT 后参数失败，回退原任务参数，taskId={}, error={}", task.id(), ex.getMessage());
+            log.warn("解析 EDIT 后参数失败，回退原任务参数。taskId={}, tool={}, message={}",
+                    task.id(),
+                    task.toolName(),
+                    ex.getMessage());
             return task;
         }
     }
@@ -925,7 +1018,9 @@ public class PlanExecuteAgent extends BaseAgent {
                                                 Map<String, TaskResult> results) {
         CritiqueResult critique = critique(state);
         if (critique.passed()) {
-            log.info("===== Goal satisfied, finish =====");
+            log.info("批判阶段判断目标已满足，准备进入总结。conversationId={}, round={}",
+                    state.getConversationId(),
+                    state.getRound());
             emitStep(sink, state.getConversationId(), "critique", "Critique", "目标已满足，进入总结阶段。");
             return false;
         }
@@ -935,18 +1030,26 @@ public class PlanExecuteAgent extends BaseAgent {
                 && results != null && !results.isEmpty();
 
         if (isOnlyMissingSummary) {
-            log.info("===== 数据已收集完毕，直接进入总结阶段 =====");
+            log.info("批判阶段判断数据已足够，直接进入总结。conversationId={}, round={}, feedback={}",
+                    state.getConversationId(),
+                    state.getRound(),
+                    abbreviate(critique.feedback(), 200));
             emitStep(sink, state.getConversationId(), "critique", "Critique", "已收集到足够数据，直接生成最终总结。");
             return false;
         }
 
         if (shouldStopAfterSkillResourceExhausted(state)) {
-            log.info("===== Skill resources exhausted, stop retrying and summarize =====");
+            log.info("批判阶段判断 skill 资源已穷尽，停止继续规划。conversationId={}, round={}",
+                    state.getConversationId(),
+                    state.getRound());
             emitStep(sink, state.getConversationId(), "critique", "Critique", "已确认 skill 可读资源已穷尽，停止无效重试并直接总结。");
             return false;
         }
 
-        log.info("===== critique Goal not satisfied, continue round =====,\n reason is {} ", critique.feedback());
+        log.info("批判阶段要求继续下一轮规划。conversationId={}, round={}, feedback={}",
+                state.getConversationId(),
+                state.getRound(),
+                abbreviate(critique.feedback(), 200));
         state.add(new AssistantMessage("【Critique Feedback】\n" + critique.feedback()));
         emitStep(sink, state.getConversationId(), "critique", "Critique Feedback", critique.feedback());
         compressIfNeeded(state);
@@ -1030,8 +1133,12 @@ public class PlanExecuteAgent extends BaseAgent {
             return new TaskResult(effectiveTask.id(), false, false, null, validationError, null);
         }
         String argsJson = JSONUtil.toJsonStr(requestArguments);
-        log.info("===== Direct execute structured tool task, taskId={}, tool={}, arguments={} =====",
-                effectiveTask.id(), effectiveTask.toolName(), argsJson);
+        log.info("开始执行结构化任务，conversationId={}, round={}, taskId={}, tool={}, argumentKeys={}",
+                state == null ? null : state.getConversationId(),
+                state == null ? null : state.getRound(),
+                effectiveTask.id(),
+                effectiveTask.toolName(),
+                requestArguments.keySet());
 
         try {
             if (isHitlEnabled(state)
@@ -1043,6 +1150,12 @@ public class PlanExecuteAgent extends BaseAgent {
                         argsJson,
                         "该工具需要用户手动确认。已锁定结构化 toolName 和 arguments。"
                 );
+                log.info("结构化任务命中 HITL 中断，conversationId={}, round={}, taskId={}, tool={}, interruptId={}",
+                        state == null ? null : state.getConversationId(),
+                        state == null ? null : state.getRound(),
+                        effectiveTask.id(),
+                        effectiveTask.toolName(),
+                        checkpoint.getInterruptId());
                 return new TaskResult(effectiveTask.id(), false, true, null, "Task execution interrupted by HITL", checkpoint);
             }
 
@@ -1153,7 +1266,7 @@ public class PlanExecuteAgent extends BaseAgent {
             jsonObject.set("argumentSpecs", argumentSpecs);
             return jsonObject.toString();
         } catch (Exception ex) {
-            log.warn("补充 HITL argumentSpecs 失败，toolName={}, error={}", toolName, ex.getMessage());
+            log.warn("补充 HITL argumentSpecs 失败，toolName={}, message={}", toolName, ex.getMessage());
             return argumentsJson;
         }
     }
@@ -1299,7 +1412,10 @@ public class PlanExecuteAgent extends BaseAgent {
             return;
         }
 
-        log.warn("===== Context too large, compressing ,size is {} =====", state.currentChars());
+        log.warn("上下文过大，开始压缩。conversationId={}, round={}, size={}",
+                state.getConversationId(),
+                state.getRound(),
+                state.currentChars());
 
         String compressLimitPrompt = PlanExecutePrompts.formatCompressPrompt(contextCharLimit);
 
@@ -1316,7 +1432,10 @@ public class PlanExecuteAgent extends BaseAgent {
 
         state.clearMessages();
         state.add(new SystemMessage("【Compressed Agent State】\n" + snapshot));
-        log.warn("===== Context compress has completed, size is {} =====", state.currentChars());
+        log.warn("上下文压缩完成。conversationId={}, round={}, size={}",
+                state.getConversationId(),
+                state.getRound(),
+                state.currentChars());
     }
 
 
@@ -1390,6 +1509,41 @@ public class PlanExecuteAgent extends BaseAgent {
         sink.tryEmitNext(AgentStreamEventFactory.finalAnswer(conversationId, content == null ? "" : content));
         hasSentFinalResult.set(true);
         sink.tryEmitComplete();
+    }
+
+    private void logTaskResult(OverAllState state, PlanTask task, TaskResult result) {
+        if (task == null || result == null) {
+            return;
+        }
+        log.info("结构化任务执行完成，conversationId={}, round={}, taskId={}, tool={}, success={}, interrupted={}, outputLength={}, error={}",
+                state == null ? null : state.getConversationId(),
+                state == null ? null : state.getRound(),
+                task.id(),
+                task.toolName(),
+                result.success(),
+                result.interrupted(),
+                result.output() == null ? 0 : result.output().length(),
+                abbreviate(result.error(), 200));
+    }
+
+    private String summarizePlan(List<PlanTask> plan) {
+        if (plan == null || plan.isEmpty()) {
+            return "[]";
+        }
+        return plan.stream()
+                .filter(Objects::nonNull)
+                .map(task -> "{id=%s,order=%s,tool=%s}".formatted(
+                        defaultTaskValue(task.id()),
+                        task.order(),
+                        defaultTaskValue(task.toolName())))
+                .collect(Collectors.joining(", ", "[", "]"));
+    }
+
+    private String abbreviate(String text, int maxLength) {
+        if (text == null || maxLength <= 0 || text.length() <= maxLength) {
+            return text;
+        }
+        return text.substring(0, maxLength) + "...";
     }
 
     private Prompt buildSummarizePrompt(OverAllState state) {

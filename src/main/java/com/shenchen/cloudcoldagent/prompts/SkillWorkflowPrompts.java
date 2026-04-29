@@ -89,16 +89,20 @@ public final class SkillWorkflowPrompts {
                 2. arguments 只能来自用户问题原文，或者 skill 正文里明确声明的默认值。
                 3. argumentSpecs 必须只描述当前 skill 固定脚本真实支持的参数，不要臆造参数名。
                 4. 如果参数不足或当前 skill 不可执行，executable 必须为 false，toolCallPlan 置为 null。
-                5. 如果 skill 与当前问题无关，selected 必须为 false。
-                6. 如果可直接执行固定脚本，toolCallPlan.toolName 必须为 execute_skill_script。
-                7. request 中必须包含 skillName、scriptPath、argumentSpecs、arguments。
-                8. argumentSpecs 每个参数对象只允许使用 name、displayName、type、required、defaultValue 这 5 个字段，不要输出 description，不要输出 optional。
-                9. displayName 由模型直接输出，要求使用清晰的中文参数名称，便于前端在 HITL 弹窗中展示。
-                10. 每个 execution plan 只保留 skillName、selected、executable、toolCallPlan。
-                11. toolCallPlan 只保留 toolName 和 request，不要输出 summary。
-                12. 必须返回 items 数组，数组中的每一项对应输入中的一个 skill。
-                13. skillName 必须使用输入里已有的原始名称，禁止改写。
-                14. 输出必须严格符合结构化 schema，不要附加解释。
+                5. 如果是因为缺少必填参数导致不可执行，blockingReason 必须为 MISSING_REQUIRED_ARGUMENTS。
+                6. 当 blockingReason=MISSING_REQUIRED_ARGUMENTS 时，blockingUserMessage 必须直接面向用户，清楚说明当前缺少哪些信息才能继续，不要输出 JSON，不要输出 schema 描述，不要输出内部字段名解释。
+                7. blockingUserMessage 必须结合 argumentSpecs 里的 displayName、skill 正文和用户当前问题生成，语气自然、简洁、可直接展示给前端。
+                8. 如果不是缺少必填参数导致不可执行，blockingReason 和 blockingUserMessage 置为 null。
+                9. 如果 skill 与当前问题无关，selected 必须为 false。
+                10. 如果可直接执行固定脚本，toolCallPlan.toolName 必须为 execute_skill_script。
+                11. request 中必须包含 skillName、scriptPath、argumentSpecs、arguments。
+                12. argumentSpecs 每个参数对象只允许使用 name、displayName、type、required、defaultValue 这 5 个字段，不要输出 description，不要输出 optional。
+                13. displayName 由模型直接输出，要求使用清晰的中文参数名称，便于前端在 HITL 弹窗中展示。
+                14. 每个 execution plan 只保留 skillName、selected、executable、toolCallPlan、blockingReason、blockingUserMessage。
+                15. toolCallPlan 只保留 toolName 和 request，不要输出 summary。
+                16. 必须返回 items 数组，数组中的每一项对应输入中的一个 skill。
+                17. skillName 必须使用输入里已有的原始名称，禁止改写。
+                18. 输出必须严格符合结构化 schema，不要附加解释。
                 """;
     }
 

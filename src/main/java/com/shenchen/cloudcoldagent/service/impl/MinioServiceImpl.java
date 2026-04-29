@@ -1,10 +1,10 @@
 package com.shenchen.cloudcoldagent.service.impl;
 
+import com.shenchen.cloudcoldagent.config.MinioProperties;
 import com.shenchen.cloudcoldagent.service.MinioService;
 import io.minio.*;
 import io.minio.http.Method;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -13,19 +13,15 @@ import java.io.InputStream;
 import java.util.concurrent.TimeUnit;
 
 @Service
+@RequiredArgsConstructor
 public class MinioServiceImpl implements MinioService {
 
-    @Autowired
-    private MinioClient minioClient;
-
-    @Value("${minio.bucketName}")
-    private String bucketName;
-
-    @Value("${minio.endpoint}")
-    private String endpoint;
+    private final MinioClient minioClient;
+    private final MinioProperties minioProperties;
 
     // 确保 bucket 存在
     private void createBucketIfNotExists(boolean publicRead) throws Exception {
+        String bucketName = minioProperties.getBucketName();
         if (!minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucketName).build())) {
             minioClient.makeBucket(MakeBucketArgs.builder().bucket(bucketName).build());
 
@@ -45,13 +41,14 @@ public class MinioServiceImpl implements MinioService {
     // 上传文件
     public String uploadFile(MultipartFile file, String objectName) throws Exception {
         createBucketIfNotExists(true);// 这里可根据你自己的情况改成false，如果改成false，需要在这个方法最后调一次getPresignedUrl
+        String bucketName = minioProperties.getBucketName();
         minioClient.putObject(PutObjectArgs.builder()
                 .bucket(bucketName)
                 .object(objectName)
                 .stream(file.getInputStream(), file.getSize(), -1)
                 .contentType(file.getContentType())
                 .build());
-        return String.format("%s/%s/%s", endpoint, bucketName, objectName);
+        return String.format("%s/%s/%s", minioProperties.getEndpoint(), bucketName, objectName);
 
     }
 
@@ -60,6 +57,7 @@ public class MinioServiceImpl implements MinioService {
      */
     public String uploadFile(String objectName, byte[] content, String contentType) throws Exception {
         createBucketIfNotExists(true);
+        String bucketName = minioProperties.getBucketName();
         try (InputStream stream = new ByteArrayInputStream(content)) {
             minioClient.putObject(
                     PutObjectArgs.builder()
@@ -70,12 +68,13 @@ public class MinioServiceImpl implements MinioService {
                             .build()
             );
 
-            return String.format("%s/%s/%s", endpoint, bucketName, objectName);
+            return String.format("%s/%s/%s", minioProperties.getEndpoint(), bucketName, objectName);
         }
     }
 
     // 下载文件（返回 InputStream）
     public InputStream downloadFile(String objectName) throws Exception {
+        String bucketName = minioProperties.getBucketName();
         GetObjectResponse response = minioClient.getObject(
                 GetObjectArgs.builder()
                         .bucket(bucketName)
@@ -86,6 +85,7 @@ public class MinioServiceImpl implements MinioService {
 
     // 删除文件
     public void deleteFile(String objectName) throws Exception {
+        String bucketName = minioProperties.getBucketName();
         minioClient.removeObject(RemoveObjectArgs.builder()
                 .bucket(bucketName)
                 .object(objectName)
@@ -94,6 +94,7 @@ public class MinioServiceImpl implements MinioService {
 
     // 生成临时下载链接（带签名，有效期 7 天）
     public String getPresignedUrl(String objectName) throws Exception {
+        String bucketName = minioProperties.getBucketName();
         return minioClient.getPresignedObjectUrl(
                 GetPresignedObjectUrlArgs.builder()
                         .method(Method.GET)

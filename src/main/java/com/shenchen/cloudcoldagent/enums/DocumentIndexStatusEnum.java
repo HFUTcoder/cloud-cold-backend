@@ -1,4 +1,4 @@
-package com.shenchen.cloudcoldagent.model.enums;
+package com.shenchen.cloudcoldagent.enums;
 
 import cn.hutool.core.util.ObjUtil;
 import lombok.Getter;

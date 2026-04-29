@@ -4,10 +4,10 @@ import com.shenchen.cloudcoldagent.annotation.AuthCheck;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.model.entity.User;
-import com.shenchen.cloudcoldagent.model.enums.UserRoleEnum;
+import com.shenchen.cloudcoldagent.enums.UserRoleEnum;
 import com.shenchen.cloudcoldagent.service.UserService;
-import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -16,18 +16,16 @@ import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
-import static com.shenchen.cloudcoldagent.constant.UserConstant.USER_LOGIN_STATE;
-
 /**
  * 权限校验 AOP
  *
  */
 @Aspect
 @Component
+@RequiredArgsConstructor
 public class AuthInterceptor {
 
-    @Resource
-    private UserService userService;
+    private final UserService userService;
 
     /**
      * 执行拦截

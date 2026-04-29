@@ -1,8 +1,8 @@
 package com.shenchen.cloudcoldagent.tools.common;
 
 import com.alibaba.cloud.ai.toolcalling.common.interfaces.SearchService;
+import com.shenchen.cloudcoldagent.config.SearchProperties;
 import com.shenchen.cloudcoldagent.tools.BaseTool;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -14,9 +14,8 @@ public class SearchTool extends BaseTool {
 
     private final SearchService searchService;
 
-    public SearchTool(SearchService searchService,
-                      @Value("${cloudcold.search.mock.enabled:false}") boolean mockEnabled) {
-        super(mockEnabled);
+    public SearchTool(SearchService searchService, SearchProperties searchProperties) {
+        super(searchProperties.getMock().isEnabled());
         this.searchService = searchService;
     }
 

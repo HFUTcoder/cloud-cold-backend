@@ -32,21 +32,6 @@ public class HitlCheckpointController {
         this.userService = userService;
     }
 
-    @PostMapping("/create")
-    @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
-    public BaseResponse<HitlCheckpointVO> create(@RequestBody HitlCheckpointCreateRequest request,
-                                                 HttpServletRequest httpServletRequest) {
-        ThrowUtils.throwIf(request == null || request.getConversationId() == null || request.getConversationId().isBlank(),
-                ErrorCode.PARAMS_ERROR);
-        userService.getLoginUser(httpServletRequest);
-        return ResultUtils.success(hitlCheckpointService.createCheckpoint(
-                request.getConversationId(),
-                request.getAgentType(),
-                request.getPendingToolCalls(),
-                request.getCheckpointMessages(),
-                request.getContext()
-        ));
-    }
 
     @GetMapping("/get")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)

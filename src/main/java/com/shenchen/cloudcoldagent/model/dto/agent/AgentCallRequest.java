@@ -1,5 +1,6 @@
 package com.shenchen.cloudcoldagent.model.dto.agent;
 
+import com.shenchen.cloudcoldagent.enums.AgentModeEnum;
 import lombok.Data;
 
 import java.io.Serializable;
@@ -20,7 +21,7 @@ public class AgentCallRequest implements Serializable {
     /**
      * 工作模式
      */
-    private String mode;
+    private AgentModeEnum mode;
 
     /**
      * 会话 id（可选，不传则使用默认会话）

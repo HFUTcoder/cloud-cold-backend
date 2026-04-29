@@ -13,8 +13,8 @@ import com.shenchen.cloudcoldagent.model.vo.SkillScriptExecutionVO;
 import com.shenchen.cloudcoldagent.service.SkillService;
 import com.shenchen.cloudcoldagent.utils.PythonScriptRuntimeUtils;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillArgumentSpec;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -32,6 +32,7 @@ import java.util.stream.Stream;
 
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class SkillServiceImpl implements SkillService {
 
     private static final String RESOURCE_TYPE_MAIN = "main";
@@ -43,14 +44,11 @@ public class SkillServiceImpl implements SkillService {
             "^-\\s*`([^`]+)`\\s*\\|\\s*([^|]+?)\\s*\\|\\s*(required|optional)(?:\\s*\\|\\s*default=([^|]+?))?(?:\\s*\\|\\s*(.+))?$"
     );
 
-    @Autowired
-    private SkillRegistry skillRegistry;
+    private final SkillRegistry skillRegistry;
 
-    @Autowired
-    private PythonTool pythonTool;
+    private final PythonTool pythonTool;
 
-    @Autowired
-    private ObjectMapper objectMapper;
+    private final ObjectMapper objectMapper;
 
     @Override
     public List<SkillMetadataVO> listSkillMetadata() {
@@ -124,9 +122,13 @@ public class SkillServiceImpl implements SkillService {
                 skillRegistry.readSkillContent(metadata.getName()),
                 normalizedScriptPath
         );
+        long startNanos = System.nanoTime();
 
-        log.info("开始执行 skill script，skillName={}, scriptPath={}, arguments={}",
-                metadata.getName(), normalizedScriptPath, safeArguments);
+        log.info("开始执行 skill 脚本，skillName={}, scriptPath={}, argumentKeys={}, argumentCount={}",
+                metadata.getName(),
+                normalizedScriptPath,
+                safeArguments.keySet(),
+                safeArguments.size());
 
         if (!Files.exists(resolvedScriptPath) || !Files.isRegularFile(resolvedScriptPath)) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "script 资源不存在: " + normalizedScriptPath);
@@ -135,14 +137,14 @@ public class SkillServiceImpl implements SkillService {
         validateRequiredArguments(argumentSpecs, safeArguments);
 
         String scriptContent = Files.readString(resolvedScriptPath, StandardCharsets.UTF_8);
-        log.info("已加载 skill script，skillName={}, scriptPath={}, absolutePath={}, scriptLength={}",
-                metadata.getName(), normalizedScriptPath, resolvedScriptPath, scriptContent.length());
         String wrappedCode = PythonScriptRuntimeUtils.buildWrappedCode(objectMapper, arguments, scriptContent);
-        log.info("准备调用 PythonTool 执行脚本，skillName={}, scriptPath={}, wrappedCodeLength={}",
-                metadata.getName(), normalizedScriptPath, wrappedCode.length());
         String result = pythonTool.apply(new PythonTool.PythonRequest(wrappedCode), null);
-        log.info("skill script 执行完成，skillName={}, scriptPath={}, result={}",
-                metadata.getName(), normalizedScriptPath, truncateForLog(result));
+        log.info("skill 脚本执行完成，skillName={}, scriptPath={}, durationMs={}, resultLength={}, resultSnippet={}",
+                metadata.getName(),
+                normalizedScriptPath,
+                elapsedMillis(startNanos),
+                result == null ? 0 : result.length(),
+                truncateForLog(result));
 
         return SkillScriptExecutionVO.builder()
                 .skillName(metadata.getName())
@@ -151,6 +153,10 @@ public class SkillServiceImpl implements SkillService {
                 .result(result)
                 .engine("spring-ai-alibaba-python-tool")
                 .build();
+    }
+
+    private long elapsedMillis(long startNanos) {
+        return Math.max(0L, (System.nanoTime() - startNanos) / 1_000_000L);
     }
 
     @Override

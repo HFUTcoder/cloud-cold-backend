@@ -3,9 +3,9 @@ spring:
     name: cloud-cold-agent
   servlet:
     multipart:
-      max-file-size: 10MB      # 单文件最大大小，根据需求调整
-      max-request-size: 10MB   # 单次请求总大小，根据需求调整
-      enabled: true            # 启用文件上传
+      enabled: true
+      max-file-size: ${cloudcold.upload.max-file-size}
+      max-request-size: ${cloudcold.upload.max-request-size}
   ai:
     alibaba:
       python:
@@ -19,10 +19,6 @@ spring:
         similarity: cosine
   profiles:
     active: local
-  multipart:
-    enabled: true
-    max-file-size: 100MB
-    max-request-size: 100MB
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/cloud_cold
@@ -62,14 +58,22 @@ mybatis-flex:
     map-underscore-to-camel-case: false
 
 minio:
-  url: http://localhost:9000
   bucketName: cloud-cold
   endpoint: http://localhost:9000
 
 cloudcold:
+  upload:
+    max-file-size: 100MB
+    max-request-size: 100MB
   search:
     mock:
       enabled: true
+  pdf:
+    multimodal:
+      api-key: ${spring.ai.openai.api-key:}
+      base-url: ${spring.ai.openai.base-url:}
+      model: qwen3-vl-plus
+      temperature: 0.2
   hitl:
     enabled: true
     intercept-tool-names:

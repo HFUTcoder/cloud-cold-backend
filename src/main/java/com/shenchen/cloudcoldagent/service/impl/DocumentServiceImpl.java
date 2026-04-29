@@ -11,7 +11,7 @@ import com.shenchen.cloudcoldagent.mapper.DocumentMapper;
 import com.shenchen.cloudcoldagent.model.dto.document.DocumentAddRequest;
 import com.shenchen.cloudcoldagent.model.dto.document.DocumentQueryRequest;
 import com.shenchen.cloudcoldagent.model.dto.document.DocumentUpdateRequest;
-import com.shenchen.cloudcoldagent.model.enums.DocumentIndexStatusEnum;
+import com.shenchen.cloudcoldagent.enums.DocumentIndexStatusEnum;
 import com.shenchen.cloudcoldagent.model.vo.DocumentVO;
 import com.shenchen.cloudcoldagent.service.DocumentService;
 import com.shenchen.cloudcoldagent.service.KnowledgeService;

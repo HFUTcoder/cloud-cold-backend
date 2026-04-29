@@ -10,13 +10,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk;
 import com.shenchen.cloudcoldagent.service.ElasticSearchService;
 import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.elasticsearch.ElasticsearchVectorStore;
 import org.springframework.ai.vectorstore.filter.Filter;
 import org.springframework.ai.vectorstore.filter.FilterExpressionTextParser;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -30,17 +30,17 @@ import java.util.Objects;
 
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class ElasticSearchServiceImpl implements ElasticSearchService {
 
     private static final int VECTOR_BATCH_SIZE = 9;
 
-    @Autowired
-    private ElasticsearchClient client;
+    private final ElasticsearchClient client;
 
-    @Autowired
-    private VectorStore vectorStore;
+    private final VectorStore vectorStore;
 
     private final ObjectMapper mapper = new ObjectMapper();
+
     private final FilterExpressionTextParser filterExpressionTextParser = new FilterExpressionTextParser();
 
     private static final String INDEX_NAME = "rag_docs";

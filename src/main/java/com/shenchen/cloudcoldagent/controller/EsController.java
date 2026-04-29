@@ -6,8 +6,8 @@ import com.shenchen.cloudcoldagent.document.load.store.StoreService;
 import com.shenchen.cloudcoldagent.document.transform.splitter.OverlapParagraphTextSplitter;
 import com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk;
 import com.shenchen.cloudcoldagent.service.ElasticSearchService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.ai.document.Document;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -16,16 +16,14 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/es")
+@RequiredArgsConstructor
 public class EsController {
 
-    @Autowired
-    private DocumentReaderFactory selector;
+    private final DocumentReaderFactory selector;
 
-    @Autowired
-    private ElasticSearchService elasticSearchService;
+    private final ElasticSearchService elasticSearchService;
 
-    @Autowired
-    private StoreService storeService;
+    private final StoreService storeService;
 
     @RequestMapping("write")
     public String write(String filePath) throws Exception {

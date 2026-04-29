@@ -18,7 +18,7 @@ import com.shenchen.cloudcoldagent.service.KnowledgeDocumentIngestionService;
 import com.shenchen.cloudcoldagent.service.MinioService;
 import com.shenchen.cloudcoldagent.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -31,19 +31,16 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/document")
+@RequiredArgsConstructor
 public class DocumentController {
 
-    @Autowired
-    private DocumentService documentService;
+    private final DocumentService documentService;
 
-    @Autowired
-    private UserService userService;
+    private final UserService userService;
 
-    @Autowired
-    private KnowledgeDocumentIngestionService knowledgeDocumentIngestionService;
+    private final KnowledgeDocumentIngestionService knowledgeDocumentIngestionService;
 
-    @Autowired
-    private MinioService minioService;
+    private final MinioService minioService;
 
     @PostMapping("/create")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)

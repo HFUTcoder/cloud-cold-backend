@@ -81,6 +81,7 @@ public class BuildSkillExecutionPlansNode {
                 continue;
             }
             normalizeToolRequest(plan, plan.getSkillName());
+            normalizeBlockingMessage(plan);
             plans.add(plan);
         }
 
@@ -96,10 +97,23 @@ public class BuildSkillExecutionPlansNode {
         if (request == null) {
             return;
         }
-        if (request.getSkillName() == null || request.getSkillName().isBlank()) {
+        if (skillName != null && !skillName.isBlank()) {
             request.setSkillName(skillName);
         }
         normalizeArgumentSpecs(request.getArgumentSpecs());
+    }
+
+    private void normalizeBlockingMessage(SkillExecutionPlan plan) {
+        if (plan == null) {
+            return;
+        }
+        if (plan.getBlockingReason() != null) {
+            plan.setBlockingReason(plan.getBlockingReason().trim());
+        }
+        if (plan.getBlockingUserMessage() != null) {
+            String normalizedMessage = plan.getBlockingUserMessage().trim();
+            plan.setBlockingUserMessage(normalizedMessage.isEmpty() ? null : normalizedMessage);
+        }
     }
 
     private void normalizeArgumentSpecs(Map<String, SkillArgumentSpec> argumentSpecs) {

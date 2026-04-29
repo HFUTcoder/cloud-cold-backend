@@ -22,4 +22,8 @@ public class SkillExecutionPlan implements Serializable {
     private Boolean executable;
 
     private SkillToolCallPlan toolCallPlan;
+
+    private String blockingReason;
+
+    private String blockingUserMessage;
 }

@@ -1,7 +1,9 @@
 package com.shenchen.cloudcoldagent.document.extract.reader;
 
+import com.shenchen.cloudcoldagent.config.PdfMultimodalProperties;
 import com.shenchen.cloudcoldagent.service.MinioService;
 import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.contentstream.operator.DrawObject;
@@ -26,8 +28,6 @@ import org.springframework.ai.model.SimpleApiKey;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.openai.api.OpenAiApi;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.stereotype.Component;
 import org.springframework.util.MimeTypeUtils;
@@ -60,10 +60,11 @@ import java.security.NoSuchAlgorithmException;
  */
 @Component
 @Slf4j
+@RequiredArgsConstructor
 public class PdfMultimodalProcessor implements DocumentReaderStrategy {
 
-    @Autowired
-    private MinioService minioService;
+    private final MinioService minioService;
+    private final PdfMultimodalProperties pdfMultimodalProperties;
 
     @Override
     public boolean supports(File file) {
@@ -201,21 +202,18 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
                 .replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&apos;");
     }
 
-    @Value("${spring.ai.openai.api-key}")
-    private String openAiApiKey;
-
     private OpenAiChatModel multimodalChatModel;
 
     @PostConstruct
     public void init() {
         OpenAiChatOptions options = OpenAiChatOptions.builder()
-                .temperature(0.2d)
-                .model("qwen3-vl-plus")
+                .temperature(pdfMultimodalProperties.getTemperature())
+                .model(pdfMultimodalProperties.getModel())
                 .build();
         multimodalChatModel = OpenAiChatModel.builder()
                 .openAiApi(OpenAiApi.builder()
-                        .baseUrl("https://dashscope.aliyuncs.com/compatible-mode/")
-                        .apiKey(new SimpleApiKey(openAiApiKey))
+                        .baseUrl(pdfMultimodalProperties.getBaseUrl())
+                        .apiKey(new SimpleApiKey(pdfMultimodalProperties.getApiKey()))
                         .build())
                 .defaultOptions(options)
                 .build();

@@ -42,7 +42,7 @@ public class HitlCheckpoint implements Serializable {
     private String feedbacksJson;
 
     /**
-     * PENDING / RESOLVED / CANCELLED
+     * PENDING / RESOLVED / CONSUMED / CANCELLED
      */
     private String status;
 

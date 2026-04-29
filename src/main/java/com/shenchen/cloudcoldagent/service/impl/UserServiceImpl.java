@@ -10,7 +10,7 @@ import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.mapper.UserMapper;
 import com.shenchen.cloudcoldagent.model.dto.user.UserQueryRequest;
 import com.shenchen.cloudcoldagent.model.entity.User;
-import com.shenchen.cloudcoldagent.model.enums.UserRoleEnum;
+import com.shenchen.cloudcoldagent.enums.UserRoleEnum;
 import com.shenchen.cloudcoldagent.model.vo.LoginUserVO;
 import com.shenchen.cloudcoldagent.model.vo.UserVO;
 import com.shenchen.cloudcoldagent.service.UserService;
