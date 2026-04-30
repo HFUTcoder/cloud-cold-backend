@@ -1,9 +1,8 @@
 package com.shenchen.cloudcoldagent.document.extract.reader;
 
-import com.shenchen.cloudcoldagent.config.PdfMultimodalProperties;
+import com.shenchen.cloudcoldagent.config.properties.PdfMultimodalProperties;
 import com.shenchen.cloudcoldagent.service.MinioService;
 import jakarta.annotation.PostConstruct;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.contentstream.operator.DrawObject;
@@ -60,11 +59,16 @@ import java.security.NoSuchAlgorithmException;
  */
 @Component
 @Slf4j
-@RequiredArgsConstructor
 public class PdfMultimodalProcessor implements DocumentReaderStrategy {
 
     private final MinioService minioService;
     private final PdfMultimodalProperties pdfMultimodalProperties;
+
+    public PdfMultimodalProcessor(MinioService minioService,
+                                  PdfMultimodalProperties pdfMultimodalProperties) {
+        this.minioService = minioService;
+        this.pdfMultimodalProperties = pdfMultimodalProperties;
+    }
 
     @Override
     public boolean supports(File file) {

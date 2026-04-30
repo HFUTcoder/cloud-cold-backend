@@ -10,7 +10,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk;
 import com.shenchen.cloudcoldagent.service.ElasticSearchService;
 import jakarta.annotation.PostConstruct;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -30,7 +29,6 @@ import java.util.Objects;
 
 @Service
 @Slf4j
-@RequiredArgsConstructor
 public class ElasticSearchServiceImpl implements ElasticSearchService {
 
     private static final int VECTOR_BATCH_SIZE = 9;
@@ -46,6 +44,11 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
     private static final String INDEX_NAME = "rag_docs";
 
     private static final String FIELD_CONTENT = "content";
+
+    public ElasticSearchServiceImpl(ElasticsearchClient client, VectorStore vectorStore) {
+        this.client = client;
+        this.vectorStore = vectorStore;
+    }
 
     @PostConstruct
     public void init() {

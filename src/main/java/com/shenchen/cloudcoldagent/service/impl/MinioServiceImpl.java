@@ -1,10 +1,9 @@
 package com.shenchen.cloudcoldagent.service.impl;
 
-import com.shenchen.cloudcoldagent.config.MinioProperties;
+import com.shenchen.cloudcoldagent.config.properties.MinioProperties;
 import com.shenchen.cloudcoldagent.service.MinioService;
 import io.minio.*;
 import io.minio.http.Method;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -13,11 +12,15 @@ import java.io.InputStream;
 import java.util.concurrent.TimeUnit;
 
 @Service
-@RequiredArgsConstructor
 public class MinioServiceImpl implements MinioService {
 
     private final MinioClient minioClient;
     private final MinioProperties minioProperties;
+
+    public MinioServiceImpl(MinioClient minioClient, MinioProperties minioProperties) {
+        this.minioClient = minioClient;
+        this.minioProperties = minioProperties;
+    }
 
     // 确保 bucket 存在
     private void createBucketIfNotExists(boolean publicRead) throws Exception {

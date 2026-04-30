@@ -1,7 +1,7 @@
 package com.shenchen.cloudcoldagent.tools.common;
 
 import com.alibaba.cloud.ai.toolcalling.common.interfaces.SearchService;
-import com.shenchen.cloudcoldagent.config.SearchProperties;
+import com.shenchen.cloudcoldagent.config.properties.SearchProperties;
 import com.shenchen.cloudcoldagent.tools.BaseTool;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;

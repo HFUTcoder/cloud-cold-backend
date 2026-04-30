@@ -11,7 +11,6 @@ import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistory;
 import com.shenchen.cloudcoldagent.model.entity.User;
 import com.shenchen.cloudcoldagent.service.ChatMemoryHistoryService;
 import com.shenchen.cloudcoldagent.service.UserService;
-import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -27,12 +26,17 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/chatMemory/history")
-@RequiredArgsConstructor
 public class ChatMemoryHistoryController {
 
     private final ChatMemoryHistoryService chatMemoryHistoryService;
 
     private final UserService userService;
+
+    public ChatMemoryHistoryController(ChatMemoryHistoryService chatMemoryHistoryService,
+                                       UserService userService) {
+        this.chatMemoryHistoryService = chatMemoryHistoryService;
+        this.userService = userService;
+    }
 
     /**
      * 根据 conversationId 查询历史记录

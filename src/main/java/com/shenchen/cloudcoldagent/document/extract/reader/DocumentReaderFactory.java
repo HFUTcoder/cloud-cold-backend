@@ -1,6 +1,5 @@
 package com.shenchen.cloudcoldagent.document.extract.reader;
 
-import lombok.RequiredArgsConstructor;
 import org.springframework.ai.document.Document;
 import org.springframework.stereotype.Component;
 
@@ -9,10 +8,13 @@ import java.io.IOException;
 import java.util.List;
 
 @Component
-@RequiredArgsConstructor
 public class DocumentReaderFactory {
 
     private final List<DocumentReaderStrategy> strategies;
+
+    public DocumentReaderFactory(List<DocumentReaderStrategy> strategies) {
+        this.strategies = strategies;
+    }
 
     public List<Document> read(File file) throws IOException {
         for (DocumentReaderStrategy strategy : strategies) {

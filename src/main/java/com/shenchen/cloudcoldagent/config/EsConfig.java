@@ -4,6 +4,7 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.json.jackson.JacksonJsonpMapper;
 import co.elastic.clients.transport.ElasticsearchTransport;
 import co.elastic.clients.transport.rest_client.RestClientTransport;
+import com.shenchen.cloudcoldagent.config.properties.EsProperties;
 import org.apache.http.HttpHost;
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.UsernamePasswordCredentials;
@@ -13,7 +14,6 @@ import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.apache.http.ssl.SSLContexts;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestClientBuilder;
-import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
@@ -23,12 +23,15 @@ import org.springframework.context.annotation.Lazy;
 import javax.net.ssl.SSLContext;
 
 @Configuration
-@RequiredArgsConstructor
-public class EsClientConfig {
+public class EsConfig {
 
-    private static final Logger logger = LoggerFactory.getLogger(EsClientConfig.class);
+    private static final Logger logger = LoggerFactory.getLogger(EsConfig.class);
 
-    private final ElasticsearchClientProperties elasticsearchClientProperties;
+    private final EsProperties elasticsearchClientProperties;
+
+    public EsConfig(EsProperties elasticsearchClientProperties) {
+        this.elasticsearchClientProperties = elasticsearchClientProperties;
+    }
 
     @Bean
     @Lazy

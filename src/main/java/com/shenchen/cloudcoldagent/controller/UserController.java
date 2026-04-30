@@ -16,7 +16,6 @@ import com.shenchen.cloudcoldagent.model.vo.LoginUserVO;
 import com.shenchen.cloudcoldagent.model.vo.UserVO;
 import com.shenchen.cloudcoldagent.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
-import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -27,10 +26,13 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/user")
-@RequiredArgsConstructor
 public class UserController {
 
     private final UserService userService;
+
+    public UserController(UserService userService) {
+        this.userService = userService;
+    }
 
     /**
      * 用户注册

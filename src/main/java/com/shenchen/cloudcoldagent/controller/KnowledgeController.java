@@ -23,7 +23,6 @@ import com.shenchen.cloudcoldagent.model.vo.KnowledgeVO;
 import com.shenchen.cloudcoldagent.service.KnowledgeService;
 import com.shenchen.cloudcoldagent.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
-import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -34,12 +33,17 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/knowledge")
-@RequiredArgsConstructor
 public class KnowledgeController {
 
     private final KnowledgeService knowledgeService;
 
     private final UserService userService;
+
+    public KnowledgeController(KnowledgeService knowledgeService,
+                               UserService userService) {
+        this.knowledgeService = knowledgeService;
+        this.userService = userService;
+    }
 
     @PostMapping("/create")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)

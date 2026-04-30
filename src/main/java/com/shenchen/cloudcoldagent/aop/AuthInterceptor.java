@@ -7,7 +7,6 @@ import com.shenchen.cloudcoldagent.model.entity.User;
 import com.shenchen.cloudcoldagent.enums.UserRoleEnum;
 import com.shenchen.cloudcoldagent.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
-import lombok.RequiredArgsConstructor;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -22,10 +21,13 @@ import org.springframework.web.context.request.ServletRequestAttributes;
  */
 @Aspect
 @Component
-@RequiredArgsConstructor
 public class AuthInterceptor {
 
     private final UserService userService;
+
+    public AuthInterceptor(UserService userService) {
+        this.userService = userService;
+    }
 
     /**
      * 执行拦截

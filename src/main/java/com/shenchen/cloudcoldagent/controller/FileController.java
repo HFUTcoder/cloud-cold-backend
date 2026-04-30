@@ -1,17 +1,19 @@
 package com.shenchen.cloudcoldagent.controller;
 
 import com.shenchen.cloudcoldagent.service.MinioService;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/files")
-@RequiredArgsConstructor
 public class FileController {
 
     private final MinioService minioService;
+
+    public FileController(MinioService minioService) {
+        this.minioService = minioService;
+    }
 
     @PostMapping("/upload")
     public ResponseEntity<String> uploadFile(@RequestParam("file") MultipartFile file) {

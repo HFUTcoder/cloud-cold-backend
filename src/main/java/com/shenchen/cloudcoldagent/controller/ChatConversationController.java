@@ -13,7 +13,6 @@ import com.shenchen.cloudcoldagent.model.entity.User;
 import com.shenchen.cloudcoldagent.service.ChatConversationService;
 import com.shenchen.cloudcoldagent.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
-import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -28,12 +27,17 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/chatConversation")
-@RequiredArgsConstructor
 public class ChatConversationController {
 
     private final ChatConversationService chatConversationService;
 
     private final UserService userService;
+
+    public ChatConversationController(ChatConversationService chatConversationService,
+                                      UserService userService) {
+        this.chatConversationService = chatConversationService;
+        this.userService = userService;
+    }
 
     /**
      * 新建会话

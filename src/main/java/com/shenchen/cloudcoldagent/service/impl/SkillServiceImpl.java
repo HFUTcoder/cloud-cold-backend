@@ -13,7 +13,6 @@ import com.shenchen.cloudcoldagent.model.vo.SkillScriptExecutionVO;
 import com.shenchen.cloudcoldagent.service.SkillService;
 import com.shenchen.cloudcoldagent.utils.PythonScriptRuntimeUtils;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillArgumentSpec;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -32,7 +31,6 @@ import java.util.stream.Stream;
 
 @Service
 @Slf4j
-@RequiredArgsConstructor
 public class SkillServiceImpl implements SkillService {
 
     private static final String RESOURCE_TYPE_MAIN = "main";
@@ -49,6 +47,14 @@ public class SkillServiceImpl implements SkillService {
     private final PythonTool pythonTool;
 
     private final ObjectMapper objectMapper;
+
+    public SkillServiceImpl(SkillRegistry skillRegistry,
+                            PythonTool pythonTool,
+                            ObjectMapper objectMapper) {
+        this.skillRegistry = skillRegistry;
+        this.pythonTool = pythonTool;
+        this.objectMapper = objectMapper;
+    }
 
     @Override
     public List<SkillMetadataVO> listSkillMetadata() {

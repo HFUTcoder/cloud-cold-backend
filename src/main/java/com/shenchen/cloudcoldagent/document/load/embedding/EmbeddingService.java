@@ -1,6 +1,5 @@
 package com.shenchen.cloudcoldagent.document.load.embedding;
 
-import lombok.RequiredArgsConstructor;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.stereotype.Service;
@@ -9,10 +8,13 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 public class EmbeddingService {
 
     private final EmbeddingModel embeddingModel;
+
+    public EmbeddingService(EmbeddingModel embeddingModel) {
+        this.embeddingModel = embeddingModel;
+    }
 
     /**
      * 单文本向量化。

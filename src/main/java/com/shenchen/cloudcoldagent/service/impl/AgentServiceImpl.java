@@ -4,7 +4,7 @@ import com.shenchen.cloudcoldagent.agent.PlanExecuteAgent;
 import com.shenchen.cloudcoldagent.agent.SimpleReactAgent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shenchen.cloudcoldagent.common.AgentStreamEventFactory;
-import com.shenchen.cloudcoldagent.config.HitlProperties;
+import com.shenchen.cloudcoldagent.config.properties.HitlProperties;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.model.dto.agent.AgentCallRequest;

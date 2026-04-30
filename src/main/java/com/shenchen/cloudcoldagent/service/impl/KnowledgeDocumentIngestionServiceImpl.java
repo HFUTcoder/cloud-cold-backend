@@ -1,6 +1,6 @@
 package com.shenchen.cloudcoldagent.service.impl;
 
-import com.shenchen.cloudcoldagent.config.MinioProperties;
+import com.shenchen.cloudcoldagent.config.properties.MinioProperties;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.exception.ThrowUtils;
@@ -12,7 +12,6 @@ import com.shenchen.cloudcoldagent.service.DocumentService;
 import com.shenchen.cloudcoldagent.service.KnowledgeDocumentIngestionService;
 import com.shenchen.cloudcoldagent.service.KnowledgeService;
 import com.shenchen.cloudcoldagent.service.MinioService;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -24,13 +23,22 @@ import java.util.List;
 import java.util.UUID;
 
 @Service
-@RequiredArgsConstructor
 public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentIngestionService {
 
     private final KnowledgeService knowledgeService;
     private final DocumentService documentService;
     private final MinioService minioService;
     private final MinioProperties minioProperties;
+
+    public KnowledgeDocumentIngestionServiceImpl(KnowledgeService knowledgeService,
+                                                 DocumentService documentService,
+                                                 MinioService minioService,
+                                                 MinioProperties minioProperties) {
+        this.knowledgeService = knowledgeService;
+        this.documentService = documentService;
+        this.minioService = minioService;
+        this.minioProperties = minioProperties;
+    }
 
     @Override
     public DocumentVO uploadDocument(Long userId, Long knowledgeId, MultipartFile file) {

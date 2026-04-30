@@ -12,7 +12,6 @@ import com.shenchen.cloudcoldagent.model.vo.AgentStreamEvent;
 import com.shenchen.cloudcoldagent.service.AgentService;
 import com.shenchen.cloudcoldagent.service.ChatConversationService;
 import com.shenchen.cloudcoldagent.service.UserService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -26,7 +25,6 @@ import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
 @RequestMapping("/agent")
-@RequiredArgsConstructor
 @Slf4j
 public class AgentController {
 
@@ -35,6 +33,14 @@ public class AgentController {
     private final UserService userService;
 
     private final ChatConversationService chatConversationService;
+
+    public AgentController(AgentService agentService,
+                           UserService userService,
+                           ChatConversationService chatConversationService) {
+        this.agentService = agentService;
+        this.userService = userService;
+        this.chatConversationService = chatConversationService;
+    }
 
     @PostMapping("/call")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
