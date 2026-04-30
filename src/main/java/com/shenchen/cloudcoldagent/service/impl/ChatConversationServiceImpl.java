@@ -1,6 +1,5 @@
 package com.shenchen.cloudcoldagent.service.impl;
 
-import cn.hutool.json.JSONUtil;
 import com.alibaba.cloud.ai.graph.skills.registry.SkillRegistry;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
@@ -12,6 +11,9 @@ import com.shenchen.cloudcoldagent.mapper.HitlCheckpointMapper;
 import com.shenchen.cloudcoldagent.model.entity.ChatConversation;
 import com.shenchen.cloudcoldagent.model.entity.HitlCheckpoint;
 import com.shenchen.cloudcoldagent.service.ChatConversationService;
+import com.shenchen.cloudcoldagent.service.ConversationKnowledgeRelationService;
+import com.shenchen.cloudcoldagent.service.ConversationSkillRelationService;
+import com.shenchen.cloudcoldagent.service.KnowledgeService;
 import com.shenchen.cloudcoldagent.service.UserConversationRelationService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemoryRepository;
@@ -45,18 +47,30 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
 
     private final HitlCheckpointMapper hitlCheckpointMapper;
 
+    private final ConversationKnowledgeRelationService conversationKnowledgeRelationService;
+
+    private final ConversationSkillRelationService conversationSkillRelationService;
+
+    private final KnowledgeService knowledgeService;
+
     public ChatConversationServiceImpl(SkillRegistry skillRegistry,
                                        ChatConversationMapper chatConversationMapper,
                                        ChatMemoryRepository chatMemoryRepository,
                                        ChatMemoryHistoryMapper chatMemoryHistoryMapper,
                                        UserConversationRelationService userConversationRelationService,
-                                       HitlCheckpointMapper hitlCheckpointMapper) {
+                                       HitlCheckpointMapper hitlCheckpointMapper,
+                                       ConversationKnowledgeRelationService conversationKnowledgeRelationService,
+                                       ConversationSkillRelationService conversationSkillRelationService,
+                                       KnowledgeService knowledgeService) {
         this.skillRegistry = skillRegistry;
         this.chatConversationMapper = chatConversationMapper;
         this.chatMemoryRepository = chatMemoryRepository;
         this.chatMemoryHistoryMapper = chatMemoryHistoryMapper;
         this.userConversationRelationService = userConversationRelationService;
         this.hitlCheckpointMapper = hitlCheckpointMapper;
+        this.conversationKnowledgeRelationService = conversationKnowledgeRelationService;
+        this.conversationSkillRelationService = conversationSkillRelationService;
+        this.knowledgeService = knowledgeService;
     }
 
     @Override
@@ -81,7 +95,7 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
                 .eq("isDelete", 0)
                 .orderBy("lastActiveTime", false)
                 .orderBy("id", false));
-        conversations.forEach(this::fillSelectedSkillList);
+        conversations.forEach(conversation -> fillConversationBindings(userId, conversation));
         return conversations;
     }
 
@@ -99,7 +113,6 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
             ChatConversation conversation = ChatConversation.builder()
                     .conversationId(normalizedConversationId)
                     .title(DEFAULT_CONVERSATION_TITLE)
-                    .selectedSkills("[]")
                     .lastActiveTime(now)
                     .isDelete(0)
                     .build();
@@ -133,7 +146,6 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         ChatConversation conversation = ChatConversation.builder()
                 .conversationId(conversationId)
                 .title(DEFAULT_CONVERSATION_TITLE)
-                .selectedSkills("[]")
                 .lastActiveTime(now)
                 .isDelete(0)
                 .build();
@@ -160,6 +172,8 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         chatMemoryRepository.deleteByConversationId(normalizedConversationId);
 
         userConversationRelationService.deleteByConversationId(normalizedConversationId);
+        conversationKnowledgeRelationService.deleteByConversationId(normalizedConversationId);
+        conversationSkillRelationService.deleteByConversationId(normalizedConversationId);
         hitlCheckpointMapper.updateByQuery(
                 HitlCheckpoint.builder().isDelete(1).build(),
                 QueryWrapper.create()
@@ -193,7 +207,7 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         if (conversation == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "会话不存在");
         }
-        fillSelectedSkillList(conversation);
+        fillConversationBindings(userId, conversation);
         return conversation;
     }
 
@@ -210,13 +224,33 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
                 oldSkills,
                 selectedSkills,
                 normalizedSkills);
-        conversation.setSelectedSkills(JSONUtil.toJsonStr(normalizedSkills));
+        conversationSkillRelationService.replaceSkills(userId, conversation.getConversationId(), normalizedSkills, LocalDateTime.now());
         conversation.setSelectedSkillList(normalizedSkills);
-        this.updateById(conversation);
         log.info("更新会话绑定 skills 完成，userId={}, conversationId={}, finalSkills={}",
                 userId,
                 conversation.getConversationId(),
                 normalizedSkills);
+    }
+
+    @Override
+    public void updateConversationKnowledge(Long userId, String conversationId, Long knowledgeId) {
+        ChatConversation conversation = getByConversationId(userId, conversationId);
+        if (knowledgeId == null || knowledgeId <= 0) {
+            conversationKnowledgeRelationService.unbindKnowledge(userId, conversation.getConversationId());
+            conversation.setSelectedKnowledgeId(null);
+            conversation.setSelectedKnowledgeName(null);
+            log.info("解除会话绑定知识库，userId={}, conversationId={}", userId, conversation.getConversationId());
+            return;
+        }
+        com.shenchen.cloudcoldagent.model.entity.Knowledge knowledge = knowledgeService.getKnowledgeById(userId, knowledgeId);
+        conversationKnowledgeRelationService.bindKnowledge(userId, conversation.getConversationId(), knowledgeId, LocalDateTime.now());
+        conversation.setSelectedKnowledgeId(knowledgeId);
+        conversation.setSelectedKnowledgeName(knowledge.getKnowledgeName());
+        log.info("更新会话绑定知识库，userId={}, conversationId={}, knowledgeId={}, knowledgeName={}",
+                userId,
+                conversation.getConversationId(),
+                knowledgeId,
+                knowledge.getKnowledgeName());
     }
 
     @Override
@@ -270,18 +304,33 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         this.updateById(conversation);
     }
 
-    private void fillSelectedSkillList(ChatConversation conversation) {
+    private void fillConversationBindings(Long userId, ChatConversation conversation) {
         if (conversation == null) {
             return;
         }
-        conversation.setSelectedSkillList(parseSelectedSkills(conversation.getSelectedSkills()));
+        conversation.setSelectedSkillList(new ArrayList<>(
+                conversationSkillRelationService.listSkillNamesByUserIdAndConversationId(userId, conversation.getConversationId())
+        ));
+        fillSelectedKnowledge(userId, conversation);
     }
 
-    private List<String> parseSelectedSkills(String selectedSkillsJson) {
-        if (selectedSkillsJson == null || selectedSkillsJson.isBlank()) {
-            return new ArrayList<>();
+    private void fillSelectedKnowledge(Long userId, ChatConversation conversation) {
+        if (conversation == null || userId == null || userId <= 0) {
+            return;
         }
-        return JSONUtil.toList(JSONUtil.parseArray(selectedSkillsJson), String.class);
+        var relation = conversationKnowledgeRelationService.getByUserIdAndConversationId(userId, conversation.getConversationId());
+        if (relation == null || relation.getKnowledgeId() == null || relation.getKnowledgeId() <= 0) {
+            conversation.setSelectedKnowledgeId(null);
+            conversation.setSelectedKnowledgeName(null);
+            return;
+        }
+        conversation.setSelectedKnowledgeId(relation.getKnowledgeId());
+        try {
+            var knowledge = knowledgeService.getKnowledgeById(userId, relation.getKnowledgeId());
+            conversation.setSelectedKnowledgeName(knowledge.getKnowledgeName());
+        } catch (BusinessException ex) {
+            conversation.setSelectedKnowledgeName(null);
+        }
     }
 
     private List<String> normalizeSelectedSkills(List<String> selectedSkills) {

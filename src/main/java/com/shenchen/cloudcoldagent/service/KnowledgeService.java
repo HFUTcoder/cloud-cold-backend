@@ -8,6 +8,7 @@ import com.shenchen.cloudcoldagent.model.dto.knowledge.KnowledgeQueryRequest;
 import com.shenchen.cloudcoldagent.model.dto.knowledge.KnowledgeUpdateRequest;
 import com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk;
 import com.shenchen.cloudcoldagent.model.entity.record.knowledge.DocumentIndexContext;
+import com.shenchen.cloudcoldagent.model.entity.record.knowledge.PreparedDocumentIndexResult;
 import com.shenchen.cloudcoldagent.model.vo.KnowledgeVO;
 
 import java.io.File;
@@ -33,6 +34,13 @@ public interface KnowledgeService extends IService<com.shenchen.cloudcoldagent.m
     List<KnowledgeVO> getKnowledgeVOList(List<com.shenchen.cloudcoldagent.model.entity.Knowledge> knowledges);
 
     void refreshKnowledgeStats(Long userId, Long knowledgeId);
+
+    PreparedDocumentIndexResult prepareDocumentIndex(File file, DocumentIndexContext context) throws Exception;
+
+    List<EsDocumentChunk> buildImageDescriptionChunks(List<com.shenchen.cloudcoldagent.model.entity.KnowledgeDocumentImage> images,
+                                                      String documentSource);
+
+    void storePreparedChunks(List<EsDocumentChunk> chunks) throws Exception;
 
     List<EsDocumentChunk> indexDocument(File file, DocumentIndexContext context) throws Exception;
 

@@ -7,8 +7,8 @@ import com.shenchen.cloudcoldagent.common.ResultUtils;
 import com.shenchen.cloudcoldagent.constant.UserConstant;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.exception.ThrowUtils;
-import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistory;
 import com.shenchen.cloudcoldagent.model.entity.User;
+import com.shenchen.cloudcoldagent.model.vo.ChatMemoryHistoryVO;
 import com.shenchen.cloudcoldagent.service.ChatMemoryHistoryService;
 import com.shenchen.cloudcoldagent.service.UserService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,8 +43,8 @@ public class ChatMemoryHistoryController {
      */
     @GetMapping("/list/conversation")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
-    public BaseResponse<List<ChatMemoryHistory>> listByConversationId(@RequestParam String conversationId,
-                                                                      HttpServletRequest request) {
+    public BaseResponse<List<ChatMemoryHistoryVO>> listByConversationId(@RequestParam String conversationId,
+                                                                        HttpServletRequest request) {
         User loginUser = userService.getLoginUser(request);
         return ResultUtils.success(chatMemoryHistoryService.listByConversationId(loginUser.getId(), conversationId));
     }

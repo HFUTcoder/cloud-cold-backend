@@ -111,12 +111,16 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
                           }
                         }
                       },
-                      "metadata": {
+                          "metadata": {
                         "type": "object",
                         "properties": {
                           "userId": { "type": "long" },
                           "knowledgeId": { "type": "long" },
                           "documentId": { "type": "long" },
+                          "parentId": { "type": "long" },
+                          "parentType": { "type": "keyword" },
+                          "chunkType": { "type": "keyword" },
+                          "pageNumber": { "type": "integer" },
                           "objectName": { "type": "keyword" },
                           "source": { "type": "keyword" },
                           "fileName": { "type": "keyword" },
@@ -315,7 +319,15 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         List<EsDocumentChunk> result = new ArrayList<>();
         response.hits().hits().forEach(hit -> {
             if (hit.source() != null) {
-                result.add(hit.source());
+                EsDocumentChunk chunk = hit.source();
+                Map<String, Object> metadata = chunk.getMetadata() == null
+                        ? new LinkedHashMap<>()
+                        : new LinkedHashMap<>(chunk.getMetadata());
+                if (hit.score() != null) {
+                    metadata.put("keyword_score", hit.score());
+                }
+                chunk.setMetadata(metadata);
+                result.add(chunk);
             }
         });
 
@@ -418,8 +430,16 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
     @Override
     public List<Document> similaritySearch(String query, int topK, double similarityThreshold,
                                            Map<String, Object> metadataFilters) throws Exception {
-        String filterExpression = buildFilterExpression(metadataFilters);
-        return similaritySearch(query, topK, similarityThreshold, filterExpression);
+        if (metadataFilters == null || metadataFilters.isEmpty()) {
+            return similaritySearch(query, topK, similarityThreshold, (String) null);
+        }
+
+        int recallTopK = Math.max(topK * 5, 50);
+        List<Document> recalled = similaritySearch(query, recallTopK, similarityThreshold, (String) null);
+        return recalled.stream()
+                .filter(document -> matchesMetadataFilters(document, metadataFilters))
+                .limit(topK)
+                .toList();
     }
 
     @Override
@@ -498,6 +518,37 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
                 .map(entry -> entry.getKey() + " == " + formatFilterValue(entry.getValue()))
                 .reduce((left, right) -> left + " && " + right)
                 .orElse(null);
+    }
+
+    private boolean matchesMetadataFilters(Document document, Map<String, Object> metadataFilters) {
+        if (metadataFilters == null || metadataFilters.isEmpty()) {
+            return true;
+        }
+        if (document == null || document.getMetadata() == null || document.getMetadata().isEmpty()) {
+            return false;
+        }
+        for (Map.Entry<String, Object> entry : metadataFilters.entrySet()) {
+            String key = entry.getKey();
+            Object expectedValue = entry.getValue();
+            if (key == null || key.isBlank() || expectedValue == null) {
+                continue;
+            }
+            Object actualValue = document.getMetadata().get(key);
+            if (!metadataValueEquals(actualValue, expectedValue)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean metadataValueEquals(Object actualValue, Object expectedValue) {
+        if (actualValue == null || expectedValue == null) {
+            return false;
+        }
+        if (actualValue instanceof Number actualNumber && expectedValue instanceof Number expectedNumber) {
+            return Double.compare(actualNumber.doubleValue(), expectedNumber.doubleValue()) == 0;
+        }
+        return Objects.equals(String.valueOf(actualValue), String.valueOf(expectedValue));
     }
 
     private String formatFilterValue(Object value) {

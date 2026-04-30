@@ -33,15 +33,22 @@ public class ChatConversation implements Serializable {
     private String title;
 
     /**
-     * 会话强制绑定的 skill 名称列表（JSON 数组字符串）
-     */
-    private String selectedSkills;
-
-    /**
      * 反序列化后的 skill 名称列表，仅用于接口返回。
      */
     @Column(ignore = true)
     private List<String> selectedSkillList;
+
+    /**
+     * 当前会话绑定的知识库 id，仅用于接口返回。
+     */
+    @Column(ignore = true)
+    private Long selectedKnowledgeId;
+
+    /**
+     * 当前会话绑定的知识库名称，仅用于接口返回。
+     */
+    @Column(ignore = true)
+    private String selectedKnowledgeName;
 
     private LocalDateTime lastActiveTime;
 

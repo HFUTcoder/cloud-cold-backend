@@ -2,6 +2,7 @@ package com.shenchen.cloudcoldagent.service;
 
 import com.mybatisflex.core.service.IService;
 import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistory;
+import com.shenchen.cloudcoldagent.model.vo.ChatMemoryHistoryVO;
 
 import java.util.List;
 
@@ -13,7 +14,7 @@ public interface ChatMemoryHistoryService extends IService<ChatMemoryHistory> {
     /**
      * 根据会话 id 查询历史记录
      */
-    List<ChatMemoryHistory> listByConversationId(Long userId, String conversationId);
+    List<ChatMemoryHistoryVO> listByConversationId(Long userId, String conversationId);
 
     /**
      * 根据用户 id 查询该用户所有会话 id

@@ -7,6 +7,7 @@ import com.shenchen.cloudcoldagent.constant.UserConstant;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.exception.ThrowUtils;
 import com.shenchen.cloudcoldagent.model.dto.chat.ChatConversationDeleteRequest;
+import com.shenchen.cloudcoldagent.model.dto.chat.ChatConversationKnowledgeUpdateRequest;
 import com.shenchen.cloudcoldagent.model.dto.chat.ChatConversationSkillUpdateRequest;
 import com.shenchen.cloudcoldagent.model.entity.ChatConversation;
 import com.shenchen.cloudcoldagent.model.entity.User;
@@ -83,6 +84,20 @@ public class ChatConversationController {
                 ErrorCode.PARAMS_ERROR);
         User loginUser = userService.getLoginUser(httpServletRequest);
         chatConversationService.updateConversationSkills(loginUser.getId(), request.getConversationId(), request.getSelectedSkills());
+        return ResultUtils.success(true);
+    }
+
+    /**
+     * 更新会话绑定的知识库
+     */
+    @PostMapping("/update/knowledge")
+    @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
+    public BaseResponse<Boolean> updateConversationKnowledge(@RequestBody ChatConversationKnowledgeUpdateRequest request,
+                                                             HttpServletRequest httpServletRequest) {
+        ThrowUtils.throwIf(request == null || request.getConversationId() == null || request.getConversationId().isBlank(),
+                ErrorCode.PARAMS_ERROR);
+        User loginUser = userService.getLoginUser(httpServletRequest);
+        chatConversationService.updateConversationKnowledge(loginUser.getId(), request.getConversationId(), request.getKnowledgeId());
         return ResultUtils.success(true);
     }
 

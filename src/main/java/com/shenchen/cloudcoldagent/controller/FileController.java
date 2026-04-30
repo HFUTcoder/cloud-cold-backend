@@ -1,12 +1,14 @@
 package com.shenchen.cloudcoldagent.controller;
 
 import com.shenchen.cloudcoldagent.service.MinioService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/files")
+@Slf4j
 public class FileController {
 
     private final MinioService minioService;
@@ -22,7 +24,10 @@ public class FileController {
             minioService.uploadFile(file, objectName);
             return ResponseEntity.ok("上传成功: " + objectName);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("文件上传失败，fileName={}, message={}",
+                    file == null ? null : file.getOriginalFilename(),
+                    e.getMessage(),
+                    e);
             return ResponseEntity.status(500).body("上传失败: " + e.getMessage());
         }
     }
@@ -33,6 +38,7 @@ public class FileController {
             String url = minioService.getPresignedUrl(objectName);
             return ResponseEntity.ok(url);
         } catch (Exception e) {
+            log.error("生成下载链接失败，objectName={}, message={}", objectName, e.getMessage(), e);
             return ResponseEntity.status(500).body("生成下载链接失败");
         }
     }

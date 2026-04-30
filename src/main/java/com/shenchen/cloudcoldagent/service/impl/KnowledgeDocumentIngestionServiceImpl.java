@@ -5,14 +5,18 @@ import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.exception.ThrowUtils;
 import com.shenchen.cloudcoldagent.model.dto.document.DocumentAddRequest;
+import com.shenchen.cloudcoldagent.model.entity.KnowledgeDocumentImage;
 import com.shenchen.cloudcoldagent.model.entity.record.knowledge.DocumentIndexContext;
+import com.shenchen.cloudcoldagent.model.entity.record.knowledge.PreparedDocumentIndexResult;
 import com.shenchen.cloudcoldagent.enums.DocumentIndexStatusEnum;
 import com.shenchen.cloudcoldagent.model.vo.DocumentVO;
 import com.shenchen.cloudcoldagent.service.DocumentService;
+import com.shenchen.cloudcoldagent.service.KnowledgeDocumentImageService;
 import com.shenchen.cloudcoldagent.service.KnowledgeDocumentIngestionService;
 import com.shenchen.cloudcoldagent.service.KnowledgeService;
 import com.shenchen.cloudcoldagent.service.MinioService;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
@@ -29,15 +33,21 @@ public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentI
     private final DocumentService documentService;
     private final MinioService minioService;
     private final MinioProperties minioProperties;
+    private final KnowledgeDocumentImageService knowledgeDocumentImageService;
+    private final TransactionTemplate transactionTemplate;
 
     public KnowledgeDocumentIngestionServiceImpl(KnowledgeService knowledgeService,
                                                  DocumentService documentService,
                                                  MinioService minioService,
-                                                 MinioProperties minioProperties) {
+                                                 MinioProperties minioProperties,
+                                                 KnowledgeDocumentImageService knowledgeDocumentImageService,
+                                                 TransactionTemplate transactionTemplate) {
         this.knowledgeService = knowledgeService;
         this.documentService = documentService;
         this.minioService = minioService;
         this.minioProperties = minioProperties;
+        this.knowledgeDocumentImageService = knowledgeDocumentImageService;
+        this.transactionTemplate = transactionTemplate;
     }
 
     @Override
@@ -82,6 +92,9 @@ public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentI
         }
 
         File tempFile = null;
+        PreparedDocumentIndexResult preparedResult = null;
+        List<KnowledgeDocumentImage> persistedImages = List.of();
+        List<com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk> allChunks = List.of();
         try {
             document.setIndexStatus(DocumentIndexStatusEnum.INDEXING.getValue());
             document.setIndexErrorMessage(null);
@@ -90,7 +103,7 @@ public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentI
             documentService.updateById(document);
 
             tempFile = createTempFile(file, documentName);
-            List<com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk> chunks = knowledgeService.indexDocument(
+            preparedResult = knowledgeService.prepareDocumentIndex(
                     tempFile,
                     new DocumentIndexContext(
                             userId,
@@ -104,9 +117,14 @@ public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentI
                             fileSize
                     )
             );
+            persistedImages = persistPreparedImages(userId, knowledgeId, document.getId(), preparedResult.uploadedImages());
+            List<com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk> imageChunks =
+                    knowledgeService.buildImageDescriptionChunks(persistedImages, documentSource);
+            allChunks = mergeChunks(preparedResult.textChunks(), imageChunks);
+            knowledgeService.storePreparedChunks(allChunks);
 
             document.setIndexStatus(DocumentIndexStatusEnum.INDEXED.getValue());
-            document.setChunkCount(chunks.size());
+            document.setChunkCount(allChunks.size());
             document.setIndexErrorMessage(null);
             document.setIndexEndTime(LocalDateTime.now());
             documentService.updateById(document);
@@ -117,6 +135,9 @@ public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentI
                 knowledgeService.deleteBySource(documentSource);
             } catch (Exception ignored) {
             }
+            cleanupPreparedImages(document.getId(), persistedImages.isEmpty()
+                    ? (preparedResult == null ? List.of() : preparedResult.uploadedImages())
+                    : persistedImages);
             document.setIndexStatus(DocumentIndexStatusEnum.FAILED.getValue());
             document.setIndexErrorMessage(resolveErrorMessage(e));
             document.setIndexEndTime(LocalDateTime.now());
@@ -183,10 +204,52 @@ public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentI
         }
     }
 
+    private List<KnowledgeDocumentImage> persistPreparedImages(Long userId,
+                                                               Long knowledgeId,
+                                                               Long documentId,
+                                                               List<KnowledgeDocumentImage> images) {
+        return transactionTemplate.execute(status ->
+                knowledgeDocumentImageService.replaceDocumentImages(userId, knowledgeId, documentId, images)
+        );
+    }
+
+    private void cleanupPreparedImages(Long documentId, List<KnowledgeDocumentImage> uploadedImages) {
+        if (uploadedImages != null) {
+            for (KnowledgeDocumentImage uploadedImage : uploadedImages) {
+                if (uploadedImage == null || uploadedImage.getObjectName() == null || uploadedImage.getObjectName().isBlank()) {
+                    continue;
+                }
+                try {
+                    minioService.deleteFile(uploadedImage.getObjectName());
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        if (documentId != null && documentId > 0) {
+            try {
+                knowledgeDocumentImageService.deleteByDocumentId(documentId);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
     private String resolveErrorMessage(Exception exception) {
         if (exception == null || exception.getMessage() == null || exception.getMessage().isBlank()) {
             return "未知错误";
         }
         return exception.getMessage();
+    }
+
+    private List<com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk> mergeChunks(
+            List<com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk> textChunks,
+            List<com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk> imageChunks) {
+        List<com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk> merged = new java.util.ArrayList<>();
+        if (textChunks != null && !textChunks.isEmpty()) {
+            merged.addAll(textChunks);
+        }
+        if (imageChunks != null && !imageChunks.isEmpty()) {
+            merged.addAll(imageChunks);
+        }
+        return merged;
     }
 }

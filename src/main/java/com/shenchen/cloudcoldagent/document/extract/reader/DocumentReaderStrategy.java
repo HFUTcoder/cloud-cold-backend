@@ -1,5 +1,6 @@
 package com.shenchen.cloudcoldagent.document.extract.reader;
 
+import com.shenchen.cloudcoldagent.model.entity.record.knowledge.DocumentReadResult;
 import org.springframework.ai.document.Document;
 
 import java.io.File;
@@ -16,5 +17,9 @@ public interface DocumentReaderStrategy {
     /**
      * 读取文件并返回 Document 列表
      */
-    List<Document> read(File file) throws IOException;
+    DocumentReadResult read(File file) throws IOException;
+
+    default List<Document> readDocuments(File file) throws IOException {
+        return read(file).documents();
+    }
 }

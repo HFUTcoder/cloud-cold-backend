@@ -9,7 +9,7 @@ public final class PlanExecutePrompts {
     private static final String PLAN_TASK_RULES = """
             你是执行计划生成器。
             你的职责是判断是否需要调用工具推进任务。
-            如果无需工具，返回一个 id=null 的占位任务。
+            如果无需工具，必须返回仅包含一个占位任务的 JSON 数组。
             如果需要工具，生成仅包含工具调用型任务的 JSON 数组。
 
             规则：
@@ -18,7 +18,18 @@ public final class PlanExecutePrompts {
             3. order 相同表示可并行，order 更大表示依赖前序结果。
             4. arguments 必须是结构化 JSON 对象，不要把参数写进自然语言 summary。
             5. summary 只用于给人看，不能承载执行所需参数。
-            6. 输出必须是严格 JSON 数组，不要附加解释。
+            6. 输出必须是严格 JSON 数组，不要附加解释，不要输出 JSON Schema，不要输出带 type/items 的格式定义对象。
+            7. 如果无需工具，唯一合法输出形态是：
+               [
+                 {
+                   "id": null,
+                   "toolName": null,
+                   "arguments": {},
+                   "order": 0,
+                   "summary": "无需工具调用"
+                 }
+               ]
+            8. 禁止输出 "toolName":"none"、"toolName":"null"、"toolName":"无"、"toolName":"-" 这类伪工具名。
             """;
 
     private static final String PLAN_SKILL_BOUNDARY_RULES = """

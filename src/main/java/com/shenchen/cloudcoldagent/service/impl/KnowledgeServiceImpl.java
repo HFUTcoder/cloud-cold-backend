@@ -1,5 +1,6 @@
 package com.shenchen.cloudcoldagent.service.impl;
 
+import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.bean.BeanUtil;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -18,8 +19,13 @@ import com.shenchen.cloudcoldagent.model.dto.knowledge.KnowledgeQueryRequest;
 import com.shenchen.cloudcoldagent.model.dto.knowledge.KnowledgeUpdateRequest;
 import com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk;
 import com.shenchen.cloudcoldagent.model.entity.Knowledge;
+import com.shenchen.cloudcoldagent.model.entity.KnowledgeDocumentImage;
+import com.shenchen.cloudcoldagent.model.entity.record.knowledge.DocumentReadResult;
 import com.shenchen.cloudcoldagent.model.entity.record.knowledge.DocumentIndexContext;
+import com.shenchen.cloudcoldagent.model.entity.record.knowledge.ExtractedDocumentImage;
+import com.shenchen.cloudcoldagent.model.entity.record.knowledge.PreparedDocumentIndexResult;
 import com.shenchen.cloudcoldagent.model.vo.KnowledgeVO;
+import com.shenchen.cloudcoldagent.service.KnowledgeDocumentImageService;
 import com.shenchen.cloudcoldagent.service.ElasticSearchService;
 import com.shenchen.cloudcoldagent.service.KnowledgeService;
 import com.shenchen.cloudcoldagent.service.MinioService;
@@ -36,6 +42,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 import static org.springframework.ai.vectorstore.SearchRequest.SIMILARITY_THRESHOLD_ACCEPT_ALL;
@@ -48,7 +55,7 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
     private static final int DEFAULT_CHUNK_OVERLAP = 50;
     private static final int DEFAULT_SCALAR_TOP_K = 5;
     private static final int DEFAULT_VECTOR_TOP_K = 5;
-    private static final double DEFAULT_ACCEPT_ALL_THRESHOLD = SIMILARITY_THRESHOLD_ACCEPT_ALL;
+    private static final double DEFAULT_ACCEPT_ALL_THRESHOLD = 0.5;
     private static final int HYBRID_RRF_K = 60;
 
     private final DocumentReaderFactory documentReaderFactory;
@@ -56,17 +63,20 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
     private final StoreService storeService;
     private final DocumentMapper documentMapper;
     private final MinioService minioService;
+    private final KnowledgeDocumentImageService knowledgeDocumentImageService;
 
     public KnowledgeServiceImpl(DocumentReaderFactory documentReaderFactory,
                                 ElasticSearchService elasticSearchService,
                                 StoreService storeService,
                                 DocumentMapper documentMapper,
-                                MinioService minioService) {
+                                MinioService minioService,
+                                KnowledgeDocumentImageService knowledgeDocumentImageService) {
         this.documentReaderFactory = documentReaderFactory;
         this.elasticSearchService = elasticSearchService;
         this.storeService = storeService;
         this.documentMapper = documentMapper;
         this.minioService = minioService;
+        this.knowledgeDocumentImageService = knowledgeDocumentImageService;
     }
 
     @Override
@@ -123,6 +133,7 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
             }
         }
         documentMapper.deleteByQuery(QueryWrapper.create().eq("knowledgeId", knowledgeId).eq("userId", userId));
+        knowledgeDocumentImageService.deleteByKnowledgeId(knowledgeId);
         return this.removeById(knowledge.getId());
     }
 
@@ -193,21 +204,75 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
     }
 
     @Override
+    public PreparedDocumentIndexResult prepareDocumentIndex(File file, DocumentIndexContext context) throws Exception {
+        ThrowUtils.throwIf(file == null, ErrorCode.PARAMS_ERROR, "文件不能为空");
+        DocumentReadResult readResult = documentReaderFactory.readResult(file.getAbsoluteFile());
+        List<KnowledgeDocumentImage> uploadedImages = List.of();
+        try {
+            uploadedImages = uploadExtractedImages(context, readResult.extractedImages());
+            List<EsDocumentChunk> textChunks = buildChunks(readResult.documents(), context, "TEXT");
+            return new PreparedDocumentIndexResult(textChunks, uploadedImages);
+        } catch (Exception e) {
+            cleanupUploadedImages(uploadedImages);
+            throw e;
+        }
+    }
+
+    @Override
+    public List<EsDocumentChunk> buildImageDescriptionChunks(List<KnowledgeDocumentImage> images, String documentSource) {
+        if (images == null || images.isEmpty()) {
+            return List.of();
+        }
+        List<Document> imageDocuments = new ArrayList<>();
+        for (KnowledgeDocumentImage image : images) {
+            if (image == null || image.getId() == null || image.getDescription() == null || image.getDescription().isBlank()) {
+                continue;
+            }
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("userId", image.getUserId());
+            metadata.put("knowledgeId", image.getKnowledgeId());
+            metadata.put("documentId", image.getDocumentId());
+            metadata.put("parentId", image.getId());
+            metadata.put("parentType", "document_image");
+            metadata.put("objectName", image.getObjectName());
+            metadata.put("contentType", image.getContentType());
+            metadata.put("pageNumber", image.getPageNumber());
+            metadata.put("chunkType", "IMAGE_DESCRIPTION");
+            if (documentSource != null && !documentSource.isBlank()) {
+                metadata.put("source", documentSource);
+            }
+            imageDocuments.add(Document.builder()
+                    .id("image-" + image.getId())
+                    .text(image.getDescription().trim())
+                    .metadata(metadata)
+                    .build());
+        }
+        return buildChunks(imageDocuments, null, "IMAGE_DESCRIPTION");
+    }
+
+    @Override
+    public void storePreparedChunks(List<EsDocumentChunk> chunks) throws Exception {
+        if (chunks == null || chunks.isEmpty()) {
+            return;
+        }
+        elasticSearchService.bulkIndex(chunks);
+        storeService.storeVectorChunks(chunks);
+    }
+
+    @Override
     public List<EsDocumentChunk> indexDocument(File file, DocumentIndexContext context) throws Exception {
         ThrowUtils.throwIf(file == null, ErrorCode.PARAMS_ERROR, "文件不能为空");
         ThrowUtils.throwIf(context == null, ErrorCode.PARAMS_ERROR, "索引上下文不能为空");
-        List<EsDocumentChunk> chunks = buildChunks(file.getAbsoluteFile(), context);
-        elasticSearchService.bulkIndex(chunks);
-        storeService.storeVectorChunks(chunks);
-        return chunks;
+        PreparedDocumentIndexResult preparedResult = prepareDocumentIndex(file, context);
+        storePreparedChunks(preparedResult.textChunks());
+        return preparedResult.textChunks();
     }
 
     @Override
     public List<EsDocumentChunk> add(String filePath) throws Exception {
-        List<EsDocumentChunk> chunks = buildChunks(new File(filePath).getAbsoluteFile(), null);
-        elasticSearchService.bulkIndex(chunks);
-        storeService.storeVectorChunks(chunks);
-        return chunks;
+        PreparedDocumentIndexResult preparedResult = prepareDocumentIndex(new File(filePath).getAbsoluteFile(), null);
+        storePreparedChunks(preparedResult.textChunks());
+        return preparedResult.textChunks();
     }
 
     @Override
@@ -228,16 +293,10 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         if (documentId == null || documentId <= 0) {
             return;
         }
-        List<EsDocumentChunk> chunks = elasticSearchService.searchByMetadata(Map.of("documentId", documentId), 10_000);
-        List<String> chunkIds = chunks.stream()
-                .map(EsDocumentChunk::getId)
-                .filter(Objects::nonNull)
-                .filter(id -> !id.isBlank())
-                .toList();
+        List<String> chunkIds = collectChunkIdsByMetadata(Map.of("documentId", documentId));
 
         if (!chunkIds.isEmpty()) {
             deleteByIds(chunkIds);
-            return;
         }
 
         elasticSearchService.deleteByDocumentId(documentId);
@@ -246,8 +305,11 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
     @Override
     public void deleteBySource(String source) throws Exception {
         String normalizedSource = normalizeSource(source);
+        List<String> chunkIds = collectChunkIdsByMetadata(Map.of("source", normalizedSource));
+        if (!chunkIds.isEmpty()) {
+            deleteByIds(chunkIds);
+        }
         elasticSearchService.deleteBySource(normalizedSource);
-        elasticSearchService.vectorDeleteByFilter(buildSourceFilterExpression(normalizedSource));
     }
 
     @Override
@@ -353,15 +415,14 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return rrfFusion(vectorDocuments, scalarResults, Math.max(keywordSize, vectorTopK));
     }
 
-    private List<EsDocumentChunk> buildChunks(File file, DocumentIndexContext context) throws Exception {
-        List<Document> documents = documentReaderFactory.read(file);
-        documents = DocumentCleaner.cleanDocuments(documents);
+    private List<EsDocumentChunk> buildChunks(List<Document> documents, DocumentIndexContext context, String defaultChunkType) {
+        List<Document> workingDocuments = DocumentCleaner.cleanDocuments(documents);
         if (context != null) {
-            documents = enrichDocuments(documents, context);
+            workingDocuments = enrichDocuments(workingDocuments, context);
         }
 
         OverlapParagraphTextSplitter splitter = new OverlapParagraphTextSplitter(DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP);
-        List<Document> splitDocuments = splitter.apply(documents);
+        List<Document> splitDocuments = splitter.apply(workingDocuments);
 
         List<EsDocumentChunk> chunks = new ArrayList<>(splitDocuments.size());
         for (Document document : splitDocuments) {
@@ -372,10 +433,95 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
                     ? new LinkedHashMap<>()
                     : new LinkedHashMap<>(document.getMetadata());
             metadata.putIfAbsent("chunkId", document.getId());
+            if (defaultChunkType != null && !defaultChunkType.isBlank()) {
+                metadata.putIfAbsent("chunkType", defaultChunkType);
+            }
             chunk.setMetadata(metadata);
             chunks.add(chunk);
         }
         return chunks;
+    }
+
+    private List<KnowledgeDocumentImage> uploadExtractedImages(DocumentIndexContext context,
+                                                               List<ExtractedDocumentImage> extractedImages) throws Exception {
+        if (extractedImages == null || extractedImages.isEmpty()) {
+            return List.of();
+        }
+        if (context == null) {
+            return List.of();
+        }
+
+        List<KnowledgeDocumentImage> uploadedImages = new ArrayList<>();
+        try {
+            for (ExtractedDocumentImage extractedImage : extractedImages) {
+                if (extractedImage == null || extractedImage.bytes() == null || extractedImage.bytes().length == 0) {
+                    continue;
+                }
+                String contentType = extractedImage.contentType() == null || extractedImage.contentType().isBlank()
+                        ? "image/png"
+                        : extractedImage.contentType().trim();
+                String objectName = buildDocumentImageObjectName(context, extractedImage.imageIndex(), contentType);
+                String imageUrl = minioService.uploadFile(objectName, extractedImage.bytes(), contentType);
+                uploadedImages.add(KnowledgeDocumentImage.builder()
+                        .id(IdUtil.getSnowflakeNextId())
+                        .userId(context.userId())
+                        .knowledgeId(context.knowledgeId())
+                        .documentId(context.documentId())
+                        .imageIndex(extractedImage.imageIndex())
+                        .objectName(objectName)
+                        .imageUrl(imageUrl)
+                        .contentType(contentType)
+                        .fileSize((long) extractedImage.bytes().length)
+                        .pageNumber(extractedImage.pageNumber())
+                        .description(extractedImage.description())
+                        .build());
+            }
+            return uploadedImages;
+        } catch (Exception e) {
+            cleanupUploadedImages(uploadedImages);
+            throw e;
+        }
+    }
+
+    private String buildDocumentImageObjectName(DocumentIndexContext context, Integer imageIndex, String contentType) {
+        String extension = resolveImageExtension(contentType);
+        int safeImageIndex = imageIndex == null || imageIndex < 0 ? 0 : imageIndex;
+        return "knowledge/" + context.knowledgeId()
+                + "/document/" + context.documentId()
+                + "/images/" + safeImageIndex + "-" + UUID.randomUUID() + extension;
+    }
+
+    private String resolveImageExtension(String contentType) {
+        if (contentType == null || contentType.isBlank()) {
+            return ".bin";
+        }
+        String normalized = contentType.trim().toLowerCase();
+        return switch (normalized) {
+            case "image/png" -> ".png";
+            case "image/jpeg", "image/jpg" -> ".jpg";
+            case "image/gif" -> ".gif";
+            case "image/webp" -> ".webp";
+            default -> ".bin";
+        };
+    }
+
+    private void cleanupUploadedImages(List<KnowledgeDocumentImage> uploadedImages) {
+        if (uploadedImages == null || uploadedImages.isEmpty()) {
+            return;
+        }
+        for (KnowledgeDocumentImage uploadedImage : uploadedImages) {
+            if (uploadedImage == null || uploadedImage.getObjectName() == null || uploadedImage.getObjectName().isBlank()) {
+                continue;
+            }
+            try {
+                minioService.deleteFile(uploadedImage.getObjectName());
+            } catch (Exception cleanupException) {
+                log.warn("清理已上传图片失败，documentId={}, objectName={}, message={}",
+                        uploadedImage.getDocumentId(),
+                        uploadedImage.getObjectName(),
+                        cleanupException.getMessage());
+            }
+        }
     }
 
     private String normalizeSource(String source) {
@@ -394,6 +540,15 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
 
     private String buildNumericFilterExpression(String field, Number value) {
         return field + " == " + value;
+    }
+
+    private List<String> collectChunkIdsByMetadata(Map<String, Object> metadataFilters) throws Exception {
+        List<EsDocumentChunk> chunks = elasticSearchService.searchByMetadata(metadataFilters, 10_000);
+        return chunks.stream()
+                .map(EsDocumentChunk::getId)
+                .filter(Objects::nonNull)
+                .filter(id -> !id.isBlank())
+                .toList();
     }
 
     private EsDocumentChunk toChunk(Document document) {
@@ -430,6 +585,7 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
             metadata.put("contentType", context.contentType());
             metadata.put("fileSize", context.fileSize());
             metadata.put("source_document_id", sourceDocumentId);
+            metadata.put("chunkType", "TEXT");
             result.add(document.mutate()
                     .id(sourceDocumentId)
                     .metadata(metadata)
@@ -478,6 +634,7 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
                     document.getId(), document.getDocumentSource(), primaryDeleteException);
             deleteBySource(document.getDocumentSource());
         }
+        deleteDocumentImages(document.getId());
         if (document.getObjectName() != null && !document.getObjectName().isBlank()) {
             try {
                 minioService.deleteFile(document.getObjectName());
@@ -489,6 +646,29 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
                         document.getObjectName());
             }
         }
+    }
+
+    private void deleteDocumentImages(Long documentId) throws Exception {
+        if (documentId == null || documentId <= 0) {
+            return;
+        }
+        List<KnowledgeDocumentImage> images = knowledgeDocumentImageService.listByDocumentId(documentId);
+        for (KnowledgeDocumentImage image : images) {
+            if (image == null || image.getObjectName() == null || image.getObjectName().isBlank()) {
+                continue;
+            }
+            try {
+                minioService.deleteFile(image.getObjectName());
+            } catch (Exception e) {
+                if (!isIgnorableDeleteException(e)) {
+                    throw e;
+                }
+                log.info("MinIO 图片对象已不存在，跳过删除。documentId={}, objectName={}",
+                        documentId,
+                        image.getObjectName());
+            }
+        }
+        knowledgeDocumentImageService.deleteByDocumentId(documentId);
     }
 
     private boolean isIgnorableDeleteException(Exception exception) {

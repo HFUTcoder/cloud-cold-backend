@@ -2,6 +2,7 @@ package com.shenchen.cloudcoldagent.common;
 
 import com.shenchen.cloudcoldagent.model.entity.record.hitl.PendingToolCall;
 import com.shenchen.cloudcoldagent.model.vo.AgentStreamEvent;
+import com.shenchen.cloudcoldagent.model.vo.RetrievedKnowledgeImage;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -45,6 +46,13 @@ public final class AgentStreamEventFactory {
 
     public static AgentStreamEvent emptyHitlInterrupt(String conversationId) {
         return build("hitl_interrupt", conversationId, null, AgentPayload.actionRequired(Map.of()));
+    }
+
+    public static AgentStreamEvent knowledgeRetrieval(String conversationId, List<RetrievedKnowledgeImage> images) {
+        Map<String, Object> retrievalData = new LinkedHashMap<>();
+        retrievalData.put("images", images == null ? List.of() : images);
+        retrievalData.put("count", images == null ? 0 : images.size());
+        return build("knowledge_retrieval", conversationId, null, AgentPayload.actionRequired(retrievalData));
     }
 
     private static AgentStreamEvent build(String eventType,

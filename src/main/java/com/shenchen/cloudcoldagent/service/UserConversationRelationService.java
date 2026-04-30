@@ -10,6 +10,8 @@ public interface UserConversationRelationService extends IService<UserConversati
 
     List<String> listConversationIdsByUserId(Long userId);
 
+    Long getUserIdByConversationId(String conversationId);
+
     boolean isConversationOwnedByUser(Long userId, String conversationId);
 
     void bindUserConversation(Long userId, String conversationId, LocalDateTime now);

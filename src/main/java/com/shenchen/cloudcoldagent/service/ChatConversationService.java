@@ -51,6 +51,11 @@ public interface ChatConversationService extends IService<ChatConversation> {
     void updateConversationSkills(Long userId, String conversationId, List<String> selectedSkills);
 
     /**
+     * 更新会话绑定的知识库
+     */
+    void updateConversationKnowledge(Long userId, String conversationId, Long knowledgeId);
+
+    /**
      * 构建会话级 skill 强约束系统提示词
      */
     String buildConversationSkillPrompt(Long userId, String conversationId);

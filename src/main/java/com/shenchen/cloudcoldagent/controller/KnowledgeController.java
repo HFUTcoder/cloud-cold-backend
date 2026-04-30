@@ -185,6 +185,6 @@ public class KnowledgeController {
                 request.getKeywordSize() == null ? 5 : request.getKeywordSize(),
                 Boolean.TRUE.equals(request.getUseSmartAnalyzer()),
                 request.getVectorTopK() == null ? 5 : request.getVectorTopK(),
-                request.getSimilarityThreshold() == null ? 0.0d : request.getSimilarityThreshold()));
+                request.getSimilarityThreshold() == null ? 0.5d : request.getSimilarityThreshold()));
     }
 }

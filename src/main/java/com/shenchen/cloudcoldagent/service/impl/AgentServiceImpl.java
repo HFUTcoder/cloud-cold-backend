@@ -9,6 +9,7 @@ import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.model.dto.agent.AgentCallRequest;
 import com.shenchen.cloudcoldagent.enums.AgentModeEnum;
+import com.shenchen.cloudcoldagent.model.entity.record.agent.knowledge.KnowledgePreprocessResult;
 import com.shenchen.cloudcoldagent.model.vo.HitlCheckpointVO;
 import com.shenchen.cloudcoldagent.model.vo.AgentStreamEvent;
 import com.shenchen.cloudcoldagent.service.AgentService;
@@ -16,7 +17,10 @@ import com.shenchen.cloudcoldagent.service.ChatConversationService;
 import com.shenchen.cloudcoldagent.service.HitlCheckpointService;
 import com.shenchen.cloudcoldagent.service.HitlExecutionService;
 import com.shenchen.cloudcoldagent.service.HitlResumeService;
+import com.shenchen.cloudcoldagent.service.ChatMemoryPendingImageBindingService;
+import com.shenchen.cloudcoldagent.service.KnowledgePreprocessService;
 import com.shenchen.cloudcoldagent.service.SkillService;
+import com.shenchen.cloudcoldagent.service.UserConversationRelationService;
 import com.shenchen.cloudcoldagent.workflow.skill.service.SkillWorkflowService;
 import com.shenchen.cloudcoldagent.model.entity.record.agent.planexecute.PlanTask;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillExecutionPlan;
@@ -60,6 +64,8 @@ public class AgentServiceImpl implements AgentService {
 
     private final ChatConversationService chatConversationService;
 
+    private final ChatMemoryPendingImageBindingService chatMemoryPendingImageBindingService;
+
     private final HitlExecutionService hitlExecutionService;
 
     private final HitlCheckpointService hitlCheckpointService;
@@ -70,11 +76,15 @@ public class AgentServiceImpl implements AgentService {
 
     private final SkillWorkflowService skillWorkflowService;
 
+    private final KnowledgePreprocessService knowledgePreprocessService;
+
     private final SkillService skillService;
+
+    private final UserConversationRelationService userConversationRelationService;
 
     private final ObjectProvider<Advisor> advisorProvider;
 
-    private final ToolCallback[] allToolCallbacks;
+    private final ToolCallback[] commonToolCallbacks;
 
     private final ObjectMapper objectMapper;
 
@@ -89,26 +99,32 @@ public class AgentServiceImpl implements AgentService {
     public AgentServiceImpl(ChatModel openAiChatModel,
                             ChatMemoryRepository chatMemoryRepository,
                             ChatConversationService chatConversationService,
+                            ChatMemoryPendingImageBindingService chatMemoryPendingImageBindingService,
                             HitlExecutionService hitlExecutionService,
                             HitlCheckpointService hitlCheckpointService,
                             HitlResumeService hitlResumeService,
                             HitlProperties hitlProperties,
                             SkillWorkflowService skillWorkflowService,
+                            KnowledgePreprocessService knowledgePreprocessService,
                             SkillService skillService,
+                            UserConversationRelationService userConversationRelationService,
                             ObjectProvider<Advisor> advisorProvider,
-                            @Qualifier("allTools") ToolCallback[] allToolCallbacks,
+                            @Qualifier("commonTools") ToolCallback[] commonToolCallbacks,
                             ObjectMapper objectMapper) {
         this.openAiChatModel = openAiChatModel;
         this.chatMemoryRepository = chatMemoryRepository;
         this.chatConversationService = chatConversationService;
+        this.chatMemoryPendingImageBindingService = chatMemoryPendingImageBindingService;
         this.hitlExecutionService = hitlExecutionService;
         this.hitlCheckpointService = hitlCheckpointService;
         this.hitlResumeService = hitlResumeService;
         this.hitlProperties = hitlProperties;
         this.skillWorkflowService = skillWorkflowService;
+        this.knowledgePreprocessService = knowledgePreprocessService;
         this.skillService = skillService;
+        this.userConversationRelationService = userConversationRelationService;
         this.advisorProvider = advisorProvider;
-        this.allToolCallbacks = allToolCallbacks;
+        this.commonToolCallbacks = commonToolCallbacks;
         this.objectMapper = objectMapper;
     }
 
@@ -122,7 +138,7 @@ public class AgentServiceImpl implements AgentService {
         reactAgent = SimpleReactAgent.builder()
                 .name("ReactAgent")
                 .chatModel(openAiChatModel)
-                .tools(allToolCallbacks)
+                .tools(commonToolCallbacks)
                 .advisors(allAdvisors)
                 .chatMemory(chatMemory)
                 .maxRounds(5)
@@ -131,7 +147,7 @@ public class AgentServiceImpl implements AgentService {
         planExecuteAgent = PlanExecuteAgent.builder()
                 .agentType("PlanExecuteAgent")
                 .chatModel(openAiChatModel)
-                .tools(allToolCallbacks)
+                .tools(commonToolCallbacks)
                 .advisors(allAdvisors)
                 .maxRounds(5)
                 .maxToolRetries(5)
@@ -155,6 +171,7 @@ public class AgentServiceImpl implements AgentService {
                 userId, conversationId, mode.getValue(), question.length());
         chatConversationService.touchConversation(userId, conversationId);
         chatConversationService.generateTitleOnFirstMessage(userId, conversationId, question);
+        var conversation = chatConversationService.getByConversationId(userId, conversationId);
         SkillWorkflowResult workflowResult = skillWorkflowService.preprocess(userId, conversationId, question);
         log.info("skill workflow 处理完成，conversationId={}, selectedSkills={}, executablePlanCount={}, blockingPlanCount={}",
                 conversationId,
@@ -169,24 +186,57 @@ public class AgentServiceImpl implements AgentService {
                     blockingSkillReply.length());
             return Flux.just(AgentStreamEventFactory.finalAnswer(conversationId, blockingSkillReply));
         }
-        String effectiveQuestion = workflowResult.getEnhancedQuestion();
+        String workflowEnhancedQuestion = workflowResult.getEnhancedQuestion();
+        KnowledgePreprocessResult knowledgePreprocessResult = knowledgePreprocessService.preprocess(
+                userId,
+                conversation,
+                workflowEnhancedQuestion
+        );
+        String effectiveQuestion = knowledgePreprocessResult.effectiveQuestion();
         List<PlanTask> preferredPlan = buildPreferredPlan(workflowResult);
-        log.info("准备路由到具体智能体，conversationId={}, mode={}, targetAgent={}, preferredPlanCount={}, effectiveQuestionLength={}",
+        String runtimeSystemPrompt = buildConversationBindingPrompt(conversation);
+        log.info("准备路由到具体智能体，conversationId={}, mode={}, targetAgent={}, preferredPlanCount={}, effectiveQuestionLength={}, knowledgePreprocessTriggered={}, knowledgeHitCount={}",
                 conversationId,
                 mode.getValue(),
                 (mode == AgentModeEnum.FAST ? "SimpleReactAgent" : "PlanExecuteAgent"),
                 preferredPlan.size(),
-                effectiveQuestion == null ? 0 : effectiveQuestion.length());
+                effectiveQuestion == null ? 0 : effectiveQuestion.length(),
+                knowledgePreprocessResult.retrievalTriggered(),
+                knowledgePreprocessResult.retrievedChunks() == null ? 0 : knowledgePreprocessResult.retrievedChunks().size());
+        log.info("进入Agent前最终用户问题文本，conversationId={}, mode={}\n{}",
+                conversationId,
+                mode.getValue(),
+                effectiveQuestion == null ? "" : effectiveQuestion);
+        if (runtimeSystemPrompt != null && !runtimeSystemPrompt.isBlank()) {
+            log.info("进入Agent前运行时System Prompt，conversationId={}, mode={}\n{}",
+                    conversationId,
+                    mode.getValue(),
+                    runtimeSystemPrompt);
+        }
+        chatMemoryPendingImageBindingService.registerPendingImages(
+                conversationId,
+                knowledgePreprocessResult.retrievedImages()
+        );
+
+        Flux<AgentStreamEvent> preAgentFlux = buildPreAgentFlux(
+                conversationId,
+                knowledgePreprocessResult
+        );
+        Flux<AgentStreamEvent> agentFlux;
 
         switch (mode) {
             case FAST:
-                return reactAgent.stream(conversationId, effectiveQuestion, null, question);
+                agentFlux = reactAgent.stream(userId, conversationId, effectiveQuestion, runtimeSystemPrompt, question);
+                break;
             case THINKING:
             case EXPERT:
-                return planExecuteAgent.stream(conversationId, effectiveQuestion, null, question, preferredPlan);
+                agentFlux = planExecuteAgent.stream(userId, conversationId, effectiveQuestion, runtimeSystemPrompt, question, preferredPlan);
+                break;
             default:
-                return reactAgent.stream(conversationId, effectiveQuestion, null, question);
+                agentFlux = reactAgent.stream(userId, conversationId, effectiveQuestion, runtimeSystemPrompt, question);
+                break;
         }
+        return preAgentFlux == null ? agentFlux : Flux.concat(preAgentFlux, agentFlux);
     }
 
     @Override
@@ -201,8 +251,12 @@ public class AgentServiceImpl implements AgentService {
                 interruptId,
                 checkpoint.getConversationId(),
                 agentType);
+        Long userId = userConversationRelationService.getUserIdByConversationId(checkpoint.getConversationId());
+        if (userId == null || userId <= 0) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "未找到会话归属用户，无法恢复执行");
+        }
         if ("PlanExecuteAgent".equals(agentType) || agentType == null || agentType.isBlank()) {
-            return planExecuteAgent.resume(interruptId);
+            return planExecuteAgent.resume(interruptId, userId);
         }
         throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前 agentType 暂不支持 resume: " + agentType);
     }
@@ -219,6 +273,30 @@ public class AgentServiceImpl implements AgentService {
             return new LinkedHashSet<>();
         }
         return new LinkedHashSet<>(hitlProperties.getInterceptToolNames());
+    }
+
+    private String buildConversationBindingPrompt(com.shenchen.cloudcoldagent.model.entity.ChatConversation conversation) {
+        if (conversation == null || conversation.getSelectedKnowledgeId() == null || conversation.getSelectedKnowledgeId() <= 0) {
+            return null;
+        }
+        return """
+                当前会话已绑定知识库。
+                如果上下文里已经提供知识库检索内容，请优先基于这些知识内容回答。
+                如果仍需要继续检索，请默认使用当前会话已绑定知识库，不要臆造其它知识库。
+                """;
+    }
+
+    private Flux<AgentStreamEvent> buildPreAgentFlux(String conversationId,
+                                                     KnowledgePreprocessResult knowledgePreprocessResult) {
+        if (knowledgePreprocessResult == null
+                || knowledgePreprocessResult.retrievedImages() == null
+                || knowledgePreprocessResult.retrievedImages().isEmpty()) {
+            return Flux.empty();
+        }
+        return Flux.just(AgentStreamEventFactory.knowledgeRetrieval(
+                conversationId,
+                knowledgePreprocessResult.retrievedImages()
+        ));
     }
 
     private List<PlanTask> buildPreferredPlan(SkillWorkflowResult workflowResult) {

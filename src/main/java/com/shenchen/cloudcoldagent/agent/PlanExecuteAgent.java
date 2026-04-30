@@ -2,6 +2,7 @@ package com.shenchen.cloudcoldagent.agent;
 
 import cn.hutool.json.JSONUtil;
 import com.shenchen.cloudcoldagent.common.AgentStreamEventFactory;
+import com.shenchen.cloudcoldagent.context.AgentRuntimeContext;
 import com.shenchen.cloudcoldagent.model.entity.record.hitl.HitlResumeRequest;
 import com.shenchen.cloudcoldagent.model.entity.record.hitl.HitlResumeResult;
 import com.shenchen.cloudcoldagent.model.entity.record.hitl.PendingToolCall;
@@ -38,6 +39,8 @@ import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.util.CollectionUtils;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -55,6 +58,8 @@ import reactor.core.scheduler.Schedulers;
 
 @Slf4j
 public class PlanExecuteAgent extends BaseAgent {
+
+    private static final ObjectMapper PLAN_OBJECT_MAPPER = new ObjectMapper();
 
     // plan-execute 总轮数
     private final int contextCharLimit;
@@ -225,15 +230,15 @@ public class PlanExecuteAgent extends BaseAgent {
     }
 
     public String call(String question) {
-        return callInternal(null, question, null, question);
+        return callInternal(null, null, question, null, question);
     }
 
-    public String call(String conversationId, String question) {
-        return callInternal(conversationId, question, null, question);
+    public String call(Long userId, String conversationId, String question) {
+        return callInternal(userId, conversationId, question, null, question);
     }
 
-    public String call(String conversationId, String question, String runtimeSystemPrompt) {
-        return callInternal(conversationId, question, runtimeSystemPrompt, question);
+    public String call(Long userId, String conversationId, String question, String runtimeSystemPrompt) {
+        return callInternal(userId, conversationId, question, runtimeSystemPrompt, question);
     }
 
     /**
@@ -243,42 +248,44 @@ public class PlanExecuteAgent extends BaseAgent {
      * @return
      */
     public Flux<AgentStreamEvent> stream(String question) {
-        return streamInternal(null, question, null, question, List.of());
+        return streamInternal(null, null, question, null, question, List.of());
     }
 
     // 带会话记忆
-    public Flux<AgentStreamEvent> stream(String conversationId, String question) {
-        return streamInternal(conversationId, question, null, question, List.of());
+    public Flux<AgentStreamEvent> stream(Long userId, String conversationId, String question) {
+        return streamInternal(userId, conversationId, question, null, question, List.of());
     }
 
-    public Flux<AgentStreamEvent> stream(String conversationId, String question, String runtimeSystemPrompt) {
-        return streamInternal(conversationId, question, runtimeSystemPrompt, question, List.of());
+    public Flux<AgentStreamEvent> stream(Long userId, String conversationId, String question, String runtimeSystemPrompt) {
+        return streamInternal(userId, conversationId, question, runtimeSystemPrompt, question, List.of());
     }
 
-    public Flux<AgentStreamEvent> stream(String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
-        return streamInternal(conversationId, question, runtimeSystemPrompt, memoryQuestion, List.of());
+    public Flux<AgentStreamEvent> stream(Long userId, String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
+        return streamInternal(userId, conversationId, question, runtimeSystemPrompt, memoryQuestion, List.of());
     }
 
-    public Flux<AgentStreamEvent> stream(String conversationId,
+    public Flux<AgentStreamEvent> stream(Long userId,
+                                         String conversationId,
                                          String question,
                                          String runtimeSystemPrompt,
                                          String memoryQuestion,
                                          List<PlanTask> preferredPlan) {
-        return streamInternal(conversationId, question, runtimeSystemPrompt, memoryQuestion, preferredPlan);
+        return streamInternal(userId, conversationId, question, runtimeSystemPrompt, memoryQuestion, preferredPlan);
     }
 
-    public Flux<AgentStreamEvent> resume(String interruptId) {
-        return resumeInternal(interruptId);
+    public Flux<AgentStreamEvent> resume(String interruptId, Long userId) {
+        return resumeInternal(interruptId, userId);
     }
 
-    public Flux<AgentStreamEvent> streamInternal(String conversationId,
+    public Flux<AgentStreamEvent> streamInternal(Long userId,
+                                                 String conversationId,
                                                  String question,
                                                  String runtimeSystemPrompt,
                                                  String memoryQuestion,
                                                  List<PlanTask> preferredPlan) {
         boolean useMemory = useMemory(conversationId);
 
-        OverAllState state = new OverAllState(conversationId, question, preferredPlan);
+        OverAllState state = new OverAllState(userId, conversationId, question, preferredPlan);
 
         if (runtimeSystemPrompt != null && !runtimeSystemPrompt.isBlank()) {
             state.add(new SystemMessage(runtimeSystemPrompt));
@@ -467,15 +474,15 @@ public class PlanExecuteAgent extends BaseAgent {
                 .collect(Collectors.joining("\n"));
     }
 
-    public String call(String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
-        return callInternal(conversationId, question, runtimeSystemPrompt, memoryQuestion);
+    public String call(Long userId, String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
+        return callInternal(userId, conversationId, question, runtimeSystemPrompt, memoryQuestion);
     }
 
-    public String callInternal(String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
+    public String callInternal(Long userId, String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
 
         boolean useMemory = useMemory(conversationId);
 
-        OverAllState state = new OverAllState(conversationId, question, List.of());
+        OverAllState state = new OverAllState(userId, conversationId, question, List.of());
 
         if (runtimeSystemPrompt != null && !runtimeSystemPrompt.isBlank()) {
             state.add(new SystemMessage(runtimeSystemPrompt));
@@ -608,28 +615,44 @@ public class PlanExecuteAgent extends BaseAgent {
 
         String raw = json.trim();
         try {
-            return converter.convert(raw);
-        } catch (Exception firstEx) {
-            // 容错: 某些场景模型会返回单个对象而不是数组，包装后重试
-            if (raw.startsWith("{") && raw.endsWith("}")) {
-                try {
-                    return converter.convert("[" + raw + "]");
-                } catch (Exception secondEx) {
-                    log.warn("执行计划解析失败（对象包装后仍失败），降级为空计划。conversationId={}, round={}, rawSnippet={}",
-                            state.getConversationId(),
-                            state.getRound(),
-                            abbreviate(raw, 400),
-                            secondEx);
-                    return List.of();
-                }
-            }
+            String normalizedPlanJson = normalizePlanJson(raw);
+            return converter.convert(normalizedPlanJson);
+        } catch (Exception ex) {
             log.warn("执行计划解析失败，降级为空计划。conversationId={}, round={}, rawSnippet={}",
                     state.getConversationId(),
                     state.getRound(),
                     abbreviate(raw, 400),
-                    firstEx);
+                    ex);
             return List.of();
         }
+    }
+
+    private String normalizePlanJson(String raw) throws Exception {
+        if (StringUtils.isBlank(raw)) {
+            return "[]";
+        }
+        JsonNode root = PLAN_OBJECT_MAPPER.readTree(raw);
+        if (root == null || root.isNull()) {
+            return "[]";
+        }
+        if (root.isArray()) {
+            return PLAN_OBJECT_MAPPER.writeValueAsString(root);
+        }
+        if (root.isObject()) {
+            JsonNode typeNode = root.get("type");
+            JsonNode itemsNode = root.get("items");
+            if (typeNode != null
+                    && typeNode.isTextual()
+                    && "array".equalsIgnoreCase(typeNode.asText())
+                    && itemsNode != null) {
+                if (itemsNode.isArray()) {
+                    return PLAN_OBJECT_MAPPER.writeValueAsString(itemsNode);
+                }
+                return PLAN_OBJECT_MAPPER.writeValueAsString(List.of(itemsNode));
+            }
+            return PLAN_OBJECT_MAPPER.writeValueAsString(List.of(root));
+        }
+        return "[]";
     }
 
     private List<PlanTask> sanitizePlan(List<PlanTask> plan, OverAllState state) {
@@ -798,7 +821,7 @@ public class PlanExecuteAgent extends BaseAgent {
                 && hitlExecutionService.isEnabled(state.getConversationId(), hitlInterceptToolNames);
     }
 
-    private Flux<AgentStreamEvent> resumeInternal(String interruptId) {
+    private Flux<AgentStreamEvent> resumeInternal(String interruptId, Long userId) {
         Sinks.Many<AgentStreamEvent> sink = Sinks.many().unicast().onBackpressureBuffer();
         AtomicBoolean hasSentFinalResult = new AtomicBoolean(false);
         AtomicBoolean interruptedByHitl = new AtomicBoolean(false);
@@ -808,7 +831,7 @@ public class PlanExecuteAgent extends BaseAgent {
             try {
                 HitlCheckpointVO checkpoint = hitlCheckpointService.getByInterruptId(interruptId);
                 ResumeContext resumeContext = PlanExecuteResumeUtils.readContext(checkpoint.getContext());
-                OverAllState state = restoreResumeState(checkpoint.getConversationId(), resumeContext);
+                OverAllState state = restoreResumeState(userId, checkpoint.getConversationId(), resumeContext);
                 String runtimeSystemPrompt = resumeContext.runtimeSystemPrompt();
                 emitStep(sink, state.getConversationId(), "resume", "Resume", "正在恢复上次被 HITL 中断的执行链...");
 
@@ -983,8 +1006,8 @@ public class PlanExecuteAgent extends BaseAgent {
         }
     }
 
-    private OverAllState restoreResumeState(String conversationId, ResumeContext resumeContext) {
-        OverAllState state = new OverAllState(conversationId, resumeContext.question(), List.of());
+    private OverAllState restoreResumeState(Long userId, String conversationId, ResumeContext resumeContext) {
+        OverAllState state = new OverAllState(userId, conversationId, resumeContext.question(), List.of());
         state.messages.addAll(resumeContext.messages() == null ? List.of() : resumeContext.messages());
         state.executedTasks.putAll(resumeContext.executedTasks() == null ? Map.of() : resumeContext.executedTasks());
         state.approvedToolNames.addAll(resumeContext.approvedToolNames() == null ? List.of() : resumeContext.approvedToolNames());
@@ -999,6 +1022,8 @@ public class PlanExecuteAgent extends BaseAgent {
         HitlResumeResult resumeResult = hitlResumeService.resume(
                 new HitlResumeRequest(
                         interruptId,
+                        state == null ? null : state.getUserId(),
+                        state == null ? null : state.getConversationId(),
                         chatModel,
                         tools,
                         advisors,
@@ -1159,7 +1184,12 @@ public class PlanExecuteAgent extends BaseAgent {
                 return new TaskResult(effectiveTask.id(), false, true, null, "Task execution interrupted by HITL", checkpoint);
             }
 
-            String result = String.valueOf(callback.call(argsJson));
+            String result;
+            try (AgentRuntimeContext.Scope ignored = AgentRuntimeContext.open(
+                    state == null ? null : state.getUserId(),
+                    state == null ? null : state.getConversationId())) {
+                result = String.valueOf(callback.call(argsJson));
+            }
             return new TaskResult(effectiveTask.id(), true, false, result, null, null);
         } catch (Exception e) {
             return new TaskResult(effectiveTask.id(), false, false, null, e.getMessage(), null);
@@ -1593,6 +1623,7 @@ public class PlanExecuteAgent extends BaseAgent {
     @Getter
     public static class OverAllState {
 
+        private final Long userId;
         private final String conversationId;
         private final String question;
         private final List<Message> messages = new ArrayList<>();
@@ -1603,7 +1634,8 @@ public class PlanExecuteAgent extends BaseAgent {
         private int round = 0;
         private boolean preferredPlanConsumed;
 
-        public OverAllState(String conversationId, String question, List<PlanTask> preferredPlan) {
+        public OverAllState(Long userId, String conversationId, String question, List<PlanTask> preferredPlan) {
+            this.userId = userId;
             this.question = question;
             this.conversationId = conversationId;
             if (preferredPlan != null) {

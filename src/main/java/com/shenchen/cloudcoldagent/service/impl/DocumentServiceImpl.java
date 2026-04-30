@@ -12,8 +12,10 @@ import com.shenchen.cloudcoldagent.model.dto.document.DocumentAddRequest;
 import com.shenchen.cloudcoldagent.model.dto.document.DocumentQueryRequest;
 import com.shenchen.cloudcoldagent.model.dto.document.DocumentUpdateRequest;
 import com.shenchen.cloudcoldagent.enums.DocumentIndexStatusEnum;
+import com.shenchen.cloudcoldagent.model.entity.KnowledgeDocumentImage;
 import com.shenchen.cloudcoldagent.model.vo.DocumentVO;
 import com.shenchen.cloudcoldagent.service.DocumentService;
+import com.shenchen.cloudcoldagent.service.KnowledgeDocumentImageService;
 import com.shenchen.cloudcoldagent.service.KnowledgeService;
 import com.shenchen.cloudcoldagent.service.MinioService;
 import io.minio.errors.ErrorResponseException;
@@ -30,10 +32,14 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
 
     private final KnowledgeService knowledgeService;
     private final MinioService minioService;
+    private final KnowledgeDocumentImageService knowledgeDocumentImageService;
 
-    public DocumentServiceImpl(KnowledgeService knowledgeService, MinioService minioService) {
+    public DocumentServiceImpl(KnowledgeService knowledgeService,
+                               MinioService minioService,
+                               KnowledgeDocumentImageService knowledgeDocumentImageService) {
         this.knowledgeService = knowledgeService;
         this.minioService = minioService;
+        this.knowledgeDocumentImageService = knowledgeDocumentImageService;
     }
 
     @Override
@@ -109,6 +115,7 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
                         document.getId(), document.getDocumentSource(), primaryDeleteException);
                 knowledgeService.deleteBySource(document.getDocumentSource());
             }
+            deleteDocumentImages(document.getId());
             deleteDocumentObject(document);
         } catch (Exception e) {
             log.error("删除文档关联资源失败。documentId={}, documentName={}, source={}, objectName={}",
@@ -203,6 +210,29 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
             log.info("MinIO 原文件已不存在，跳过删除。documentId={}, objectName={}", document.getId(),
                     document.getObjectName());
         }
+    }
+
+    private void deleteDocumentImages(Long documentId) throws Exception {
+        if (documentId == null || documentId <= 0) {
+            return;
+        }
+        List<KnowledgeDocumentImage> images = knowledgeDocumentImageService.listByDocumentId(documentId);
+        for (KnowledgeDocumentImage image : images) {
+            if (image == null || image.getObjectName() == null || image.getObjectName().isBlank()) {
+                continue;
+            }
+            try {
+                minioService.deleteFile(image.getObjectName());
+            } catch (Exception e) {
+                if (!isIgnorableDeleteException(e)) {
+                    throw e;
+                }
+                log.info("MinIO 图片对象已不存在，跳过删除。documentId={}, objectName={}",
+                        documentId,
+                        image.getObjectName());
+            }
+        }
+        knowledgeDocumentImageService.deleteByDocumentId(documentId);
     }
 
     private boolean isIgnorableDeleteException(Exception exception) {

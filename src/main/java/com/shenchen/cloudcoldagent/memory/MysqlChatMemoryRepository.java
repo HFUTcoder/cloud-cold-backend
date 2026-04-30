@@ -1,8 +1,12 @@
 package com.shenchen.cloudcoldagent.memory;
 
 import com.mybatisflex.core.query.QueryWrapper;
+import com.shenchen.cloudcoldagent.mapper.ChatMemoryHistoryImageRelationMapper;
 import com.shenchen.cloudcoldagent.mapper.ChatMemoryHistoryMapper;
 import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistory;
+import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistoryImageRelation;
+import com.shenchen.cloudcoldagent.model.vo.RetrievedKnowledgeImage;
+import com.shenchen.cloudcoldagent.service.ChatMemoryPendingImageBindingService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemoryRepository;
 import org.springframework.context.annotation.Primary;
@@ -27,9 +31,15 @@ import java.util.Set;
 public class MysqlChatMemoryRepository implements ChatMemoryRepository {
 
     private final ChatMemoryHistoryMapper chatMemoryHistoryMapper;
+    private final ChatMemoryHistoryImageRelationMapper chatMemoryHistoryImageRelationMapper;
+    private final ChatMemoryPendingImageBindingService chatMemoryPendingImageBindingService;
 
-    public MysqlChatMemoryRepository(ChatMemoryHistoryMapper chatMemoryHistoryMapper) {
+    public MysqlChatMemoryRepository(ChatMemoryHistoryMapper chatMemoryHistoryMapper,
+                                     ChatMemoryHistoryImageRelationMapper chatMemoryHistoryImageRelationMapper,
+                                     ChatMemoryPendingImageBindingService chatMemoryPendingImageBindingService) {
         this.chatMemoryHistoryMapper = chatMemoryHistoryMapper;
+        this.chatMemoryHistoryImageRelationMapper = chatMemoryHistoryImageRelationMapper;
+        this.chatMemoryPendingImageBindingService = chatMemoryPendingImageBindingService;
     }
 
     @Override
@@ -110,6 +120,7 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
                     .isDelete(0)
                     .build();
             chatMemoryHistoryMapper.insert(row);
+            bindPendingImagesIfNeeded(conversationId, message, row, now);
         }
     }
 
@@ -127,6 +138,60 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
                         .eq("conversationId", conversationId)
                         .eq("isDelete", 0)
         );
+        chatMemoryHistoryImageRelationMapper.updateByQuery(
+                ChatMemoryHistoryImageRelation.builder().isDelete(1).build(),
+                QueryWrapper.create()
+                        .eq("conversationId", conversationId)
+                        .eq("isDelete", 0)
+        );
+        chatMemoryPendingImageBindingService.clearPendingImages(conversationId);
+    }
+
+    private void bindPendingImagesIfNeeded(String conversationId,
+                                           Message message,
+                                           ChatMemoryHistory row,
+                                           LocalDateTime now) {
+        if (message == null || row == null || row.getId() == null || message.getMessageType() != MessageType.ASSISTANT) {
+            return;
+        }
+        List<RetrievedKnowledgeImage> pendingImages = chatMemoryPendingImageBindingService.consumePendingImages(conversationId);
+        if (pendingImages == null || pendingImages.isEmpty()) {
+            return;
+        }
+        int sortOrder = 0;
+        for (RetrievedKnowledgeImage pendingImage : pendingImages) {
+            Long imageId = parseImageId(pendingImage == null ? null : pendingImage.getImageId());
+            if (imageId == null || imageId <= 0) {
+                continue;
+            }
+            chatMemoryHistoryImageRelationMapper.insert(ChatMemoryHistoryImageRelation.builder()
+                    .historyId(row.getId())
+                    .conversationId(conversationId)
+                    .imageId(imageId)
+                    .sortOrder(sortOrder++)
+                    .createTime(now)
+                    .updateTime(now)
+                    .isDelete(0)
+                    .build());
+        }
+    }
+
+    private Long parseImageId(Object imageIdValue) {
+        if (imageIdValue == null) {
+            return null;
+        }
+        if (imageIdValue instanceof Number number) {
+            return number.longValue();
+        }
+        String imageIdText = String.valueOf(imageIdValue).trim();
+        if (imageIdText.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(imageIdText);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private Message toMessage(ChatMemoryHistory row) {

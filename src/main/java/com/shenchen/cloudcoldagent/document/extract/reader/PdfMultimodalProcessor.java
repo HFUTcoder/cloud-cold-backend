@@ -1,7 +1,8 @@
 package com.shenchen.cloudcoldagent.document.extract.reader;
 
+import com.shenchen.cloudcoldagent.model.entity.record.knowledge.DocumentReadResult;
+import com.shenchen.cloudcoldagent.model.entity.record.knowledge.ExtractedDocumentImage;
 import com.shenchen.cloudcoldagent.config.properties.PdfMultimodalProperties;
-import com.shenchen.cloudcoldagent.service.MinioService;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.Loader;
@@ -42,9 +43,9 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * PDF多模态内容处理器
@@ -61,12 +62,9 @@ import java.security.NoSuchAlgorithmException;
 @Slf4j
 public class PdfMultimodalProcessor implements DocumentReaderStrategy {
 
-    private final MinioService minioService;
     private final PdfMultimodalProperties pdfMultimodalProperties;
 
-    public PdfMultimodalProcessor(MinioService minioService,
-                                  PdfMultimodalProperties pdfMultimodalProperties) {
-        this.minioService = minioService;
+    public PdfMultimodalProcessor(PdfMultimodalProperties pdfMultimodalProperties) {
         this.pdfMultimodalProperties = pdfMultimodalProperties;
     }
 
@@ -77,9 +75,13 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
     }
 
     @Override
-    public List<Document> read(File file) throws IOException {
+    public DocumentReadResult read(File file) throws IOException {
         try {
-            return List.of(new Document(buildDocumentId(file), processPdf(file), buildMetadata(file)));
+            PdfProcessingResult processingResult = processPdf(file);
+            return new DocumentReadResult(
+                    List.of(new Document(buildDocumentId(file), processingResult.content(), buildMetadata(file))),
+                    processingResult.extractedImages()
+            );
         } catch (IOException e) {
             throw e;
         } catch (Exception e) {
@@ -101,10 +103,12 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
      *                   4. 按照坐标位置对提取的内容进行排序
      *                   5. 按顺序拼接所有内容
      */
-    public String processPdf(File pdfFile) throws Exception {
+    public PdfProcessingResult processPdf(File pdfFile) throws Exception {
         try (PDDocument document = Loader.loadPDF(pdfFile)) {
             int totalPages = document.getNumberOfPages();
             StringBuilder finalText = new StringBuilder();
+            List<ExtractedDocumentImage> extractedImages = new ArrayList<>();
+            AtomicInteger imageIndexCounter = new AtomicInteger(0);
             log.info("开始处理PDF文件: {}, 总页数: {}", pdfFile.getName(), totalPages);
 
             // 逐页处理PDF文档
@@ -114,7 +118,12 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
                 float pageHeight = page.getMediaBox().getHeight();
 
                 // 创建统一内容提取器，在一个生命周期内同时捕获图片和文字
-                UnifiedContentStripper stripper = new UnifiedContentStripper(pageHeight);
+                UnifiedContentStripper stripper = new UnifiedContentStripper(
+                        pageHeight,
+                        pageNum + 1,
+                        imageIndexCounter,
+                        extractedImages
+                );
                 // 设置只处理当前页（PDFBox页码从1开始）
                 stripper.setStartPage(pageNum + 1);
                 stripper.setEndPage(pageNum + 1);
@@ -137,14 +146,16 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
 
                 // 按照排序后的顺序，将所有内容元素拼接到最终文本中
                 for (ContentElement element : allElements) {
-                    finalText.append(element.getContent()).append("\n");
+                    if (element.getType() == ContentType.TEXT) {
+                        finalText.append(element.getContent()).append("\n");
+                    }
                 }
                 // 每页处理完后添加一个空行分隔
                 finalText.append("\n");
             }
             log.info("PDF处理完成");
             // 返回去除首尾空白的最终文本
-            return finalText.toString().trim();
+            return new PdfProcessingResult(finalText.toString().trim(), extractedImages);
         }
     }
 
@@ -164,26 +175,31 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
     /**
      * 处理单张图片：上传 MinIO + AI 识别 + 返回 <image> 标签
      */
-    private String processImage(PDImageXObject image) {
+    private ExtractedDocumentImage processImage(PDImageXObject image, int pageNumber, int imageIndex) {
         try {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             BufferedImage bufferedImage = image.getImage();
             ImageIO.write(bufferedImage, "png", baos);
             byte[] imageBytes = baos.toByteArray();
-
-            // 1. 上传 MinIO
-            String objectName = "pdf-image-" + UUID.randomUUID() + ".png";
-            String imageUrl = minioService.uploadFile(objectName, imageBytes, MimeTypeUtils.IMAGE_PNG_VALUE);
-
-            // 2. AI 描述
             String base64Image = Base64.getEncoder().encodeToString(imageBytes);
             String description = image2Text(base64Image);
             description = (description == null || description.trim().isEmpty()) ? "[无法识别图片内容]" : description.trim();
-
-            return String.format("<image src=\"%s\" description=\"%s\"></image>", imageUrl, escapeXml(description));
+            return new ExtractedDocumentImage(
+                    imageIndex,
+                    pageNumber,
+                    imageBytes,
+                    MimeTypeUtils.IMAGE_PNG_VALUE,
+                    description
+            );
         } catch (Exception e) {
             log.error("图片处理异常", e);
-            return "[图片处理错误]";
+            return new ExtractedDocumentImage(
+                    imageIndex,
+                    pageNumber,
+                    new byte[0],
+                    MimeTypeUtils.IMAGE_PNG_VALUE,
+                    "[图片处理错误]"
+            );
         }
     }
 
@@ -239,8 +255,17 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
                 .build();
         var response = multimodalChatModel.call(new Prompt(List.of(userMessage)));
         String resp = response.getResult().getOutput().getText();
-        System.out.println(resp);
+        log.info("PDF 图片识别完成，descriptionLength={}, descriptionSnippet={}",
+                resp == null ? 0 : resp.length(),
+                resp == null ? "" : truncateForLog(resp));
         return resp;
+    }
+
+    private String truncateForLog(String text) {
+        if (text == null || text.length() <= 500) {
+            return text;
+        }
+        return text.substring(0, 500) + "...(truncated)";
     }
 
     private Map<String, Object> buildMetadata(File file) {
@@ -271,6 +296,9 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
             hex.append(Character.forDigit(current & 0xF, 16));
         }
         return hex.toString();
+    }
+
+    public record PdfProcessingResult(String content, List<ExtractedDocumentImage> extractedImages) {
     }
 
     // --- 内部数据模型 ---
@@ -389,15 +417,27 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
          */
         private final float pageHeight;
 
+        private final int pageNumber;
+
+        private final AtomicInteger imageIndexCounter;
+
+        private final List<ExtractedDocumentImage> extractedImages;
+
         /**
          * 构造函数
          *
          * @param pageHeight 页面高度，用于将PDF坐标系（原点在左下）转换为阅读坐标系（原点在左上）
          * @throws IOException 初始化异常
          */
-        public UnifiedContentStripper(float pageHeight) throws IOException {
+        public UnifiedContentStripper(float pageHeight,
+                                      int pageNumber,
+                                      AtomicInteger imageIndexCounter,
+                                      List<ExtractedDocumentImage> extractedImages) throws IOException {
             super();
             this.pageHeight = pageHeight;
+            this.pageNumber = pageNumber;
+            this.imageIndexCounter = imageIndexCounter;
+            this.extractedImages = extractedImages;
             // 注册图片绘制相关操作符的拦截器，以便捕获图片的绘制指令
             addOperator(new DrawObject(this));        // Do操作符：绘制XObject（包括图片）
             addOperator(new SetMatrix(this));          // cm操作符：设置当前变换矩阵
@@ -481,9 +521,10 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
                     int y0 = (int) (y + h);
 
                     // 实时处理图片：提取、转换、AI识别
-                    String imageTag = processImage(image);
-                    // 将图片元素添加到列表中
-                    elements.add(new ContentElement(ContentType.IMAGE, imageTag, x0, y0, 0, 0));
+                    int imageIndex = imageIndexCounter.getAndIncrement();
+                    ExtractedDocumentImage processedImage = processImage(image, pageNumber, imageIndex);
+                    extractedImages.add(processedImage);
+                    elements.add(new ContentElement(ContentType.IMAGE, "[IMAGE_" + imageIndex + "]", x0, y0, 0, 0));
                 }
             } else {
                 // 对于其他操作符，调用父类的默认处理

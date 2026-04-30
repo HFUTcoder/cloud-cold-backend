@@ -9,6 +9,8 @@ import java.util.Set;
 
 public record HitlResumeRequest(
         String interruptId,
+        Long userId,
+        String conversationId,
         ChatModel chatModel,
         List<ToolCallback> tools,
         List<Advisor> advisors,

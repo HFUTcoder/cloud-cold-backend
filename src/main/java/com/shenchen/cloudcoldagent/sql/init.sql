@@ -39,6 +39,21 @@ create table if not exists chat_memory_history
     index idx_conversationId_isDelete (conversationId, isDelete)
 ) comment '聊天历史记忆' collate = utf8mb4_unicode_ci;
 
+create table if not exists chat_memory_history_image_relation
+(
+    id             bigint auto_increment comment '主键 id' primary key,
+    historyId      bigint                               not null comment '聊天历史记录 id',
+    conversationId varchar(64)                          not null comment '会话 id',
+    imageId        bigint                               not null comment '知识库图片 id',
+    sortOrder      int        default 0                 not null comment '图片顺序',
+    createTime     datetime   default CURRENT_TIMESTAMP not null comment '创建时间',
+    updateTime     datetime   default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    isDelete       tinyint    default 0                 not null comment '是否删除',
+    index idx_historyId_isDelete (historyId, isDelete),
+    index idx_conversationId_isDelete (conversationId, isDelete),
+    index idx_imageId_isDelete (imageId, isDelete)
+) comment '聊天历史消息图片关联表' collate = utf8mb4_unicode_ci;
+
 
 -- 会话表（用于管理用户的会话列表）
 create table if not exists chat_conversation
@@ -46,7 +61,6 @@ create table if not exists chat_conversation
     id             bigint auto_increment comment '主键 id' primary key,
     conversationId varchar(64)                          not null comment '会话 id',
     title          varchar(255)                         null comment '会话标题（可选）',
-    selectedSkills text                                 null comment '会话强制绑定的 skill 名称列表（JSON 数组）',
     lastActiveTime datetime   default CURRENT_TIMESTAMP not null comment '最后活跃时间',
     createTime     datetime   default CURRENT_TIMESTAMP not null comment '创建时间',
     updateTime     datetime   default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
@@ -66,6 +80,36 @@ create table if not exists user_conversation_relation
     index idx_userId_isDelete (userId, isDelete),
     index idx_conversationId_isDelete (conversationId, isDelete)
 ) comment '用户会话关联表' collate = utf8mb4_unicode_ci;
+
+create table if not exists conversation_skill_relation
+(
+    id             bigint auto_increment comment '主键 id' primary key,
+    userId         bigint                               not null comment '用户 id',
+    conversationId varchar(64)                          not null comment '会话 id',
+    skillName      varchar(255)                         not null comment '绑定的 skill 名称',
+    createTime     datetime   default CURRENT_TIMESTAMP not null comment '创建时间',
+    updateTime     datetime   default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    isDelete       tinyint    default 0                 not null comment '是否删除',
+    unique key uk_userId_conversationId_skillName (userId, conversationId, skillName),
+    index idx_userId_isDelete (userId, isDelete),
+    index idx_conversationId_isDelete (conversationId, isDelete),
+    index idx_skillName_isDelete (skillName, isDelete)
+) comment '会话技能关联表' collate = utf8mb4_unicode_ci;
+
+create table if not exists conversation_knowledge_relation
+(
+    id             bigint auto_increment comment '主键 id' primary key,
+    userId         bigint                               not null comment '用户 id',
+    conversationId varchar(64)                          not null comment '会话 id',
+    knowledgeId    bigint                               not null comment '绑定的知识库 id',
+    createTime     datetime   default CURRENT_TIMESTAMP not null comment '创建时间',
+    updateTime     datetime   default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    isDelete       tinyint    default 0                 not null comment '是否删除',
+    unique key uk_userId_conversationId_knowledge (userId, conversationId),
+    index idx_userId_isDelete (userId, isDelete),
+    index idx_conversationId_isDelete (conversationId, isDelete),
+    index idx_knowledgeId_isDelete (knowledgeId, isDelete)
+) comment '会话知识库关联表' collate = utf8mb4_unicode_ci;
 
 create table if not exists hitl_checkpoint
 (
@@ -127,3 +171,25 @@ create table if not exists knowledge_document
     index idx_objectName (objectName),
     index idx_indexStatus (indexStatus)
 ) comment '知识库文档元数据' collate = utf8mb4_unicode_ci;
+
+create table if not exists knowledge_document_image
+(
+    id             bigint auto_increment comment '主键 id' primary key,
+    userId         bigint                               not null comment '所属用户 id',
+    knowledgeId    bigint                               not null comment '所属知识库 id',
+    documentId     bigint                               not null comment '所属文档 id',
+    imageIndex     int                                  not null comment '图片序号，按文档内顺序从 0 开始',
+    objectName     varchar(512)                         not null comment 'MinIO 对象名称',
+    imageUrl       varchar(1024)                        null comment 'MinIO 访问地址',
+    contentType    varchar(128)                         null comment '图片 Content-Type',
+    fileSize       bigint                               null comment '图片大小（字节）',
+    pageNumber     int                                  null comment '图片所在 PDF 页码',
+    description    text                                 null comment '多模态识别后的图片描述',
+    createTime     datetime   default CURRENT_TIMESTAMP not null comment '创建时间',
+    updateTime     datetime   default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    isDelete       tinyint    default 0                 not null comment '是否删除',
+    unique key uk_documentId_imageIndex (documentId, imageIndex),
+    index idx_documentId_isDelete (documentId, isDelete),
+    index idx_knowledgeId_isDelete (knowledgeId, isDelete),
+    index idx_objectName (objectName)
+) comment '知识库文档解析图片关系表' collate = utf8mb4_unicode_ci;

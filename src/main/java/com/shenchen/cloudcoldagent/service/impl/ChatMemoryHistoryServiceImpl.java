@@ -2,15 +2,29 @@ package com.shenchen.cloudcoldagent.service.impl;
 
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
+import com.shenchen.cloudcoldagent.mapper.ChatMemoryHistoryImageRelationMapper;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.mapper.ChatMemoryHistoryMapper;
 import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistory;
+import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistoryImageRelation;
+import com.shenchen.cloudcoldagent.model.entity.KnowledgeDocumentImage;
+import com.shenchen.cloudcoldagent.model.vo.ChatMemoryHistoryVO;
+import com.shenchen.cloudcoldagent.model.vo.RetrievedKnowledgeImage;
+import com.shenchen.cloudcoldagent.service.ChatMemoryHistoryImageRelationService;
 import com.shenchen.cloudcoldagent.service.ChatConversationService;
 import com.shenchen.cloudcoldagent.service.ChatMemoryHistoryService;
+import com.shenchen.cloudcoldagent.service.KnowledgeDocumentImageService;
+import com.shenchen.cloudcoldagent.service.MinioService;
+import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 聊天记忆服务层实现
@@ -20,13 +34,22 @@ public class ChatMemoryHistoryServiceImpl extends ServiceImpl<ChatMemoryHistoryM
         implements ChatMemoryHistoryService {
 
     private final ChatConversationService chatConversationService;
+    private final ChatMemoryHistoryImageRelationService chatMemoryHistoryImageRelationService;
+    private final KnowledgeDocumentImageService knowledgeDocumentImageService;
+    private final MinioService minioService;
 
-    public ChatMemoryHistoryServiceImpl(ChatConversationService chatConversationService) {
+    public ChatMemoryHistoryServiceImpl(ChatConversationService chatConversationService,
+                                        ChatMemoryHistoryImageRelationService chatMemoryHistoryImageRelationService,
+                                        KnowledgeDocumentImageService knowledgeDocumentImageService,
+                                        MinioService minioService) {
         this.chatConversationService = chatConversationService;
+        this.chatMemoryHistoryImageRelationService = chatMemoryHistoryImageRelationService;
+        this.knowledgeDocumentImageService = knowledgeDocumentImageService;
+        this.minioService = minioService;
     }
 
     @Override
-    public List<ChatMemoryHistory> listByConversationId(Long userId, String conversationId) {
+    public List<ChatMemoryHistoryVO> listByConversationId(Long userId, String conversationId) {
         if (userId == null || userId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "userId 不合法");
         }
@@ -44,7 +67,8 @@ public class ChatMemoryHistoryServiceImpl extends ServiceImpl<ChatMemoryHistoryM
                 .eq("isDelete", 0)
                 .orderBy("createTime", true)
                 .orderBy("id", true);
-        return this.mapper.selectListByQuery(queryWrapper);
+        List<ChatMemoryHistory> histories = this.mapper.selectListByQuery(queryWrapper);
+        return buildHistoryVOs(histories);
     }
 
     @Override
@@ -79,5 +103,88 @@ public class ChatMemoryHistoryServiceImpl extends ServiceImpl<ChatMemoryHistoryM
                         .eq("id", id)
                         .eq("isDelete", 0)
         ) > 0;
+    }
+
+    private List<ChatMemoryHistoryVO> buildHistoryVOs(List<ChatMemoryHistory> histories) {
+        if (histories == null || histories.isEmpty()) {
+            return List.of();
+        }
+        List<Long> historyIds = histories.stream()
+                .map(ChatMemoryHistory::getId)
+                .filter(id -> id != null && id > 0)
+                .toList();
+        Map<Long, List<ChatMemoryHistoryImageRelation>> relationMap =
+                chatMemoryHistoryImageRelationService.mapByHistoryIds(historyIds);
+        Map<Long, KnowledgeDocumentImage> imageMap = buildKnowledgeImageMap(relationMap);
+
+        List<ChatMemoryHistoryVO> results = new ArrayList<>(histories.size());
+        for (ChatMemoryHistory history : histories) {
+            ChatMemoryHistoryVO vo = new ChatMemoryHistoryVO();
+            BeanUtils.copyProperties(history, vo);
+            vo.setRetrievedImages(buildRetrievedImages(history, relationMap, imageMap));
+            results.add(vo);
+        }
+        return results;
+    }
+
+    private Map<Long, KnowledgeDocumentImage> buildKnowledgeImageMap(
+            Map<Long, List<ChatMemoryHistoryImageRelation>> relationMap) {
+        if (relationMap == null || relationMap.isEmpty()) {
+            return Map.of();
+        }
+        Set<Long> imageIds = relationMap.values().stream()
+                .flatMap(List::stream)
+                .map(ChatMemoryHistoryImageRelation::getImageId)
+                .filter(id -> id != null && id > 0)
+                .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
+        if (imageIds.isEmpty()) {
+            return Map.of();
+        }
+        List<KnowledgeDocumentImage> images = knowledgeDocumentImageService.listByImageIds(new ArrayList<>(imageIds));
+        Map<Long, KnowledgeDocumentImage> imageMap = new LinkedHashMap<>();
+        for (KnowledgeDocumentImage image : images) {
+            if (image != null && image.getId() != null) {
+                imageMap.put(image.getId(), image);
+            }
+        }
+        return imageMap;
+    }
+
+    private List<RetrievedKnowledgeImage> buildRetrievedImages(ChatMemoryHistory history,
+                                                               Map<Long, List<ChatMemoryHistoryImageRelation>> relationMap,
+                                                               Map<Long, KnowledgeDocumentImage> imageMap) {
+        if (history == null || history.getId() == null || relationMap == null || relationMap.isEmpty()) {
+            return List.of();
+        }
+        List<ChatMemoryHistoryImageRelation> relations = relationMap.get(history.getId());
+        if (relations == null || relations.isEmpty()) {
+            return List.of();
+        }
+        List<RetrievedKnowledgeImage> results = new ArrayList<>(relations.size());
+        for (ChatMemoryHistoryImageRelation relation : relations) {
+            if (relation == null || relation.getImageId() == null) {
+                continue;
+            }
+            KnowledgeDocumentImage image = imageMap.get(relation.getImageId());
+            if (image == null || image.getId() == null || image.getObjectName() == null || image.getObjectName().isBlank()) {
+                continue;
+            }
+            results.add(RetrievedKnowledgeImage.builder()
+                    .imageId(image.getId())
+                    .imageUrl(resolveAccessibleUrl(image))
+                    .pageNumber(image.getPageNumber())
+                    .documentId(image.getDocumentId())
+                    .documentName(null)
+                    .build());
+        }
+        return results;
+    }
+
+    private String resolveAccessibleUrl(KnowledgeDocumentImage image) {
+        try {
+            return minioService.getPresignedUrl(image.getObjectName());
+        } catch (Exception e) {
+            return image.getImageUrl();
+        }
     }
 }

@@ -32,6 +32,16 @@ public class UserConversationRelationServiceImpl extends ServiceImpl<UserConvers
     }
 
     @Override
+    public Long getUserIdByConversationId(String conversationId) {
+        validateConversationId(conversationId);
+        UserConversationRelation relation = this.mapper.selectOneByQuery(QueryWrapper.create()
+                .eq("conversationId", conversationId.trim())
+                .eq("isDelete", 0)
+                .orderBy("id", false));
+        return relation == null ? null : relation.getUserId();
+    }
+
+    @Override
     public boolean isConversationOwnedByUser(Long userId, String conversationId) {
         validateUserId(userId);
         validateConversationId(conversationId);

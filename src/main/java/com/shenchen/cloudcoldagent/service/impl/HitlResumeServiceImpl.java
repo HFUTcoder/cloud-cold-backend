@@ -1,5 +1,6 @@
 package com.shenchen.cloudcoldagent.service.impl;
 
+import com.shenchen.cloudcoldagent.context.AgentRuntimeContext;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.hitl.HITLAdvisor;
@@ -48,12 +49,14 @@ public class HitlResumeServiceImpl implements HitlResumeService {
         }
         log.info("开始恢复 HITL 中断执行，interruptId={}", request.interruptId());
         HitlCheckpointVO checkpoint = hitlCheckpointService.consumeResolvedCheckpoint(request.interruptId());
+        String conversationId = StringUtils.defaultIfBlank(request.conversationId(), checkpoint.getConversationId());
 
         AgentInterrupted interrupted = hitlCheckpointService.loadInterrupted(request.interruptId());
         List<Message> messages = new ArrayList<>(interrupted.checkpointMessages() == null
                 ? List.of()
                 : interrupted.checkpointMessages());
-        applyFeedbacks(messages, interrupted.pendingToolCalls(), checkpoint.getFeedbacks(), request.tools());
+        applyFeedbacks(messages, interrupted.pendingToolCalls(), checkpoint.getFeedbacks(), request.tools(),
+                request.userId(), conversationId);
         log.info("已将 HITL 反馈应用到执行上下文，interruptId={}, conversationId={}, pendingToolCount={}, feedbackCount={}",
                 request.interruptId(),
                 checkpoint.getConversationId(),
@@ -89,7 +92,7 @@ public class HitlResumeServiceImpl implements HitlResumeService {
                 if (toolCalls != null && !toolCalls.isEmpty()) {
                     messages.add(AssistantMessage.builder().toolCalls(toolCalls).build());
                 }
-                executeNonInterceptTools(messages, response, request.tools());
+                executeNonInterceptTools(messages, response, request.tools(), request.userId(), conversationId);
                 List<PendingToolCall> pendingToolCalls = castPendingToolCalls(response.context().get(HITLAdvisor.HITL_PENDING_TOOLS));
                 Map<String, Object> context = interrupted.context() == null
                         ? new LinkedHashMap<>()
@@ -122,7 +125,7 @@ public class HitlResumeServiceImpl implements HitlResumeService {
 
             List<AssistantMessage.ToolCall> toolCalls = response.chatResponse().getResult().getOutput().getToolCalls();
             messages.add(AssistantMessage.builder().content(text).toolCalls(toolCalls).build());
-            executeToolCalls(messages, toolCalls, request.tools());
+            executeToolCalls(messages, toolCalls, request.tools(), request.userId(), conversationId);
         }
 
         String finalContent = chatClient.prompt().messages(messages).call().content();
@@ -172,18 +175,24 @@ public class HitlResumeServiceImpl implements HitlResumeService {
     }
 
     @SuppressWarnings("unchecked")
-    private void executeNonInterceptTools(List<Message> messages, ChatClientResponse response, List<ToolCallback> tools) {
+    private void executeNonInterceptTools(List<Message> messages,
+                                          ChatClientResponse response,
+                                          List<ToolCallback> tools,
+                                          Long userId,
+                                          String conversationId) {
         Object value = response.context().get(HITLAdvisor.HITL_NON_INTERCEPT_TOOLS);
         if (!(value instanceof List<?> list) || list.isEmpty()) {
             return;
         }
-        executeToolCalls(messages, (List<AssistantMessage.ToolCall>) list, tools);
+        executeToolCalls(messages, (List<AssistantMessage.ToolCall>) list, tools, userId, conversationId);
     }
 
     private void applyFeedbacks(List<Message> messages,
                                 List<PendingToolCall> pendingToolCalls,
                                 List<PendingToolCall> feedbacks,
-                                List<ToolCallback> tools) {
+                                List<ToolCallback> tools,
+                                Long userId,
+                                String conversationId) {
         Map<String, PendingToolCall> feedbackMap = new LinkedHashMap<>();
         if (feedbacks != null) {
             for (PendingToolCall feedback : feedbacks) {
@@ -213,7 +222,9 @@ public class HitlResumeServiceImpl implements HitlResumeService {
                         StringUtils.defaultIfBlank(feedback.name(), pendingToolCall.name()),
                         pendingToolCall.id(),
                         arguments,
-                        tools
+                        tools,
+                        userId,
+                        conversationId
                 );
             }
 
@@ -227,7 +238,12 @@ public class HitlResumeServiceImpl implements HitlResumeService {
         }
     }
 
-    private String executeTool(String toolName, String toolId, String rawArguments, List<ToolCallback> tools) {
+    private String executeTool(String toolName,
+                               String toolId,
+                               String rawArguments,
+                               List<ToolCallback> tools,
+                               Long userId,
+                               String conversationId) {
         ToolCallback tool = findTool(tools, toolName);
         if (tool == null) {
             return "{\"error\":\"工具未找到：" + escapeJson(toolName) + "\"}";
@@ -246,14 +262,20 @@ public class HitlResumeServiceImpl implements HitlResumeService {
                     "\",\"toolId\":\"" + escapeJson(toolId) + "\"}";
         }
         try {
-            return String.valueOf(tool.call(arguments));
+            try (AgentRuntimeContext.Scope ignored = AgentRuntimeContext.open(userId, conversationId)) {
+                return String.valueOf(tool.call(arguments));
+            }
         } catch (Exception e) {
             return "{\"error\":\"工具执行失败：" + escapeJson(StringUtils.defaultIfBlank(e.getMessage(), "unknown error")) +
                     "\",\"toolId\":\"" + escapeJson(toolId) + "\"}";
         }
     }
 
-    private void executeToolCalls(List<Message> messages, List<AssistantMessage.ToolCall> toolCalls, List<ToolCallback> tools) {
+    private void executeToolCalls(List<Message> messages,
+                                  List<AssistantMessage.ToolCall> toolCalls,
+                                  List<ToolCallback> tools,
+                                  Long userId,
+                                  String conversationId) {
         if (toolCalls == null || toolCalls.isEmpty()) {
             return;
         }
@@ -268,7 +290,9 @@ public class HitlResumeServiceImpl implements HitlResumeService {
                     result = "{\"error\":\"工具参数不是合法 JSON：" + escapeJson(StringUtils.defaultIfBlank(
                             normalizationResult.errorMessage(), "unknown error")) + "\"}";
                 } else {
-                    result = String.valueOf(tool.call(normalizationResult.normalizedJson()));
+                    try (AgentRuntimeContext.Scope ignored = AgentRuntimeContext.open(userId, conversationId)) {
+                        result = String.valueOf(tool.call(normalizationResult.normalizedJson()));
+                    }
                 }
             }
             messages.add(ToolResponseMessage.builder().responses(
