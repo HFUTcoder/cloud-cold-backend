@@ -2,6 +2,7 @@ package com.shenchen.cloudcoldagent.workflow.skill.service;
 
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.model.ChatModel;
@@ -14,10 +15,12 @@ public class StructuredOutputAgentExecutor {
 
     private final ChatModel chatModel;
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
 
-    public StructuredOutputAgentExecutor(ChatModel chatModel) {
+    public StructuredOutputAgentExecutor(ChatModel chatModel,
+                                         ObjectMapper objectMapper) {
         this.chatModel = chatModel;
+        this.objectMapper = objectMapper;
     }
 
     public <T> T execute(List<Message> messages, Class<T> outputType) {
@@ -27,7 +30,52 @@ public class StructuredOutputAgentExecutor {
                     .model(chatModel)
                     .outputType(outputType)
                     .build();
-            AssistantMessage response = agent.call(messages);
+            return parseResponse(agent.call(messages), outputType);
+        } catch (Exception e) {
+            throw new RuntimeException("structured output 执行失败", e);
+        }
+    }
+
+    public <T> T execute(List<Message> messages,
+                         Class<T> outputType,
+                         BeanOutputConverter<T> converter) {
+        if (converter == null) {
+            return execute(messages, outputType);
+        }
+        try {
+            ReactAgent agent = ReactAgent.builder()
+                    .name("StructuredOutputAgent")
+                    .model(chatModel)
+                    .outputType(outputType)
+                    .outputSchema(converter.getJsonSchema())
+                    .build();
+            return parseResponse(agent.call(messages), outputType);
+        } catch (Exception e) {
+            throw new RuntimeException("structured output 执行失败", e);
+        }
+    }
+
+    public <T> T executeWithSchema(List<Message> messages,
+                                   Class<T> outputType,
+                                   String outputSchema) {
+        if (outputSchema == null || outputSchema.isBlank()) {
+            return execute(messages, outputType);
+        }
+        try {
+            ReactAgent agent = ReactAgent.builder()
+                    .name("StructuredOutputAgent")
+                    .model(chatModel)
+                    .outputType(outputType)
+                    .outputSchema(outputSchema)
+                    .build();
+            return parseResponse(agent.call(messages), outputType);
+        } catch (Exception e) {
+            throw new RuntimeException("structured output 执行失败", e);
+        }
+    }
+
+    private <T> T parseResponse(AssistantMessage response, Class<T> outputType) {
+        try {
             String text = response == null ? null : response.getText();
             if (text == null || text.isBlank()) {
                 throw new IllegalStateException("structured output 返回为空");
@@ -42,7 +90,7 @@ public class StructuredOutputAgentExecutor {
                 return objectMapper.readValue(normalizedJson, outputType);
             }
         } catch (Exception e) {
-            throw new RuntimeException("structured output 执行失败", e);
+            throw new RuntimeException("structured output 响应解析失败", e);
         }
     }
 
@@ -131,4 +179,5 @@ public class StructuredOutputAgentExecutor {
         }
         return null;
     }
+
 }

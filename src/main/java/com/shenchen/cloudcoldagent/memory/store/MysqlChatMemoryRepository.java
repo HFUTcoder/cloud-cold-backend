@@ -1,4 +1,4 @@
-package com.shenchen.cloudcoldagent.memory;
+package com.shenchen.cloudcoldagent.memory.store;
 
 import com.mybatisflex.core.query.QueryWrapper;
 import com.shenchen.cloudcoldagent.mapper.ChatMemoryHistoryImageRelationMapper;
@@ -7,6 +7,8 @@ import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistory;
 import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistoryImageRelation;
 import com.shenchen.cloudcoldagent.model.vo.RetrievedKnowledgeImage;
 import com.shenchen.cloudcoldagent.service.ChatMemoryPendingImageBindingService;
+import com.shenchen.cloudcoldagent.service.UserConversationRelationService;
+import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemoryRepository;
 import org.springframework.context.annotation.Primary;
@@ -33,13 +35,19 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
     private final ChatMemoryHistoryMapper chatMemoryHistoryMapper;
     private final ChatMemoryHistoryImageRelationMapper chatMemoryHistoryImageRelationMapper;
     private final ChatMemoryPendingImageBindingService chatMemoryPendingImageBindingService;
+    private final UserConversationRelationService userConversationRelationService;
+    private final UserLongTermMemoryService userLongTermMemoryService;
 
     public MysqlChatMemoryRepository(ChatMemoryHistoryMapper chatMemoryHistoryMapper,
                                      ChatMemoryHistoryImageRelationMapper chatMemoryHistoryImageRelationMapper,
-                                     ChatMemoryPendingImageBindingService chatMemoryPendingImageBindingService) {
+                                     ChatMemoryPendingImageBindingService chatMemoryPendingImageBindingService,
+                                     UserConversationRelationService userConversationRelationService,
+                                     UserLongTermMemoryService userLongTermMemoryService) {
         this.chatMemoryHistoryMapper = chatMemoryHistoryMapper;
         this.chatMemoryHistoryImageRelationMapper = chatMemoryHistoryImageRelationMapper;
         this.chatMemoryPendingImageBindingService = chatMemoryPendingImageBindingService;
+        this.userConversationRelationService = userConversationRelationService;
+        this.userLongTermMemoryService = userLongTermMemoryService;
     }
 
     @Override
@@ -122,6 +130,7 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
             chatMemoryHistoryMapper.insert(row);
             bindPendingImagesIfNeeded(conversationId, message, row, now);
         }
+        notifyLongTermMemory(conversationId, messages, commonPrefixLength);
     }
 
     @Override
@@ -232,6 +241,23 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
             return false;
         }
         return Objects.equals(Objects.toString(left.getText(), ""), Objects.toString(right.getText(), ""));
+    }
+
+    private void notifyLongTermMemory(String conversationId, List<Message> messages, int commonPrefixLength) {
+        if (conversationId == null || conversationId.isBlank() || messages == null || messages.isEmpty()) {
+            return;
+        }
+        boolean hasNewAssistant = messages.stream()
+                .skip(commonPrefixLength)
+                .anyMatch(message -> message != null && message.getMessageType() == MessageType.ASSISTANT);
+        if (!hasNewAssistant) {
+            return;
+        }
+        Long userId = userConversationRelationService.getUserIdByConversationId(conversationId);
+        if (userId == null || userId <= 0) {
+            return;
+        }
+        userLongTermMemoryService.onConversationRoundCompleted(userId, conversationId);
     }
 
 }

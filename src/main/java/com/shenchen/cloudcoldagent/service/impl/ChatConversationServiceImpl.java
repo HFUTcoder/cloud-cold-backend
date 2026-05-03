@@ -15,6 +15,7 @@ import com.shenchen.cloudcoldagent.service.ConversationKnowledgeRelationService;
 import com.shenchen.cloudcoldagent.service.ConversationSkillRelationService;
 import com.shenchen.cloudcoldagent.service.KnowledgeService;
 import com.shenchen.cloudcoldagent.service.UserConversationRelationService;
+import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemoryRepository;
 import org.springframework.stereotype.Service;
@@ -53,6 +54,8 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
 
     private final KnowledgeService knowledgeService;
 
+    private final UserLongTermMemoryService userLongTermMemoryService;
+
     public ChatConversationServiceImpl(SkillRegistry skillRegistry,
                                        ChatConversationMapper chatConversationMapper,
                                        ChatMemoryRepository chatMemoryRepository,
@@ -61,7 +64,8 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
                                        HitlCheckpointMapper hitlCheckpointMapper,
                                        ConversationKnowledgeRelationService conversationKnowledgeRelationService,
                                        ConversationSkillRelationService conversationSkillRelationService,
-                                       KnowledgeService knowledgeService) {
+                                       KnowledgeService knowledgeService,
+                                       UserLongTermMemoryService userLongTermMemoryService) {
         this.skillRegistry = skillRegistry;
         this.chatConversationMapper = chatConversationMapper;
         this.chatMemoryRepository = chatMemoryRepository;
@@ -71,6 +75,7 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         this.conversationKnowledgeRelationService = conversationKnowledgeRelationService;
         this.conversationSkillRelationService = conversationSkillRelationService;
         this.knowledgeService = knowledgeService;
+        this.userLongTermMemoryService = userLongTermMemoryService;
     }
 
     @Override
@@ -180,12 +185,16 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
                         .eq("conversationId", normalizedConversationId)
                         .eq("isDelete", 0)
         );
-        return this.mapper.updateByQuery(
+        boolean deleted = this.mapper.updateByQuery(
                 ChatConversation.builder().isDelete(1).build(),
                 QueryWrapper.create()
                         .eq("id", existing.getId())
                         .eq("isDelete", 0)
         ) > 0;
+        if (deleted) {
+            userLongTermMemoryService.onConversationDeleted(userId, normalizedConversationId);
+        }
+        return deleted;
     }
 
     @Override

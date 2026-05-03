@@ -16,6 +16,7 @@ import com.shenchen.cloudcoldagent.service.ChatConversationService;
 import com.shenchen.cloudcoldagent.service.ChatMemoryHistoryService;
 import com.shenchen.cloudcoldagent.service.KnowledgeDocumentImageService;
 import com.shenchen.cloudcoldagent.service.MinioService;
+import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 
@@ -37,15 +38,18 @@ public class ChatMemoryHistoryServiceImpl extends ServiceImpl<ChatMemoryHistoryM
     private final ChatMemoryHistoryImageRelationService chatMemoryHistoryImageRelationService;
     private final KnowledgeDocumentImageService knowledgeDocumentImageService;
     private final MinioService minioService;
+    private final UserLongTermMemoryService userLongTermMemoryService;
 
     public ChatMemoryHistoryServiceImpl(ChatConversationService chatConversationService,
                                         ChatMemoryHistoryImageRelationService chatMemoryHistoryImageRelationService,
                                         KnowledgeDocumentImageService knowledgeDocumentImageService,
-                                        MinioService minioService) {
+                                        MinioService minioService,
+                                        UserLongTermMemoryService userLongTermMemoryService) {
         this.chatConversationService = chatConversationService;
         this.chatMemoryHistoryImageRelationService = chatMemoryHistoryImageRelationService;
         this.knowledgeDocumentImageService = knowledgeDocumentImageService;
         this.minioService = minioService;
+        this.userLongTermMemoryService = userLongTermMemoryService;
     }
 
     @Override
@@ -97,12 +101,16 @@ public class ChatMemoryHistoryServiceImpl extends ServiceImpl<ChatMemoryHistoryM
         ChatMemoryHistory updating = ChatMemoryHistory.builder()
                 .isDelete(1)
                 .build();
-        return this.mapper.updateByQuery(
+        boolean deleted = this.mapper.updateByQuery(
                 updating,
                 QueryWrapper.create()
                         .eq("id", id)
                         .eq("isDelete", 0)
         ) > 0;
+        if (deleted) {
+            userLongTermMemoryService.onHistoryDeleted(userId, id);
+        }
+        return deleted;
     }
 
     private List<ChatMemoryHistoryVO> buildHistoryVOs(List<ChatMemoryHistory> histories) {

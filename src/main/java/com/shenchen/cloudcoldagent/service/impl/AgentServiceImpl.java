@@ -21,8 +21,10 @@ import com.shenchen.cloudcoldagent.service.ChatMemoryPendingImageBindingService;
 import com.shenchen.cloudcoldagent.service.KnowledgePreprocessService;
 import com.shenchen.cloudcoldagent.service.SkillService;
 import com.shenchen.cloudcoldagent.service.UserConversationRelationService;
+import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryPreprocessService;
 import com.shenchen.cloudcoldagent.workflow.skill.service.SkillWorkflowService;
 import com.shenchen.cloudcoldagent.model.entity.record.agent.planexecute.PlanTask;
+import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemoryPreprocessResult;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillExecutionPlan;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillScriptExecutionRequest;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillToolCallPlan;
@@ -78,6 +80,8 @@ public class AgentServiceImpl implements AgentService {
 
     private final KnowledgePreprocessService knowledgePreprocessService;
 
+    private final UserLongTermMemoryPreprocessService userLongTermMemoryPreprocessService;
+
     private final SkillService skillService;
 
     private final UserConversationRelationService userConversationRelationService;
@@ -106,6 +110,7 @@ public class AgentServiceImpl implements AgentService {
                             HitlProperties hitlProperties,
                             SkillWorkflowService skillWorkflowService,
                             KnowledgePreprocessService knowledgePreprocessService,
+                            UserLongTermMemoryPreprocessService userLongTermMemoryPreprocessService,
                             SkillService skillService,
                             UserConversationRelationService userConversationRelationService,
                             ObjectProvider<Advisor> advisorProvider,
@@ -121,6 +126,7 @@ public class AgentServiceImpl implements AgentService {
         this.hitlProperties = hitlProperties;
         this.skillWorkflowService = skillWorkflowService;
         this.knowledgePreprocessService = knowledgePreprocessService;
+        this.userLongTermMemoryPreprocessService = userLongTermMemoryPreprocessService;
         this.skillService = skillService;
         this.userConversationRelationService = userConversationRelationService;
         this.advisorProvider = advisorProvider;
@@ -192,9 +198,14 @@ public class AgentServiceImpl implements AgentService {
                 conversation,
                 workflowEnhancedQuestion
         );
+        UserLongTermMemoryPreprocessResult longTermMemoryPreprocessResult =
+                userLongTermMemoryPreprocessService.preprocess(userId, question);
         String effectiveQuestion = knowledgePreprocessResult.effectiveQuestion();
         List<PlanTask> preferredPlan = buildPreferredPlan(workflowResult);
-        String runtimeSystemPrompt = buildConversationBindingPrompt(conversation);
+        String runtimeSystemPrompt = buildRuntimeSystemPrompt(
+                conversation,
+                longTermMemoryPreprocessResult.runtimePrompt()
+        );
         log.info("准备路由到具体智能体，conversationId={}, mode={}, targetAgent={}, preferredPlanCount={}, effectiveQuestionLength={}, knowledgePreprocessTriggered={}, knowledgeHitCount={}",
                 conversationId,
                 mode.getValue(),
@@ -275,15 +286,23 @@ public class AgentServiceImpl implements AgentService {
         return new LinkedHashSet<>(hitlProperties.getInterceptToolNames());
     }
 
-    private String buildConversationBindingPrompt(com.shenchen.cloudcoldagent.model.entity.ChatConversation conversation) {
-        if (conversation == null || conversation.getSelectedKnowledgeId() == null || conversation.getSelectedKnowledgeId() <= 0) {
+    private String buildRuntimeSystemPrompt(com.shenchen.cloudcoldagent.model.entity.ChatConversation conversation,
+                                            String longTermMemoryPrompt) {
+        List<String> segments = new ArrayList<>();
+        if (StringUtils.isNotBlank(longTermMemoryPrompt)) {
+            segments.add(longTermMemoryPrompt.trim());
+        }
+        if (conversation != null && conversation.getSelectedKnowledgeId() != null && conversation.getSelectedKnowledgeId() > 0) {
+            segments.add("""
+                    当前会话已绑定知识库。
+                    如果上下文里已经提供知识库检索内容，请优先基于这些知识内容回答。
+                    如果仍需要继续检索，请默认使用当前会话已绑定知识库，不要臆造其它知识库。
+                    """.trim());
+        }
+        if (segments.isEmpty()) {
             return null;
         }
-        return """
-                当前会话已绑定知识库。
-                如果上下文里已经提供知识库检索内容，请优先基于这些知识内容回答。
-                如果仍需要继续检索，请默认使用当前会话已绑定知识库，不要臆造其它知识库。
-                """;
+        return String.join("\n\n", segments);
     }
 
     private Flux<AgentStreamEvent> buildPreAgentFlux(String conversationId,

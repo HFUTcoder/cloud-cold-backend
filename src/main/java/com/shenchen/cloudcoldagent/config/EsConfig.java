@@ -4,6 +4,7 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.json.jackson.JacksonJsonpMapper;
 import co.elastic.clients.transport.ElasticsearchTransport;
 import co.elastic.clients.transport.rest_client.RestClientTransport;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shenchen.cloudcoldagent.config.properties.EsProperties;
 import org.apache.http.HttpHost;
 import org.apache.http.auth.AuthScope;
@@ -14,6 +15,7 @@ import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.apache.http.ssl.SSLContexts;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestClientBuilder;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
@@ -28,14 +30,17 @@ public class EsConfig {
     private static final Logger logger = LoggerFactory.getLogger(EsConfig.class);
 
     private final EsProperties elasticsearchClientProperties;
+    private final ObjectMapper esObjectMapper;
 
-    public EsConfig(EsProperties elasticsearchClientProperties) {
+    public EsConfig(EsProperties elasticsearchClientProperties,
+                    @Qualifier("esObjectMapper") ObjectMapper esObjectMapper) {
         this.elasticsearchClientProperties = elasticsearchClientProperties;
+        this.esObjectMapper = esObjectMapper;
     }
 
     @Bean
     @Lazy
-    public ElasticsearchClient elasticsearchClient() {
+    public RestClient elasticsearchRestClient() {
         try {
             String uris = elasticsearchClientProperties.getUris();
             String username = elasticsearchClientProperties.getUsername();
@@ -84,12 +89,23 @@ public class EsConfig {
                 }
             }
 
-            RestClient restClient = builder.build();
-            ElasticsearchTransport transport = new RestClientTransport(restClient, new JacksonJsonpMapper());
-            return new ElasticsearchClient(transport);
+            return builder.build();
         } catch (Exception e) {
             logger.warn("Failed to create Elasticsearch client: {}. ES functionality will be unavailable.", e.getMessage());
             return null;
         }
+    }
+
+    @Bean
+    @Lazy
+    public ElasticsearchClient elasticsearchClient(RestClient elasticsearchRestClient) {
+        if (elasticsearchRestClient == null) {
+            return null;
+        }
+        ElasticsearchTransport transport = new RestClientTransport(
+                elasticsearchRestClient,
+                new JacksonJsonpMapper(esObjectMapper)
+        );
+        return new ElasticsearchClient(transport);
     }
 }
