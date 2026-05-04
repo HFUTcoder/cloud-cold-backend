@@ -247,17 +247,18 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
         if (conversationId == null || conversationId.isBlank() || messages == null || messages.isEmpty()) {
             return;
         }
-        boolean hasNewAssistant = messages.stream()
+        long assistantMessageCount = messages.stream()
                 .skip(commonPrefixLength)
-                .anyMatch(message -> message != null && message.getMessageType() == MessageType.ASSISTANT);
-        if (!hasNewAssistant) {
+                .filter(message -> message != null && message.getMessageType() == MessageType.ASSISTANT)
+                .count();
+        if (assistantMessageCount <= 0) {
             return;
         }
         Long userId = userConversationRelationService.getUserIdByConversationId(conversationId);
         if (userId == null || userId <= 0) {
             return;
         }
-        userLongTermMemoryService.onConversationRoundCompleted(userId, conversationId);
+        userLongTermMemoryService.onAssistantMessagePersisted(userId, conversationId, (int) assistantMessageCount);
     }
 
 }

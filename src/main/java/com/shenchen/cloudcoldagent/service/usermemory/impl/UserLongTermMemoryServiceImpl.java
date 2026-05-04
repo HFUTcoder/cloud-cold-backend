@@ -1,35 +1,38 @@
 package com.shenchen.cloudcoldagent.service.usermemory.impl;
 
+import cn.hutool.core.util.IdUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.shenchen.cloudcoldagent.config.properties.LongTermMemoryProperties;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
+import com.shenchen.cloudcoldagent.mapper.ChatMemoryHistoryMapper;
 import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistory;
+import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemory;
+import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemoryConversationState;
 import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemoryDoc;
 import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemoryExtractionItem;
 import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemoryExtractionResult;
-import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemory;
 import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemorySourceRelation;
 import com.shenchen.cloudcoldagent.model.vo.usermemory.UserLongTermMemoryVO;
 import com.shenchen.cloudcoldagent.model.vo.usermemory.UserPetStateVO;
-import com.shenchen.cloudcoldagent.mapper.ChatMemoryHistoryMapper;
 import com.shenchen.cloudcoldagent.prompts.UserLongTermMemoryPrompts;
 import com.shenchen.cloudcoldagent.service.UserConversationRelationService;
 import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryMetadataService;
 import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryService;
 import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryStore;
+import com.shenchen.cloudcoldagent.workflow.skill.service.StructuredOutputAgentExecutor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -37,9 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
-import com.shenchen.cloudcoldagent.workflow.skill.service.StructuredOutputAgentExecutor;
+import java.util.concurrent.TimeUnit;
 
 @Service
 @Slf4j
@@ -47,9 +48,8 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
 
     private static final String USER_MEMORY_ENABLED_KEY = "user_memory:enabled:";
     private static final String USER_MEMORY_PET_NAME_KEY = "user_memory:pet_name:";
-    private static final String USER_MEMORY_PENDING_ROUNDS_KEY = "user_memory:pending_rounds:";
-    private static final String USER_MEMORY_BUILDING_KEY = "user_memory:building:";
     private static final String USER_MEMORY_LAST_LEARNED_AT_KEY = "user_memory:last_learned_at:";
+    private static final String LONG_TERM_MEMORY_USER_LOCK_PREFIX = "long_term_memory:user:";
 
     private final UserLongTermMemoryStore userLongTermMemoryStore;
     private final UserLongTermMemoryMetadataService metadataService;
@@ -59,7 +59,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
     private final StringRedisTemplate stringRedisTemplate;
     private final LongTermMemoryProperties properties;
     private final ObjectMapper objectMapper;
-    private final Executor executor;
+    private final RedissonClient redissonClient;
 
     public UserLongTermMemoryServiceImpl(UserLongTermMemoryStore userLongTermMemoryStore,
                                          UserLongTermMemoryMetadataService metadataService,
@@ -68,7 +68,8 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
                                          StructuredOutputAgentExecutor structuredOutputAgentExecutor,
                                          StringRedisTemplate stringRedisTemplate,
                                          LongTermMemoryProperties properties,
-                                         ObjectMapper objectMapper) {
+                                         ObjectMapper objectMapper,
+                                         RedissonClient redissonClient) {
         this.userLongTermMemoryStore = userLongTermMemoryStore;
         this.metadataService = metadataService;
         this.userConversationRelationService = userConversationRelationService;
@@ -77,7 +78,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         this.stringRedisTemplate = stringRedisTemplate;
         this.properties = properties;
         this.objectMapper = objectMapper;
-        this.executor = CompletableFuture.delayedExecutor(0, java.util.concurrent.TimeUnit.MILLISECONDS);
+        this.redissonClient = redissonClient;
     }
 
     @Override
@@ -86,7 +87,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         UserPetStateVO vo = new UserPetStateVO();
         vo.setEnabled(isEnabled(userId));
         vo.setPetName(resolvePetName(userId));
-        vo.setPendingRounds(resolvePendingRounds(userId));
+        vo.setPendingConversationCount(resolvePendingConversationCount(userId));
         vo.setPetMood(resolvePetMood(userId));
         vo.setLastLearnedAt(resolveLastLearnedAt(userId));
 
@@ -128,16 +129,6 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
     }
 
     @Override
-    public boolean triggerRebuild(Long userId) {
-        validateUserId(userId);
-        if (!isEnabled(userId)) {
-            return false;
-        }
-        scheduleRebuild(userId, true);
-        return true;
-    }
-
-    @Override
     public boolean setEnabled(Long userId, boolean enabled) {
         validateUserId(userId);
         stringRedisTemplate.opsForValue().set(USER_MEMORY_ENABLED_KEY + userId, String.valueOf(enabled));
@@ -147,7 +138,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
     @Override
     public boolean renamePet(Long userId, String petName) {
         validateUserId(userId);
-        if (petName == null || petName.isBlank()) {
+        if (StringUtils.isBlank(petName)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "petName 不能为空");
         }
         stringRedisTemplate.opsForValue().set(USER_MEMORY_PET_NAME_KEY + userId, petName.trim());
@@ -157,7 +148,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
     @Override
     public boolean deleteMemory(Long userId, String memoryId) {
         validateUserId(userId);
-        if (memoryId == null || memoryId.isBlank()) {
+        if (StringUtils.isBlank(memoryId)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "memoryId 不能为空");
         }
         try {
@@ -172,30 +163,54 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
     }
 
     @Override
-    public void onConversationRoundCompleted(Long userId, String conversationId) {
-        if (!properties.isEnabled() || !isEnabled(userId)) {
+    public void onAssistantMessagePersisted(Long userId, String conversationId, int assistantMessageCount) {
+        if (!properties.isEnabled() || !isEnabled(userId) || StringUtils.isBlank(conversationId) || assistantMessageCount <= 0) {
             return;
         }
-        Long rounds = stringRedisTemplate.opsForValue().increment(USER_MEMORY_PENDING_ROUNDS_KEY + userId);
-        if (rounds != null && rounds >= properties.getTriggerRounds()) {
-            scheduleRebuild(userId, false);
+        metadataService.incrementPendingRounds(userId, conversationId, assistantMessageCount);
+        UserLongTermMemoryConversationState state = metadataService.listPendingConversationStates(userId).stream()
+                .filter(item -> conversationId.equals(item.getConversationId()))
+                .findFirst()
+                .orElse(null);
+        if (state == null) {
+            return;
         }
+        int pendingRounds = state.getPendingCompletedRounds() == null ? 0 : state.getPendingCompletedRounds();
+        if (pendingRounds < properties.getTriggerRounds()) {
+            return;
+        }
+        processPendingConversations(userId);
     }
 
     @Override
     public void onConversationDeleted(Long userId, String conversationId) {
-        if (!properties.isEnabled() || !isEnabled(userId)) {
+        if (!properties.isEnabled() || !isEnabled(userId) || StringUtils.isBlank(conversationId)) {
             return;
         }
-        scheduleRebuild(userId, true);
+        try {
+            metadataService.deleteByConversationId(userId, conversationId);
+            userLongTermMemoryStore.deleteByConversationId(userId, conversationId);
+        } catch (Exception e) {
+            log.warn("删除会话长期记忆失败，userId={}, conversationId={}, message={}",
+                    userId, conversationId, e.getMessage(), e);
+        } finally {
+            metadataService.deleteConversationState(userId, conversationId);
+        }
     }
 
     @Override
-    public void onHistoryDeleted(Long userId, Long historyId) {
-        if (!properties.isEnabled() || !isEnabled(userId)) {
+    public void onHistoryDeleted(Long userId, String conversationId) {
+        if (!properties.isEnabled() || !isEnabled(userId) || StringUtils.isBlank(conversationId)) {
             return;
         }
-        scheduleRebuild(userId, true);
+        try {
+            metadataService.deleteByConversationId(userId, conversationId);
+            userLongTermMemoryStore.deleteByConversationId(userId, conversationId);
+        } catch (Exception e) {
+            log.warn("删除聊天记录对应长期记忆失败，userId={}, conversationId={}, message={}",
+                    userId, conversationId, e.getMessage(), e);
+        }
+        metadataService.markConversationUnprocessed(userId, conversationId);
     }
 
     @Override
@@ -214,107 +229,109 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
                     .filter(doc -> doc != null && activeMemoryMap.containsKey(doc.getId()))
                     .toList();
             metadataService.markRetrieved(userId, filteredDocs.stream().map(UserLongTermMemoryDoc::getId).toList());
-            return filteredDocs;
+            return deduplicateMemories(filteredDocs);
         } catch (Exception e) {
             log.warn("检索长期记忆失败，userId={}, message={}", userId, e.getMessage(), e);
             return List.of();
         }
     }
 
-    private void scheduleRebuild(Long userId, boolean force) {
-        String lockKey = USER_MEMORY_BUILDING_KEY + userId;
-        Boolean acquired = stringRedisTemplate.opsForValue()
-                .setIfAbsent(lockKey, "1", Duration.ofMinutes(5));
-        if (!Boolean.TRUE.equals(acquired)) {
+    @Override
+    public void processPendingConversations(Long userId) {
+        if (!properties.isEnabled() || !isEnabled(userId) || userId == null || userId <= 0) {
             return;
         }
-        CompletableFuture.runAsync(() -> {
-            try {
-                rebuildUserMemories(userId, force);
-            } catch (Exception e) {
-                log.warn("重建长期记忆失败，userId={}, message={}", userId, e.getMessage(), e);
-            } finally {
-                stringRedisTemplate.delete(lockKey);
+        String lockName = LONG_TERM_MEMORY_USER_LOCK_PREFIX + userId;
+        RLock lock = redissonClient.getLock(lockName);
+        boolean locked = false;
+        try {
+            locked = lock.tryLock(0, 5, TimeUnit.MINUTES);
+            if (!locked) {
+                return;
             }
-        }, executor);
+            doProcessPendingConversations(userId);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            log.warn("处理长期记忆待处理会话失败，userId={}, message={}", userId, e.getMessage(), e);
+        } finally {
+            if (locked && lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+        }
     }
 
-    private void rebuildUserMemories(Long userId, boolean force) throws Exception {
-        List<String> conversationIds = userConversationRelationService.listConversationIdsByUserId(userId);
-        if (conversationIds == null || conversationIds.isEmpty()) {
-            userLongTermMemoryStore.deleteByUserId(userId);
-            metadataService.softDeleteByUserId(userId);
-            resetPendingRounds(userId);
-            markLearned(userId);
+    private void doProcessPendingConversations(Long userId) throws Exception {
+        List<UserLongTermMemoryConversationState> pendingStates = metadataService.listPendingConversationStates(userId);
+        if (pendingStates.isEmpty()) {
+            return;
+        }
+        for (UserLongTermMemoryConversationState state : pendingStates) {
+            if (state == null || StringUtils.isBlank(state.getConversationId())) {
+                continue;
+            }
+            rebuildConversationMemories(userId, state.getConversationId());
+            metadataService.markConversationProcessed(userId, state.getConversationId());
+        }
+        markLearned(userId);
+    }
+
+    private void rebuildConversationMemories(Long userId, String conversationId) throws Exception {
+        metadataService.deleteByConversationId(userId, conversationId);
+        userLongTermMemoryStore.deleteByConversationId(userId, conversationId);
+
+        List<ChatMemoryHistory> histories = chatMemoryHistoryMapper.selectListByQuery(QueryWrapper.create()
+                .eq("conversationId", conversationId)
+                .eq("isDelete", 0)
+                .orderBy("createTime", true)
+                .orderBy("id", true));
+        if (histories == null || histories.isEmpty()) {
             return;
         }
 
         List<Map<String, Object>> transcript = new ArrayList<>();
-        Set<String> sourceConversationIds = new LinkedHashSet<>();
         Set<Long> sourceHistoryIds = new LinkedHashSet<>();
         Map<Long, String> conversationByHistoryId = new LinkedHashMap<>();
-        for (String conversationId : conversationIds) {
-            if (!Boolean.TRUE.equals(userConversationRelationService.isConversationOwnedByUser(userId, conversationId))) {
+        for (ChatMemoryHistory history : histories) {
+            if (history == null || StringUtils.isBlank(history.getContent())) {
                 continue;
             }
-            List<ChatMemoryHistory> histories = chatMemoryHistoryMapper.selectListByQuery(QueryWrapper.create()
-                    .eq("conversationId", conversationId)
-                    .eq("isDelete", 0)
-                    .orderBy("createTime", true)
-                    .orderBy("id", true));
-            if (histories == null || histories.isEmpty()) {
-                continue;
-            }
-            sourceConversationIds.add(conversationId);
-            for (ChatMemoryHistory history : histories) {
-                if (history == null || history.getContent() == null || history.getContent().isBlank()) {
-                    continue;
-                }
-                Map<String, Object> row = new LinkedHashMap<>();
-                row.put("historyId", history.getId());
-                row.put("conversationId", history.getConversationId());
-                row.put("messageType", history.getMessageType());
-                row.put("content", abbreviate(history.getContent(), 1200));
-                transcript.add(row);
-                if (history.getId() != null) {
-                    sourceHistoryIds.add(history.getId());
-                    conversationByHistoryId.put(history.getId(), conversationId);
-                }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("historyId", history.getId());
+            row.put("conversationId", history.getConversationId());
+            row.put("messageType", history.getMessageType());
+            row.put("content", abbreviate(history.getContent(), 1200));
+            transcript.add(row);
+            if (history.getId() != null) {
+                sourceHistoryIds.add(history.getId());
+                conversationByHistoryId.put(history.getId(), conversationId);
             }
         }
-
         if (transcript.isEmpty()) {
-            userLongTermMemoryStore.deleteByUserId(userId);
-            metadataService.softDeleteByUserId(userId);
-            resetPendingRounds(userId);
-            markLearned(userId);
             return;
         }
 
-        List<UserLongTermMemoryDoc> memories = extractMemoriesWithModel(
+        List<UserLongTermMemoryDoc> memories = extractConversationMemoriesWithModel(
                 userId,
+                conversationId,
                 transcript,
-                sourceConversationIds,
                 sourceHistoryIds,
                 conversationByHistoryId
         );
-        userLongTermMemoryStore.replaceAll(userId, memories);
-        metadataService.replaceAll(userId, memories);
-        resetPendingRounds(userId);
-        markLearned(userId);
-        log.info("长期记忆重建完成，userId={}, conversationCount={}, historyCount={}, memoryCount={}, force={}",
-                userId,
-                sourceConversationIds.size(),
-                transcript.size(),
-                memories.size(),
-                force);
+        if (memories.isEmpty()) {
+            return;
+        }
+        userLongTermMemoryStore.addMemories(userId, memories);
+        metadataService.upsertMemories(userId, conversationId, memories);
+        log.info("长期记忆会话重建完成，userId={}, conversationId={}, historyCount={}, memoryCount={}",
+                userId, conversationId, transcript.size(), memories.size());
     }
 
-    private List<UserLongTermMemoryDoc> extractMemoriesWithModel(Long userId,
-                                                                 List<Map<String, Object>> transcript,
-                                                                 Set<String> sourceConversationIds,
-                                                                 Set<Long> sourceHistoryIds,
-                                                                 Map<Long, String> conversationByHistoryId) {
+    private List<UserLongTermMemoryDoc> extractConversationMemoriesWithModel(Long userId,
+                                                                             String conversationId,
+                                                                             List<Map<String, Object>> transcript,
+                                                                             Set<Long> sourceHistoryIds,
+                                                                             Map<Long, String> conversationByHistoryId) {
         String transcriptJson = UserLongTermMemoryPrompts.renderTranscriptJson(objectMapper, transcript);
         String systemPrompt = UserLongTermMemoryPrompts.buildExtractionSystemPrompt();
         String userPrompt = UserLongTermMemoryPrompts.buildExtractionUserPrompt(userId, transcriptJson);
@@ -329,8 +346,8 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
                 for (UserLongTermMemoryExtractionItem item : items) {
                     UserLongTermMemoryDoc memory = buildMemoryDoc(
                             userId,
+                            conversationId,
                             item,
-                            sourceConversationIds,
                             sourceHistoryIds,
                             conversationByHistoryId
                     );
@@ -343,14 +360,15 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
                 return memories;
             }
         } catch (Exception e) {
-            log.warn("结构化长期记忆提炼失败，userId={}, message={}", userId, e.getMessage(), e);
+            log.warn("结构化长期记忆提炼失败，userId={}, conversationId={}, message={}",
+                    userId, conversationId, e.getMessage(), e);
         }
-        return fallbackMemories(userId, transcript, sourceConversationIds, sourceHistoryIds, conversationByHistoryId);
+        return fallbackMemories(userId, conversationId, transcript, sourceHistoryIds, conversationByHistoryId);
     }
 
     private List<UserLongTermMemoryDoc> fallbackMemories(Long userId,
+                                                         String conversationId,
                                                          List<Map<String, Object>> transcript,
-                                                         Set<String> sourceConversationIds,
                                                          Set<Long> sourceHistoryIds,
                                                          Map<Long, String> conversationByHistoryId) {
         List<String> userMessages = transcript.stream()
@@ -363,8 +381,9 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
             return List.of();
         }
         String merged = String.join("；", userMessages);
+        LocalDateTime now = LocalDateTime.now();
         UserLongTermMemoryDoc memory = UserLongTermMemoryDoc.builder()
-                .id(buildStableMemoryId(userId, "PREFERENCE", "近期高频交互偏好", merged))
+                .id(buildMemoryId(userId))
                 .userId(userId)
                 .memoryType("PREFERENCE")
                 .title("近期高频交互偏好")
@@ -373,20 +392,19 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
                 .embeddingText("[PREFERENCE] " + abbreviate(merged, properties.getMaxMemoryChars()))
                 .confidence(0.45d)
                 .importance(0.5d)
-                .sourceConversationIds(new ArrayList<>(sourceConversationIds))
+                .originConversationId(conversationId)
+                .sourceConversationIds(List.of(conversationId))
                 .sourceHistoryIds(new ArrayList<>(sourceHistoryIds))
-                .sourceConversationsByHistoryId(
-                        new LinkedHashMap<>(buildFilteredConversationMap(new ArrayList<>(sourceHistoryIds), conversationByHistoryId))
-                )
-                .createdAt(LocalDateTime.now())
-                .updatedAt(LocalDateTime.now())
+                .sourceConversationsByHistoryId(new LinkedHashMap<>(buildFilteredConversationMap(new ArrayList<>(sourceHistoryIds), conversationByHistoryId)))
+                .createdAt(now)
+                .updatedAt(now)
                 .build();
         return List.of(memory);
     }
 
     private UserLongTermMemoryDoc buildMemoryDoc(Long userId,
+                                                 String conversationId,
                                                  UserLongTermMemoryExtractionItem item,
-                                                 Set<String> sourceConversationIds,
                                                  Set<Long> sourceHistoryIds,
                                                  Map<Long, String> conversationByHistoryId) {
         if (item == null) {
@@ -404,15 +422,11 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
             return null;
         }
         Map<Long, String> filteredConversationMap = buildFilteredConversationMap(extractedSourceHistoryIds, conversationByHistoryId);
-        List<String> filteredConversationIds = filteredConversationMap.values().stream()
-                .filter(StringUtils::isNotBlank)
-                .distinct()
-                .toList();
         double confidence = toDouble(item.getConfidence(), 0.5d);
         double importance = toDouble(item.getImportance(), 0.5d);
         LocalDateTime now = LocalDateTime.now();
         return UserLongTermMemoryDoc.builder()
-                .id(buildStableMemoryId(userId, memoryType, title, content))
+                .id(buildMemoryId(userId))
                 .userId(userId)
                 .memoryType(memoryType)
                 .title(title.isBlank() ? memoryType : abbreviate(title, 40))
@@ -421,12 +435,28 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
                 .embeddingText("[" + memoryType + "] " + abbreviate(content, properties.getMaxMemoryChars()))
                 .confidence(confidence)
                 .importance(importance)
-                .sourceConversationIds(new ArrayList<>(filteredConversationIds))
+                .originConversationId(conversationId)
+                .sourceConversationIds(List.of(conversationId))
                 .sourceHistoryIds(new ArrayList<>(extractedSourceHistoryIds))
                 .sourceConversationsByHistoryId(new LinkedHashMap<>(filteredConversationMap))
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
+    }
+
+    private List<UserLongTermMemoryDoc> deduplicateMemories(List<UserLongTermMemoryDoc> docs) {
+        if (docs == null || docs.isEmpty()) {
+            return List.of();
+        }
+        Map<String, UserLongTermMemoryDoc> deduplicated = new LinkedHashMap<>();
+        for (UserLongTermMemoryDoc doc : docs) {
+            if (doc == null || StringUtils.isBlank(doc.getContent())) {
+                continue;
+            }
+            String key = StringUtils.defaultString(doc.getMemoryType()) + "|" + doc.getContent().trim();
+            deduplicated.putIfAbsent(key, doc);
+        }
+        return new ArrayList<>(deduplicated.values());
     }
 
     private UserLongTermMemoryVO toVO(UserLongTermMemory memory,
@@ -475,20 +505,8 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         return Boolean.parseBoolean(value);
     }
 
-    private int resolvePendingRounds(Long userId) {
-        String value = stringRedisTemplate.opsForValue().get(USER_MEMORY_PENDING_ROUNDS_KEY + userId);
-        if (value == null || value.isBlank()) {
-            return 0;
-        }
-        try {
-            return Integer.parseInt(value);
-        } catch (NumberFormatException e) {
-            return 0;
-        }
-    }
-
-    private void resetPendingRounds(Long userId) {
-        stringRedisTemplate.opsForValue().set(USER_MEMORY_PENDING_ROUNDS_KEY + userId, "0");
+    private int resolvePendingConversationCount(Long userId) {
+        return metadataService.listPendingConversationStates(userId).size();
     }
 
     private void markLearned(Long userId) {
@@ -497,7 +515,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
 
     private LocalDateTime resolveLastLearnedAt(Long userId) {
         String value = stringRedisTemplate.opsForValue().get(USER_MEMORY_LAST_LEARNED_AT_KEY + userId);
-        if (value == null || value.isBlank()) {
+        if (StringUtils.isBlank(value)) {
             return null;
         }
         try {
@@ -511,8 +529,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         if (!isEnabled(userId)) {
             return "disabled";
         }
-        int pendingRounds = resolvePendingRounds(userId);
-        if (pendingRounds >= Math.max(1, properties.getTriggerRounds() - 1)) {
+        if (resolvePendingConversationCount(userId) > 0) {
             return "learning";
         }
         LocalDateTime lastLearnedAt = resolveLastLearnedAt(userId);
@@ -558,15 +575,8 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         return result;
     }
 
-    private String buildStableMemoryId(Long userId,
-                                       String memoryType,
-                                       String title,
-                                       String content) {
-        String normalizedType = Objects.toString(memoryType, "").trim().toUpperCase();
-        String normalizedTitle = abbreviate(Objects.toString(title, ""), 80);
-        String normalizedContent = abbreviate(Objects.toString(content, ""), 220);
-        String signature = userId + "|" + normalizedType + "|" + normalizedTitle + "|" + normalizedContent;
-        return java.util.UUID.nameUUIDFromBytes(signature.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+    private String buildMemoryId(Long userId) {
+        return userId + "_" + IdUtil.getSnowflakeNextIdStr();
     }
 
     private String abbreviate(String value, int maxChars) {

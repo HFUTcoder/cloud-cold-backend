@@ -7,6 +7,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 
 @Configuration
@@ -21,6 +22,7 @@ public class WebConfig {
     }
 
     @Bean
+    @Primary
     public ObjectMapper jacksonObjectMapper(@Qualifier("esObjectMapper") ObjectMapper esObjectMapper) {
         ObjectMapper objectMapper = esObjectMapper.copy();
         SimpleModule module = new SimpleModule();

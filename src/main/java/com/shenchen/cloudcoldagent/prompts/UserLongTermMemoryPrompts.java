@@ -17,7 +17,7 @@ public final class UserLongTermMemoryPrompts {
     public static String buildExtractionSystemPrompt() {
         return """
                 你是一个用户长期记忆整理器。
-                你的任务是从跨会话聊天历史里，提炼出少量、稳定、可复用的长期记忆。
+                你的任务是从当前单个会话的聊天历史里，提炼出少量、稳定、可复用的长期记忆。
                 只保留真正值得长期保存的信息，禁止输出临时任务、一次性上下文、模糊推测或隐私猜测。
                 输出必须是一个 JSON 对象，格式为：
                 { "items": [ ... ] }
@@ -35,7 +35,7 @@ public final class UserLongTermMemoryPrompts {
     public static String buildExtractionUserPrompt(Long userId, String transcriptJson) {
         return """
                 用户ID：%s
-                以下是该用户跨会话的历史消息，请提炼长期记忆：
+                以下是该用户当前会话的历史消息，请提炼长期记忆：
                 %s
                 """.formatted(userId, StringUtils.defaultString(transcriptJson, "[]"));
     }

@@ -50,13 +50,6 @@ public class UserLongTermMemoryController {
         return ResultUtils.success(userLongTermMemoryService.listMemories(loginUser.getId()));
     }
 
-    @PostMapping("/rebuild")
-    @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
-    public BaseResponse<Boolean> rebuild(HttpServletRequest request) {
-        User loginUser = userService.getLoginUser(request);
-        return ResultUtils.success(userLongTermMemoryService.triggerRebuild(loginUser.getId()));
-    }
-
     @PostMapping("/switch")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
     public BaseResponse<Boolean> switchEnabled(@RequestBody UserMemorySwitchRequest body,

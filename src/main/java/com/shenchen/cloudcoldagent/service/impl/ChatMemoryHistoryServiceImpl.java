@@ -108,7 +108,7 @@ public class ChatMemoryHistoryServiceImpl extends ServiceImpl<ChatMemoryHistoryM
                         .eq("isDelete", 0)
         ) > 0;
         if (deleted) {
-            userLongTermMemoryService.onHistoryDeleted(userId, id);
+            userLongTermMemoryService.onHistoryDeleted(userId, history.getConversationId());
         }
         return deleted;
     }

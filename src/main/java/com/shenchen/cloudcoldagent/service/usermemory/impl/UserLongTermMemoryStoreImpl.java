@@ -81,12 +81,8 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
     }
 
     @Override
-    public void replaceAll(Long userId, List<UserLongTermMemoryDoc> memories) throws Exception {
-        if (userId == null || userId <= 0) {
-            return;
-        }
-        deleteByUserId(userId);
-        if (memories == null || memories.isEmpty()) {
+    public void addMemories(Long userId, List<UserLongTermMemoryDoc> memories) throws Exception {
+        if (userId == null || userId <= 0 || memories == null || memories.isEmpty()) {
             return;
         }
 
@@ -218,6 +214,28 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
         }
     }
 
+    @Override
+    public void deleteByConversationId(Long userId, String conversationId) throws Exception {
+        if (userId == null || userId <= 0 || conversationId == null || conversationId.isBlank()) {
+            return;
+        }
+        List<String> ids = listByUserId(userId, 1000).stream()
+                .filter(memory -> conversationId.equals(memory.getOriginConversationId()))
+                .map(UserLongTermMemoryDoc::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        if (ids.isEmpty()) {
+            return;
+        }
+        elasticsearchClient.deleteByQuery(DeleteByQueryRequest.of(b -> b
+                .index(properties.getKeywordIndexName())
+                .refresh(true)
+                .query(q -> q.bool(bool -> bool
+                        .must(m -> m.term(t -> t.field("userId").value(userId)))
+                        .must(m -> m.term(t -> t.field("originConversationId").value(conversationId)))))));
+        vectorStore.delete(ids);
+    }
+
     private boolean indexExists(String indexName) {
         try {
             return elasticsearchClient.indices().exists(e -> e.index(indexName)).value();
@@ -252,6 +270,7 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
                       "embeddingText": { "type": "text", "index": false },
                       "confidence": { "type": "double" },
                       "importance": { "type": "double" },
+                      "originConversationId": { "type": "keyword" },
                       "sourceConversationIds": { "type": "keyword" },
                       "sourceHistoryIds": { "type": "long" },
                       "createdAt": { "type": "date" },
@@ -272,6 +291,7 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
         metadata.put("memoryType", memory.getMemoryType());
         metadata.put("importance", memory.getImportance());
         metadata.put("confidence", memory.getConfidence());
+        metadata.put("originConversationId", memory.getOriginConversationId());
         return metadata;
     }
 

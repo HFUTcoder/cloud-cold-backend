@@ -43,10 +43,6 @@ spring:
     url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/cloud_cold}
     username: ${SPRING_DATASOURCE_USERNAME:root}
     password: ${SPRING_DATASOURCE_PASSWORD:1234}
-  sql:
-    init:
-      mode: always
-      schema-locations: classpath:init.sql
   session:
     store-type: redis
     timeout: 2592000
@@ -110,11 +106,11 @@ cloudcold:
       - execute_skill_script
   long-term-memory:
     enabled: true
-    trigger-rounds: 6
+    trigger-rounds: 5
     retrieve-top-k: 5
     max-prompt-memories: 4
     max-memory-chars: 400
-    default-pet-name: 小冷
+    default-pet-name: 小云
     keyword-index-name: user_long_term_memory_docs
     vector-index-name: user_long_term_memory_vector
     vector-dimensions: 1536

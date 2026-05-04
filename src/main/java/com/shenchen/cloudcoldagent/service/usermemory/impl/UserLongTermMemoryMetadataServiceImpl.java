@@ -1,18 +1,21 @@
 package com.shenchen.cloudcoldagent.service.usermemory.impl;
 
 import com.mybatisflex.core.query.QueryWrapper;
+import com.shenchen.cloudcoldagent.mapper.UserLongTermMemoryConversationStateMapper;
 import com.shenchen.cloudcoldagent.mapper.UserLongTermMemoryMapper;
 import com.shenchen.cloudcoldagent.mapper.UserLongTermMemorySourceRelationMapper;
 import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemory;
+import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemoryConversationState;
 import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemoryDoc;
 import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemorySourceRelation;
 import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryMetadataService;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -23,65 +26,49 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
 
     private static final String STATUS_ACTIVE = "ACTIVE";
     private static final String STATUS_DELETED = "DELETED";
+    private static final String CONVERSATION_STATUS_PROCESSED = "PROCESSED";
+    private static final String CONVERSATION_STATUS_UNPROCESSED = "UNPROCESSED";
 
     private final UserLongTermMemoryMapper userLongTermMemoryMapper;
     private final UserLongTermMemorySourceRelationMapper sourceRelationMapper;
+    private final UserLongTermMemoryConversationStateMapper conversationStateMapper;
 
     public UserLongTermMemoryMetadataServiceImpl(UserLongTermMemoryMapper userLongTermMemoryMapper,
-                                                 UserLongTermMemorySourceRelationMapper sourceRelationMapper) {
+                                                 UserLongTermMemorySourceRelationMapper sourceRelationMapper,
+                                                 UserLongTermMemoryConversationStateMapper conversationStateMapper) {
         this.userLongTermMemoryMapper = userLongTermMemoryMapper;
         this.sourceRelationMapper = sourceRelationMapper;
+        this.conversationStateMapper = conversationStateMapper;
     }
 
     @Override
-    public void replaceAll(Long userId, List<UserLongTermMemoryDoc> memories) {
-        if (userId == null || userId <= 0) {
-            return;
-        }
-        softDeleteByUserId(userId);
-        if (memories == null || memories.isEmpty()) {
+    public void upsertMemories(Long userId, String conversationId, List<UserLongTermMemoryDoc> memories) {
+        if (userId == null || userId <= 0 || StringUtils.isBlank(conversationId) || memories == null || memories.isEmpty()) {
             return;
         }
         LocalDateTime now = LocalDateTime.now();
-        for (UserLongTermMemoryDoc memory : mergeDuplicateMemories(memories)) {
-            if (memory == null || memory.getId() == null || memory.getId().isBlank()) {
+        for (UserLongTermMemoryDoc memory : memories) {
+            if (memory == null || StringUtils.isBlank(memory.getId())) {
                 continue;
             }
-            UserLongTermMemory existing = userLongTermMemoryMapper.selectOneByQuery(QueryWrapper.create()
-                    .eq("memoryId", memory.getId()));
-            if (existing != null) {
-                existing.setUserId(userId);
-                existing.setMemoryType(memory.getMemoryType());
-                existing.setTitle(memory.getTitle());
-                existing.setContent(memory.getContent());
-                existing.setSummary(memory.getSummary());
-                existing.setConfidence(memory.getConfidence());
-                existing.setImportance(memory.getImportance());
-                existing.setStatus(STATUS_ACTIVE);
-                existing.setVersion(existing.getVersion() == null ? 1 : existing.getVersion() + 1);
-                existing.setLastReinforcedAt(now);
-                existing.setUpdateTime(memory.getUpdatedAt() == null ? now : memory.getUpdatedAt());
-                existing.setIsDelete(0);
-                userLongTermMemoryMapper.update(existing);
-            } else {
-                userLongTermMemoryMapper.insert(UserLongTermMemory.builder()
-                        .memoryId(memory.getId())
-                        .userId(userId)
-                        .memoryType(memory.getMemoryType())
-                        .title(memory.getTitle())
-                        .content(memory.getContent())
-                        .summary(memory.getSummary())
-                        .confidence(memory.getConfidence())
-                        .importance(memory.getImportance())
-                        .status(STATUS_ACTIVE)
-                        .version(1)
-                        .lastRetrievedAt(null)
-                        .lastReinforcedAt(now)
-                        .createTime(memory.getCreatedAt() == null ? now : memory.getCreatedAt())
-                        .updateTime(memory.getUpdatedAt() == null ? now : memory.getUpdatedAt())
-                        .isDelete(0)
-                        .build());
-            }
+            userLongTermMemoryMapper.insert(UserLongTermMemory.builder()
+                    .memoryId(memory.getId())
+                    .userId(userId)
+                    .memoryType(memory.getMemoryType())
+                    .title(memory.getTitle())
+                    .content(memory.getContent())
+                    .summary(memory.getSummary())
+                    .confidence(memory.getConfidence())
+                    .importance(memory.getImportance())
+                    .originConversationId(conversationId)
+                    .status(STATUS_ACTIVE)
+                    .version(1)
+                    .lastRetrievedAt(null)
+                    .lastReinforcedAt(now)
+                    .createTime(memory.getCreatedAt() == null ? now : memory.getCreatedAt())
+                    .updateTime(memory.getUpdatedAt() == null ? now : memory.getUpdatedAt())
+                    .isDelete(0)
+                    .build());
 
             if (memory.getSourceHistoryIds() == null || memory.getSourceHistoryIds().isEmpty()) {
                 continue;
@@ -176,7 +163,7 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
 
     @Override
     public boolean deleteMemory(Long userId, String memoryId) {
-        if (userId == null || userId <= 0 || memoryId == null || memoryId.isBlank()) {
+        if (userId == null || userId <= 0 || StringUtils.isBlank(memoryId)) {
             return false;
         }
         LocalDateTime now = LocalDateTime.now();
@@ -230,91 +217,177 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
         );
     }
 
-    private List<UserLongTermMemoryDoc> mergeDuplicateMemories(List<UserLongTermMemoryDoc> memories) {
-        Map<String, UserLongTermMemoryDoc> merged = new LinkedHashMap<>();
-        for (UserLongTermMemoryDoc memory : memories) {
-            if (memory == null || memory.getId() == null || memory.getId().isBlank()) {
-                continue;
+    @Override
+    public void deleteByConversationId(Long userId, String conversationId) {
+        if (userId == null || userId <= 0 || StringUtils.isBlank(conversationId)) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        List<UserLongTermMemory> memories = userLongTermMemoryMapper.selectListByQuery(QueryWrapper.create()
+                .eq("userId", userId)
+                .eq("originConversationId", conversationId.trim())
+                .eq("isDelete", 0)
+                .eq("status", STATUS_ACTIVE));
+        if (memories.isEmpty()) {
+            return;
+        }
+        List<String> memoryIds = memories.stream()
+                .map(UserLongTermMemory::getMemoryId)
+                .filter(StringUtils::isNotBlank)
+                .toList();
+        if (memoryIds.isEmpty()) {
+            return;
+        }
+        sourceRelationMapper.updateByQuery(
+                UserLongTermMemorySourceRelation.builder()
+                        .isDelete(1)
+                        .updateTime(now)
+                        .build(),
+                QueryWrapper.create()
+                        .eq("userId", userId)
+                        .eq("conversationId", conversationId.trim())
+                        .eq("isDelete", 0)
+        );
+        userLongTermMemoryMapper.updateByQuery(
+                UserLongTermMemory.builder()
+                        .status(STATUS_DELETED)
+                        .isDelete(1)
+                        .updateTime(now)
+                        .build(),
+                QueryWrapper.create()
+                        .eq("userId", userId)
+                        .eq("originConversationId", conversationId.trim())
+                        .eq("isDelete", 0)
+        );
+    }
+
+    @Override
+    public void ensureConversationState(Long userId, String conversationId) {
+        if (userId == null || userId <= 0 || StringUtils.isBlank(conversationId)) {
+            return;
+        }
+        UserLongTermMemoryConversationState existing = conversationStateMapper.selectOneByQuery(QueryWrapper.create()
+                .eq("userId", userId)
+                .eq("conversationId", conversationId.trim())
+                .eq("isDelete", 0));
+        if (existing != null) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        conversationStateMapper.insert(UserLongTermMemoryConversationState.builder()
+                .userId(userId)
+                .conversationId(conversationId.trim())
+                .status(CONVERSATION_STATUS_UNPROCESSED)
+                .pendingCompletedRounds(0)
+                .lastBuiltAt(null)
+                .createTime(now)
+                .updateTime(now)
+                .isDelete(0)
+                .build());
+    }
+
+    @Override
+    public void incrementPendingRounds(Long userId, String conversationId, int roundCount) {
+        if (userId == null || userId <= 0 || StringUtils.isBlank(conversationId) || roundCount <= 0) {
+            return;
+        }
+        ensureConversationState(userId, conversationId);
+        UserLongTermMemoryConversationState existing = conversationStateMapper.selectOneByQuery(QueryWrapper.create()
+                .eq("userId", userId)
+                .eq("conversationId", conversationId.trim())
+                .eq("isDelete", 0));
+        if (existing == null) {
+            return;
+        }
+        int current = existing.getPendingCompletedRounds() == null ? 0 : existing.getPendingCompletedRounds();
+        existing.setPendingCompletedRounds(current + roundCount);
+        existing.setStatus(CONVERSATION_STATUS_UNPROCESSED);
+        existing.setUpdateTime(LocalDateTime.now());
+        conversationStateMapper.update(existing);
+    }
+
+    @Override
+    public void markConversationUnprocessed(Long userId, String conversationId) {
+        if (userId == null || userId <= 0 || StringUtils.isBlank(conversationId)) {
+            return;
+        }
+        ensureConversationState(userId, conversationId);
+        conversationStateMapper.updateByQuery(
+                UserLongTermMemoryConversationState.builder()
+                        .status(CONVERSATION_STATUS_UNPROCESSED)
+                        .pendingCompletedRounds(0)
+                        .updateTime(LocalDateTime.now())
+                        .build(),
+                QueryWrapper.create()
+                        .eq("userId", userId)
+                        .eq("conversationId", conversationId.trim())
+                        .eq("isDelete", 0)
+        );
+    }
+
+    @Override
+    public void deleteConversationState(Long userId, String conversationId) {
+        if (userId == null || userId <= 0 || StringUtils.isBlank(conversationId)) {
+            return;
+        }
+        conversationStateMapper.updateByQuery(
+                UserLongTermMemoryConversationState.builder()
+                        .isDelete(1)
+                        .updateTime(LocalDateTime.now())
+                        .build(),
+                QueryWrapper.create()
+                        .eq("userId", userId)
+                        .eq("conversationId", conversationId.trim())
+                        .eq("isDelete", 0)
+        );
+    }
+
+    @Override
+    public List<UserLongTermMemoryConversationState> listPendingConversationStates(Long userId) {
+        if (userId == null || userId <= 0) {
+            return List.of();
+        }
+        return conversationStateMapper.selectListByQuery(QueryWrapper.create()
+                .eq("userId", userId)
+                .eq("isDelete", 0)
+                .eq("status", CONVERSATION_STATUS_UNPROCESSED)
+                .orderBy("updateTime", true)
+                .orderBy("id", true));
+    }
+
+    @Override
+    public List<Long> listUserIdsWithPendingConversationStates() {
+        List<UserLongTermMemoryConversationState> rows = conversationStateMapper.selectListByQuery(QueryWrapper.create()
+                .eq("isDelete", 0)
+                .eq("status", CONVERSATION_STATUS_UNPROCESSED)
+                .orderBy("id", true));
+        Set<Long> userIds = new LinkedHashSet<>();
+        for (UserLongTermMemoryConversationState row : rows) {
+            if (row != null && row.getUserId() != null && row.getUserId() > 0) {
+                userIds.add(row.getUserId());
             }
-            UserLongTermMemoryDoc existing = merged.get(memory.getId());
-            if (existing == null) {
-                merged.put(memory.getId(), copyMemory(memory));
-                continue;
-            }
-            mergeInto(existing, memory);
         }
-        return new ArrayList<>(merged.values());
+        return new ArrayList<>(userIds);
     }
 
-    private UserLongTermMemoryDoc copyMemory(UserLongTermMemoryDoc memory) {
-        return UserLongTermMemoryDoc.builder()
-                .id(memory.getId())
-                .userId(memory.getUserId())
-                .memoryType(memory.getMemoryType())
-                .title(memory.getTitle())
-                .content(memory.getContent())
-                .summary(memory.getSummary())
-                .embeddingText(memory.getEmbeddingText())
-                .confidence(memory.getConfidence())
-                .importance(memory.getImportance())
-                .sourceConversationIds(memory.getSourceConversationIds() == null ? List.of() : new ArrayList<>(memory.getSourceConversationIds()))
-                .sourceHistoryIds(memory.getSourceHistoryIds() == null ? List.of() : new ArrayList<>(memory.getSourceHistoryIds()))
-                .sourceConversationsByHistoryId(memory.getSourceConversationsByHistoryId() == null ? Map.of() : new LinkedHashMap<>(memory.getSourceConversationsByHistoryId()))
-                .createdAt(memory.getCreatedAt())
-                .updatedAt(memory.getUpdatedAt())
-                .build();
+    @Override
+    public void markConversationProcessed(Long userId, String conversationId) {
+        if (userId == null || userId <= 0 || StringUtils.isBlank(conversationId)) {
+            return;
+        }
+        ensureConversationState(userId, conversationId);
+        LocalDateTime now = LocalDateTime.now();
+        conversationStateMapper.updateByQuery(
+                UserLongTermMemoryConversationState.builder()
+                        .status(CONVERSATION_STATUS_PROCESSED)
+                        .pendingCompletedRounds(0)
+                        .lastBuiltAt(now)
+                        .updateTime(now)
+                        .build(),
+                QueryWrapper.create()
+                        .eq("userId", userId)
+                        .eq("conversationId", conversationId.trim())
+                        .eq("isDelete", 0)
+        );
     }
-
-    private void mergeInto(UserLongTermMemoryDoc target, UserLongTermMemoryDoc incoming) {
-        target.setConfidence(max(target.getConfidence(), incoming.getConfidence()));
-        target.setImportance(max(target.getImportance(), incoming.getImportance()));
-        target.setUpdatedAt(max(target.getUpdatedAt(), incoming.getUpdatedAt()));
-
-        Set<String> conversationIds = new LinkedHashSet<>();
-        if (target.getSourceConversationIds() != null) {
-            conversationIds.addAll(target.getSourceConversationIds());
-        }
-        if (incoming.getSourceConversationIds() != null) {
-            conversationIds.addAll(incoming.getSourceConversationIds());
-        }
-        target.setSourceConversationIds(new ArrayList<>(conversationIds));
-
-        Set<Long> historyIds = new LinkedHashSet<>();
-        if (target.getSourceHistoryIds() != null) {
-            historyIds.addAll(target.getSourceHistoryIds());
-        }
-        if (incoming.getSourceHistoryIds() != null) {
-            historyIds.addAll(incoming.getSourceHistoryIds());
-        }
-        target.setSourceHistoryIds(new ArrayList<>(historyIds));
-
-        Map<Long, String> historyConversationMap = target.getSourceConversationsByHistoryId() == null
-                ? new LinkedHashMap<>()
-                : new LinkedHashMap<>(target.getSourceConversationsByHistoryId());
-        if (incoming.getSourceConversationsByHistoryId() != null) {
-            historyConversationMap.putAll(incoming.getSourceConversationsByHistoryId());
-        }
-        target.setSourceConversationsByHistoryId(historyConversationMap);
-    }
-
-    private Double max(Double left, Double right) {
-        if (left == null) {
-            return right;
-        }
-        if (right == null) {
-            return left;
-        }
-        return Math.max(left, right);
-    }
-
-    private LocalDateTime max(LocalDateTime left, LocalDateTime right) {
-        if (left == null) {
-            return right;
-        }
-        if (right == null) {
-            return left;
-        }
-        return left.isAfter(right) ? left : right;
-    }
-
 }

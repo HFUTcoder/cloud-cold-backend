@@ -81,6 +81,61 @@ create table if not exists user_conversation_relation
     index idx_conversationId_isDelete (conversationId, isDelete)
 ) comment '用户会话关联表' collate = utf8mb4_unicode_ci;
 
+create table if not exists user_long_term_memory
+(
+    id                   bigint auto_increment comment '主键 id' primary key,
+    memoryId             varchar(128)                         not null comment '长期记忆 id',
+    userId               bigint                               not null comment '用户 id',
+    memoryType           varchar(64)                          not null comment '记忆类型',
+    title                varchar(255)                         null comment '标题',
+    content              text                                 not null comment '记忆内容',
+    summary              varchar(255)                         null comment '摘要',
+    confidence           double                               null comment '置信度',
+    importance           double                               null comment '重要度',
+    originConversationId varchar(64)                          null comment '来源会话 id',
+    status               varchar(32)                          not null comment '状态：ACTIVE/DELETED',
+    version              int        default 1                 not null comment '版本号',
+    lastRetrievedAt      datetime                             null comment '最近召回时间',
+    lastReinforcedAt     datetime                             null comment '最近强化时间',
+    createTime           datetime   default CURRENT_TIMESTAMP not null comment '创建时间',
+    updateTime           datetime   default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    isDelete             tinyint    default 0                 not null comment '是否删除',
+    unique key uk_memoryId (memoryId),
+    index idx_userId_status_isDelete (userId, status, isDelete),
+    index idx_originConversationId_isDelete (originConversationId, isDelete)
+) comment '用户长期记忆表' collate = utf8mb4_unicode_ci;
+
+create table if not exists user_long_term_memory_source_relation
+(
+    id             bigint auto_increment comment '主键 id' primary key,
+    memoryId       varchar(128)                         not null comment '长期记忆 id',
+    userId         bigint                               not null comment '用户 id',
+    conversationId varchar(64)                          null comment '来源会话 id',
+    historyId      bigint                               null comment '来源聊天记录 id',
+    createTime     datetime   default CURRENT_TIMESTAMP not null comment '创建时间',
+    updateTime     datetime   default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    isDelete       tinyint    default 0                 not null comment '是否删除',
+    index idx_memoryId_isDelete (memoryId, isDelete),
+    index idx_userId_historyId_isDelete (userId, historyId, isDelete),
+    index idx_conversationId_isDelete (conversationId, isDelete)
+) comment '用户长期记忆来源关系表' collate = utf8mb4_unicode_ci;
+
+create table if not exists user_long_term_memory_conversation_state
+(
+    id                     bigint auto_increment comment '主键 id' primary key,
+    userId                 bigint                               not null comment '用户 id',
+    conversationId         varchar(64)                          not null comment '会话 id',
+    status                 varchar(32)                          not null comment '状态：PROCESSED/UNPROCESSED',
+    pendingCompletedRounds int        default 0                 not null comment '已完成但未处理的完整对话轮数',
+    lastBuiltAt            datetime                             null comment '最近一次处理时间',
+    createTime             datetime   default CURRENT_TIMESTAMP not null comment '创建时间',
+    updateTime             datetime   default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    isDelete               tinyint    default 0                 not null comment '是否删除',
+    unique key uk_userId_conversationId_memoryState (userId, conversationId),
+    index idx_status_isDelete (status, isDelete),
+    index idx_userId_status_isDelete (userId, status, isDelete)
+) comment '长期记忆会话处理状态表' collate = utf8mb4_unicode_ci;
+
 create table if not exists conversation_skill_relation
 (
     id             bigint auto_increment comment '主键 id' primary key,

@@ -33,6 +33,8 @@ public class UserLongTermMemoryDoc {
 
     private Double importance;
 
+    private String originConversationId;
+
     private List<String> sourceConversationIds;
 
     private List<Long> sourceHistoryIds;

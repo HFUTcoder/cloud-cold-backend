@@ -8,7 +8,7 @@ public interface UserLongTermMemoryStore {
 
     void ensureIndexes();
 
-    void replaceAll(Long userId, List<UserLongTermMemoryDoc> memories) throws Exception;
+    void addMemories(Long userId, List<UserLongTermMemoryDoc> memories) throws Exception;
 
     List<UserLongTermMemoryDoc> listByUserId(Long userId, int size) throws Exception;
 
@@ -17,4 +17,6 @@ public interface UserLongTermMemoryStore {
     void deleteById(Long userId, String memoryId) throws Exception;
 
     void deleteByUserId(Long userId) throws Exception;
+
+    void deleteByConversationId(Long userId, String conversationId) throws Exception;
 }

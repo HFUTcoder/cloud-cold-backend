@@ -16,7 +16,7 @@ public class UserPetStateVO {
 
     private int memoryCount;
 
-    private int pendingRounds;
+    private int pendingConversationCount;
 
     private LocalDateTime lastLearnedAt;
 

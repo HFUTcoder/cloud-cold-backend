@@ -18,8 +18,8 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Table(value = "user_long_term_memory", camelToUnderline = false)
-public class UserLongTermMemory implements Serializable {
+@Table(value = "user_long_term_memory_conversation_state", camelToUnderline = false)
+public class UserLongTermMemoryConversationState implements Serializable {
 
     @Serial
     private static final long serialVersionUID = 1L;
@@ -27,31 +27,15 @@ public class UserLongTermMemory implements Serializable {
     @Id(keyType = KeyType.Generator, value = KeyGenerators.snowFlakeId)
     private Long id;
 
-    private String memoryId;
-
     private Long userId;
 
-    private String memoryType;
-
-    private String title;
-
-    private String content;
-
-    private String summary;
-
-    private Double confidence;
-
-    private Double importance;
-
-    private String originConversationId;
+    private String conversationId;
 
     private String status;
 
-    private Integer version;
+    private Integer pendingCompletedRounds;
 
-    private LocalDateTime lastRetrievedAt;
-
-    private LocalDateTime lastReinforcedAt;
+    private LocalDateTime lastBuiltAt;
 
     private LocalDateTime createTime;
 
