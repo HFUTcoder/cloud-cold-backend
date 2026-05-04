@@ -16,6 +16,8 @@ public interface UserLongTermMemoryMetadataService {
 
     Map<String, UserLongTermMemory> mapActiveByMemoryIds(Long userId, List<String> memoryIds);
 
+    Map<String, UserLongTermMemoryDoc> mapActiveDocsByMemoryIds(Long userId, List<String> memoryIds);
+
     Map<String, List<UserLongTermMemorySourceRelation>> mapSourcesByMemoryIds(List<String> memoryIds);
 
     void markRetrieved(Long userId, List<String> memoryIds);

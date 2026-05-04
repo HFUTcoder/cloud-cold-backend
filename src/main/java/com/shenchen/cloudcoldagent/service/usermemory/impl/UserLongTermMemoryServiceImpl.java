@@ -234,16 +234,11 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         }
         try {
             List<UserLongTermMemoryDoc> docs = userLongTermMemoryStore.similaritySearch(userId, question, topK);
-            List<String> candidateIds = docs.stream()
-                    .map(UserLongTermMemoryDoc::getId)
-                    .filter(StringUtils::isNotBlank)
+            List<UserLongTermMemoryDoc> validDocs = docs.stream()
+                    .filter(Objects::nonNull)
                     .toList();
-            Map<String, UserLongTermMemory> activeMemoryMap = metadataService.mapActiveByMemoryIds(userId, candidateIds);
-            List<UserLongTermMemoryDoc> filteredDocs = docs.stream()
-                    .filter(doc -> doc != null && activeMemoryMap.containsKey(doc.getId()))
-                    .toList();
-            metadataService.markRetrieved(userId, filteredDocs.stream().map(UserLongTermMemoryDoc::getId).toList());
-            return deduplicateMemories(filteredDocs);
+            metadataService.markRetrieved(userId, validDocs.stream().map(UserLongTermMemoryDoc::getId).toList());
+            return validDocs;
         } catch (Exception e) {
             log.warn("检索长期记忆失败，userId={}, message={}", userId, e.getMessage(), e);
             return List.of();
@@ -452,21 +447,6 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
-    }
-
-    private List<UserLongTermMemoryDoc> deduplicateMemories(List<UserLongTermMemoryDoc> docs) {
-        if (docs == null || docs.isEmpty()) {
-            return List.of();
-        }
-        Map<String, UserLongTermMemoryDoc> deduplicated = new LinkedHashMap<>();
-        for (UserLongTermMemoryDoc doc : docs) {
-            if (doc == null || StringUtils.isBlank(doc.getContent())) {
-                continue;
-            }
-            String key = StringUtils.defaultString(doc.getMemoryType()) + "|" + doc.getContent().trim();
-            deduplicated.putIfAbsent(key, doc);
-        }
-        return new ArrayList<>(deduplicated.values());
     }
 
     private UserLongTermMemoryVO toVO(UserLongTermMemory memory,

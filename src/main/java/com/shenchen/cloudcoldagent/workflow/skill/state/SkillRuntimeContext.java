@@ -1,22 +1,24 @@
 package com.shenchen.cloudcoldagent.workflow.skill.state;
 
+import com.shenchen.cloudcoldagent.model.vo.SkillResourceListVO;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
-import java.util.List;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class SkillWorkflowResult implements Serializable {
+public class SkillRuntimeContext implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
-    private List<String> selectedSkills;
+    private String skillName;
 
-    private List<SkillRuntimeContext> selectedSkillContexts;
+    private String content;
+
+    private SkillResourceListVO resourceList;
 }

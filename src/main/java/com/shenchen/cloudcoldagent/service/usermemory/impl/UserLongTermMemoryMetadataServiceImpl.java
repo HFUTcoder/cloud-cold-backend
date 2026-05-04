@@ -127,6 +127,61 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
     }
 
     @Override
+    public Map<String, UserLongTermMemoryDoc> mapActiveDocsByMemoryIds(Long userId, List<String> memoryIds) {
+        if (userId == null || userId <= 0 || memoryIds == null || memoryIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, UserLongTermMemory> memoryMap = mapActiveByMemoryIds(userId, memoryIds);
+        if (memoryMap.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, List<UserLongTermMemorySourceRelation>> sourceMap = mapSourcesByMemoryIds(new ArrayList<>(memoryMap.keySet()));
+        Map<String, UserLongTermMemoryDoc> result = new LinkedHashMap<>();
+        for (String memoryId : memoryIds) {
+            UserLongTermMemory memory = memoryMap.get(memoryId);
+            if (memory == null || StringUtils.isBlank(memory.getMemoryId())) {
+                continue;
+            }
+            List<UserLongTermMemorySourceRelation> relations = sourceMap.getOrDefault(memory.getMemoryId(), List.of());
+            List<Long> sourceHistoryIds = relations.stream()
+                    .map(UserLongTermMemorySourceRelation::getHistoryId)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .toList();
+            List<String> sourceConversationIds = relations.stream()
+                    .map(UserLongTermMemorySourceRelation::getConversationId)
+                    .filter(StringUtils::isNotBlank)
+                    .distinct()
+                    .toList();
+            Map<Long, String> sourceConversationsByHistoryId = new LinkedHashMap<>();
+            for (UserLongTermMemorySourceRelation relation : relations) {
+                if (relation == null || relation.getHistoryId() == null || StringUtils.isBlank(relation.getConversationId())) {
+                    continue;
+                }
+                sourceConversationsByHistoryId.put(relation.getHistoryId(), relation.getConversationId());
+            }
+            result.put(memory.getMemoryId(), UserLongTermMemoryDoc.builder()
+                    .id(memory.getMemoryId())
+                    .userId(memory.getUserId())
+                    .memoryType(memory.getMemoryType())
+                    .title(memory.getTitle())
+                    .content(memory.getContent())
+                    .summary(memory.getSummary())
+                    .embeddingText(memory.getContent())
+                    .confidence(memory.getConfidence())
+                    .importance(memory.getImportance())
+                    .originConversationId(memory.getOriginConversationId())
+                    .sourceConversationIds(sourceConversationIds)
+                    .sourceHistoryIds(sourceHistoryIds)
+                    .sourceConversationsByHistoryId(sourceConversationsByHistoryId)
+                    .createdAt(memory.getCreateTime())
+                    .updatedAt(memory.getUpdateTime())
+                    .build());
+        }
+        return result;
+    }
+
+    @Override
     public Map<String, List<UserLongTermMemorySourceRelation>> mapSourcesByMemoryIds(List<String> memoryIds) {
         if (memoryIds == null || memoryIds.isEmpty()) {
             return Map.of();

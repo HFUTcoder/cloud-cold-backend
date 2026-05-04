@@ -4,9 +4,9 @@ import com.alibaba.cloud.ai.graph.CompiledGraph;
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shenchen.cloudcoldagent.workflow.skill.service.SkillWorkflowService;
-import com.shenchen.cloudcoldagent.workflow.skill.state.SkillExecutionPlan;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillWorkflowResult;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillWorkflowStateKeys;
+import com.shenchen.cloudcoldagent.workflow.skill.state.SkillRuntimeContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -41,29 +41,25 @@ public class SkillWorkflowServiceImpl implements SkillWorkflowService {
             List<String> selectedSkills = normalizeStringList(
                     finalState.value(SkillWorkflowStateKeys.SELECTED_SKILLS).orElse(List.of())
             );
-            List<SkillExecutionPlan> executionPlans = normalizeExecutionPlans(
-                    finalState.value(SkillWorkflowStateKeys.EXECUTION_PLANS).orElse(List.of())
+            List<SkillRuntimeContext> selectedSkillContexts = normalizeSkillRuntimeContexts(
+                    finalState.value(SkillWorkflowStateKeys.SKILL_RUNTIME_CONTEXTS).orElse(List.of())
             );
-            String enhancedQuestion = (String) finalState.value(SkillWorkflowStateKeys.ENHANCED_QUESTION)
-                    .orElse(question);
 
             SkillWorkflowResult result = SkillWorkflowResult.builder()
                     .selectedSkills(selectedSkills)
-                    .executionPlans(executionPlans)
-                    .enhancedQuestion(enhancedQuestion)
+                    .selectedSkillContexts(selectedSkillContexts)
                     .build();
-            log.info("skill workflow 预处理完成，conversationId={}, selectedSkills={}, planSummary={}",
+            log.info("skill workflow 预处理完成，conversationId={}, selectedSkills={}, selectedSkillContextCount={}",
                     conversationId,
                     selectedSkills,
-                    summarizePlans(executionPlans));
+                    selectedSkillContexts.size());
             return result;
         } catch (Exception ex) {
             log.warn("skill workflow 预处理失败，回退原始问题。conversationId={}, message={}",
                     conversationId, ex.getMessage(), ex);
             return SkillWorkflowResult.builder()
                     .selectedSkills(List.of())
-                    .executionPlans(List.of())
-                    .enhancedQuestion(question)
+                    .selectedSkillContexts(List.of())
                     .build();
         }
     }
@@ -85,33 +81,17 @@ public class SkillWorkflowServiceImpl implements SkillWorkflowService {
         return normalized;
     }
 
-    private List<SkillExecutionPlan> normalizeExecutionPlans(Object rawValue) {
+    private List<SkillRuntimeContext> normalizeSkillRuntimeContexts(Object rawValue) {
         if (!(rawValue instanceof List<?> rawList) || rawList.isEmpty()) {
             return List.of();
         }
-        List<SkillExecutionPlan> normalized = new ArrayList<>(rawList.size());
+        List<SkillRuntimeContext> normalized = new ArrayList<>(rawList.size());
         for (Object item : rawList) {
             if (item == null) {
                 continue;
             }
-            normalized.add(objectMapper.convertValue(item, SkillExecutionPlan.class));
+            normalized.add(objectMapper.convertValue(item, SkillRuntimeContext.class));
         }
         return normalized;
-    }
-
-    private String summarizePlans(List<SkillExecutionPlan> executionPlans) {
-        if (executionPlans == null || executionPlans.isEmpty()) {
-            return "plans=0";
-        }
-        return executionPlans.stream()
-                .filter(plan -> plan != null && plan.getSkillName() != null)
-                .map(plan -> "%s[selected=%s, executable=%s, blockingReason=%s, tool=%s]".formatted(
-                        plan.getSkillName(),
-                        Boolean.TRUE.equals(plan.getSelected()),
-                        Boolean.TRUE.equals(plan.getExecutable()),
-                        plan.getBlockingReason() == null ? "-" : plan.getBlockingReason(),
-                        plan.getToolCallPlan() == null ? "-" : plan.getToolCallPlan().getToolName()))
-                .reduce((left, right) -> left + "; " + right)
-                .orElse("plans=0");
     }
 }

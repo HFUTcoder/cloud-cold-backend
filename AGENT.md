@@ -1,15 +1,16 @@
 # AGENT.md
 
-本文件面向 Claude Code、Codex、Cursor、Windsurf 等 AI 编程工具，目标是让新的 AI 工具进入 `cloud-cold-agent` 仓库后，能按当前真实实现建立上下文，而不是根据依赖名、目录名或历史习惯做过度推断。
+本文件面向 Claude Code、Codex、Cursor 等 AI 编程工具。目标不是重复 README，而是帮助新的 AI 工具快速建立“这个仓库真实怎么工作”的上下文，避免只看依赖名、目录名或脚手架习惯做错误推断。
 
 ## 1. 项目定位
 
-`cloud-cold-agent` 是 `cloud-cold-frontend` 的后端项目。当前主线只有四条：
+`cloud-cold-agent` 是 `cloud-cold-frontend` 的后端项目。当前主线不是“泛 Spring Boot 管理后台”，而是下面 5 条能力的组合：
 
 - 会话式 AI Agent 对话
 - Skill 工作流预处理与脚本执行
 - HITL 人工审批与恢复执行
-- 知识库 PDF 入库、索引、检索
+- 知识库 PDF 入库、检索、图片回显
+- 用户长期记忆 / 宠物记忆
 
 ## 2. 必须先知道的事实
 
@@ -25,6 +26,7 @@
 - `/document/upload|get|preview-url|delete|list/by/knowledge`
 - `/user/register|login|get/login|logout`
 - `/skill/list`
+- `/userMemory/*`
 
 更偏调试、底层或历史保留的接口包括：
 
@@ -94,8 +96,8 @@
 
 - `PdfMultimodalProcessor` 提取正文文本
 - 同时抽取 PDF 图片，调用多模态模型生成描述
-- 正文文本会走 `TEXT` chunk
-- 图片描述会在 `KnowledgeService.buildImageDescriptionChunks(...)` 中单独生成 `IMAGE_DESCRIPTION` chunk
+- 正文文本走 `TEXT` chunk
+- 图片描述在 `KnowledgeService.buildImageDescriptionChunks(...)` 中单独生成 `IMAGE_DESCRIPTION` chunk
 - 最后统一写入关键词索引和向量索引
 
 因此你修改入库链时，不能只盯：
@@ -110,7 +112,21 @@
 - `knowledge_document_image`
 - `IMAGE_DESCRIPTION` chunk
 
-### 2.6 Web 层把 `Long` 统一序列化成字符串
+### 2.6 `POST /document/upload` 当前是同步入库，不是异步任务
+
+这一点很重要，因为很多人看到“上传 + 索引状态字段”会下意识以为这是后台异步任务。
+
+当前真实行为是：
+
+- `KnowledgeDocumentIngestionServiceImpl.uploadDocument(...)` 在单次请求里完成上传、解析、抽图、建索引、状态更新
+- 接口返回时，文档已经进入 `INDEXED` 或 `FAILED`
+
+所以：
+
+- 不要把它当成任务队列来写文档
+- 不要在前端或测试里默认“上传成功后再轮询状态”
+
+### 2.7 Web 层把 `Long` 统一序列化成字符串
 
 `config/WebConfig.java` 对 `Long` / `long` 做了统一 `ToStringSerializer`。
 
@@ -122,7 +138,7 @@
 
 如果你修改这个行为，必须把它视为前后端契约级改动。
 
-### 2.7 当前前端只暴露两个模式
+### 2.8 当前前端只暴露两个模式
 
 后端支持：
 
@@ -140,7 +156,7 @@
 - 不要把“前端没看到 `expert`”误判为“后端已删除 `expert`”
 - 也不要在文档里写“当前前端支持 `expert` 切换”
 
-### 2.8 当前前端 UI 只支持单 Skill 绑定，但后端底层支持多 Skill
+### 2.9 当前前端 UI 只支持单 Skill 绑定，但后端底层支持多 Skill
 
 后端会话字段是：
 
@@ -158,7 +174,7 @@
 - 后端底层能力
 - 前端当前实际 UI 能力
 
-### 2.9 聊天历史只持久化最终回答，不持久化思考过程
+### 2.10 聊天历史只持久化最终回答，不持久化思考过程
 
 当前历史消息回放来源是：
 
@@ -177,7 +193,39 @@
 
 不要把前端实时展示的 thinking 区，误判成已经落库的长期历史。
 
-### 2.10 当前存在一些未统一加鉴权的接口
+### 2.11 长期记忆已经接入主链路，不是孤立模块
+
+这是当前仓库最容易被低估的一条能力。
+
+真实情况是：
+
+- 对话前会做长期记忆召回，产出运行时 prompt
+- 助手回答持久化后会累计待处理轮次
+- 达到阈值后会异步整理长期记忆
+- 每小时还有一个定时任务兜底处理待整理会话
+- 前端已经有 `PetMemoryWidget.vue` 接 `/userMemory/*`
+
+所以：
+
+- 不要把 `service/usermemory/*` 当成未接入实验代码
+- 也不要在 README / AGENT 里漏掉这条主线
+
+### 2.12 配置类默认值和当前运行值不完全相同
+
+有些 `@ConfigurationProperties` 类的默认值，与仓库当前 `application.yml` 的运行值并不一致。
+
+例如：
+
+- `SearchProperties.mock.enabled` 代码默认是 `false`，当前运行值是 `true`
+- `LongTermMemoryProperties.triggerRounds` 代码默认是 `6`，当前运行值是 `5`
+- `LongTermMemoryProperties.defaultPetName` 代码默认是 `小冷`，当前运行值是 `小云`
+
+因此：
+
+- 描述当前行为时优先以 `application.yml` 为准
+- 讨论“框架默认值”时再回看配置类
+
+### 2.13 当前存在一些未统一加鉴权的接口
 
 这些接口当前没有显式 `@AuthCheck`：
 
@@ -203,15 +251,18 @@
 - 默认 Profile：`local`
 - 应用入口：`src/main/java/com/shenchen/cloudcoldagent/CloudColdAgentApplication.java`
 - 根包名：`com.shenchen.cloudcoldagent`
+- 应用启用了 `@EnableScheduling`
 
 ## 4. 基础设施与配置
 
 ### 4.1 当前依赖的基础设施
 
-- MySQL：用户、会话、聊天记忆、HITL、知识库、文档元数据
-- Redis：Spring Session 登录态
+- MySQL：用户、会话、聊天记忆、HITL、知识库、文档元数据、长期记忆
+- Redis：Spring Session、长期记忆宠物元数据
 - Elasticsearch：关键词索引 `rag_docs`
 - Elasticsearch Vector Store：向量索引 `rag_docs_vector`
+- 长期记忆关键词索引：`user_long_term_memory_docs`
+- 长期记忆向量索引：`user_long_term_memory_vector`
 - MinIO：原始文档与 PDF 中提取的图片
 - OpenAI 兼容模型：
   - 聊天模型
@@ -231,12 +282,13 @@
 - `cloudcold.search.mock.*`
 - `cloudcold.hitl.*`
 - `cloudcold.pdf.multimodal.*`
+- `cloudcold.long-term-memory.*`
 
 ### 4.3 与当前实现强绑定的配置事实
 
-- `cloudcold.search.mock.enabled=true` 是默认值
-- `cloudcold.hitl.enabled=true` 是默认值
-- 默认只拦截 `execute_skill_script`
+- `cloudcold.search.mock.enabled=true` 是当前仓库运行值
+- `cloudcold.hitl.enabled=true` 是当前仓库运行值
+- 当前默认只拦截 `execute_skill_script`
 - MinIO bucket 不存在时会自动创建
 - MinIO bucket 会被设置成公共读
 
@@ -247,7 +299,7 @@
 - `controller/AgentController.java`
   - `/agent/call` 和 `/agent/resume` 的 SSE 出口
 - `service/impl/AgentServiceImpl.java`
-  - Agent 总编排、模式路由、Skill 预处理、知识库预处理、HITL resume 入口
+  - Agent 总编排、模式路由、Skill 预处理、知识库预处理、长期记忆预处理、HITL resume 入口
 - `agent/SimpleReactAgent.java`
   - `fast` 模式实现
 - `agent/PlanExecuteAgent.java`
@@ -258,18 +310,22 @@
   - Skill 预处理入口
 - `service/impl/KnowledgePreprocessServiceImpl.java`
   - 会话绑定知识库后的预检索与增强问题构造
-- `service/impl/HitlCheckpointServiceImpl.java`
-  - checkpoint 创建、查询、resolve
-- `service/impl/HitlResumeServiceImpl.java`
-  - 人工审批后恢复执行
 - `service/impl/KnowledgeDocumentIngestionServiceImpl.java`
   - 文档上传、MinIO、入库状态推进
 - `service/impl/KnowledgeServiceImpl.java`
   - 文档切分、图片描述 chunk、关键词检索、向量检索、混合检索
 - `document/extract/reader/PdfMultimodalProcessor.java`
   - 当前唯一文档读取策略
+- `service/usermemory/impl/UserLongTermMemoryServiceImpl.java`
+  - 长期记忆写入、召回、重建、宠物状态
+- `service/usermemory/impl/UserLongTermMemoryPreprocessServiceImpl.java`
+  - 对话前长期记忆召回
+- `job/UserLongTermMemoryScheduler.java`
+  - 整点处理长期记忆
 - `config/ToolRegistrationConfig.java`
   - Agent 实际工具池注册点
+- `config/SkillConfig.java`
+  - 本地 Skill 目录加载
 - `config/WebConfig.java`
   - `Long -> string` 序列化
 
@@ -289,6 +345,8 @@
   - 聊天记忆 MySQL 持久化
 - `document/`
   - 文档解析、清洗、切分、向量存储
+- `service/usermemory/`
+  - 长期记忆与宠物记忆
 - `config/properties/`
   - `@ConfigurationProperties`
 
@@ -301,8 +359,9 @@
 3. `SimpleReactAgent` 或 `PlanExecuteAgent`
 4. `SkillWorkflowServiceImpl`
 5. `KnowledgePreprocessServiceImpl`
-6. `HitlCheckpointServiceImpl` / `HitlResumeServiceImpl`
-7. `ToolRegistrationConfig`
+6. `UserLongTermMemoryPreprocessServiceImpl`
+7. `HitlCheckpointServiceImpl` / `HitlResumeServiceImpl`
+8. `ToolRegistrationConfig`
 
 ### 6.2 看知识库 / 文档问题
 
@@ -319,6 +378,15 @@
 2. `AuthInterceptor`
 3. `ChatConversationController` / `ChatConversationServiceImpl`
 4. `ChatMemoryHistoryController` / `ChatMemoryHistoryServiceImpl`
+5. `MysqlChatMemoryRepository`
+
+### 6.4 看长期记忆 / 宠物记忆问题
+
+1. `UserLongTermMemoryController`
+2. `UserLongTermMemoryServiceImpl`
+3. `UserLongTermMemoryPreprocessServiceImpl`
+4. `UserLongTermMemoryStoreImpl`
+5. `UserLongTermMemoryScheduler`
 
 ## 7. 当前主链路
 
@@ -334,9 +402,10 @@
 6. `generateTitleOnFirstMessage(...)`
 7. Skill 工作流预处理
 8. 知识库预检索预处理
-9. Skill 缺参阻塞时直接返回 `final_answer`
-10. 按模式路由到具体 Agent
-11. SSE 持续输出
+9. 长期记忆预处理
+10. Skill 缺参阻塞时直接返回 `final_answer`
+11. 按模式路由到具体 Agent
+12. SSE 持续输出
 
 额外事实：
 
@@ -384,6 +453,17 @@
 11. 写向量索引
 12. `INDEXED` 或 `FAILED`
 
+### 7.5 长期记忆
+
+当前顺序是：
+
+1. 对话前召回相关记忆
+2. 生成运行时 prompt 注入 Agent
+3. 助手回答落库后累计待处理轮次
+4. 达到阈值后异步触发处理
+5. 整点任务兜底处理遗漏会话
+6. 前端宠物组件读取状态、展示摘要、支持手动重建
+
 ## 8. 开发规范与修改原则
 
 ### 8.1 依赖注入与代码风格
@@ -392,7 +472,7 @@
 - 不要重新引入字段注入
 - 不要把复杂业务逻辑塞进 Controller
 - DTO / VO / Entity / Record 继续沿用现有目录分层
-- 日志统一走 `Slf4j`；不要用 `System.out.println`
+- 日志统一走 `Slf4j`
 
 ### 8.2 数据访问规范
 
@@ -412,6 +492,7 @@
 - 会话绑定知识库字段
 - `Long -> string` 序列化策略
 - HITL payload 结构
+- 长期记忆 / 宠物状态结构
 
 ### 8.4 Tool 相关规则
 
@@ -424,6 +505,7 @@
 - 当前 Skill 预处理统一走 `workflow/skill/*`
 - 不要在 Controller 或 Agent 里手写一套绕过工作流的 Skill 识别逻辑
 - `execute_skill_script` 当前是最重要的 Skill 执行入口，也是默认 HITL 拦截点
+- `SkillConfig` 当前从文件系统 `src/main/resources/skills` 加载本地 Skill，这对启动方式有真实约束
 
 ### 8.6 知识库 / 文档相关规则
 
@@ -438,7 +520,17 @@
 - 删除逻辑不能只删数据库
 - 如果改知识库问答效果，优先看 `KnowledgePreprocessServiceImpl`，不是只看 Agent tools
 
-### 8.7 登录与权限规则
+### 8.7 长期记忆相关规则
+
+- 对话前记忆召回入口在 `UserLongTermMemoryPreprocessServiceImpl`
+- 对话后记忆累计触发入口在 `MysqlChatMemoryRepository`
+- 不要手动在 Controller 层补一套长期记忆触发逻辑
+- 如果改长期记忆 prompt 或阈值，要同时核对：
+  - `application.yml`
+  - `LongTermMemoryProperties`
+  - 前端宠物状态展示
+
+### 8.8 登录与权限规则
 
 - 主业务接口大多依赖 `@AuthCheck`
 - 登录态来自 `HttpSession + Redis`
@@ -451,10 +543,13 @@
 - 不要把仓库里的 RAG tool，误判成当前知识库主链依赖
 - 不要把依赖里的 Tika / PDF Reader 当成“已经支持多格式文档”
 - 不要把 PDF 图片描述误写成“已经直接混入正文统一切块”
+- 不要把文档上传当成异步任务队列
 - 不要忽略 `Long` 被序列化成字符串这件事
 - 不要把前端的单 Skill UI，误判成后端只能绑定一个 Skill
 - 不要把前端没暴露 `expert`，误写成后端也没有 `expert`
+- 不要把长期记忆模块当成未接入实验代码
 - 不要在没同步前端的情况下修改 SSE 协议
+- 不要假设打成 JAR 后 Skill 加载还能天然工作
 
 ## 10. 你准备修改前，最好先确认这几个问题
 
@@ -463,3 +558,5 @@
 3. 这次改动是不是默认假设了“知识库问答靠主工具调用”，但当前其实是服务层预处理？
 4. 这次改动会不会导致 MySQL、ES、MinIO 三者状态不一致？
 5. 这次改动是否改变了 `Long -> string` 的 Web 返回行为？
+6. 这次改动会不会影响长期记忆召回、重建阈值或宠物状态展示？
+7. 如果你改了启动方式或部署方式，`src/main/resources/skills` 的本地文件加载还成立吗？

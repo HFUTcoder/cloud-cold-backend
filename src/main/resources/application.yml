@@ -1,37 +1,34 @@
 spring:
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:local}
+    active: local
   application:
     name: cloud-cold-agent
   servlet:
     multipart:
       enabled: true
-      max-file-size: ${cloudcold.upload.max-file-size}
-      max-request-size: ${cloudcold.upload.max-request-size}
+      max-file-size: 100MB
+      max-request-size: 100MB
   ai:
     openai:
-      base-url: ${SPRING_AI_OPENAI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/}
-      api-key: ${SPRING_AI_OPENAI_API_KEY:please-set-openai-api-key}
+      base-url: https://dashscope.aliyuncs.com/compatible-mode/
       chat:
         options:
-          model: ${SPRING_AI_OPENAI_CHAT_MODEL:qwen-turbo}
-          temperature: ${SPRING_AI_OPENAI_CHAT_TEMPERATURE:0.7}
-          maxTokens: ${SPRING_AI_OPENAI_CHAT_MAX_TOKENS:5000}
+          model: qwen-turbo
+          temperature: 0.7
+          maxTokens: 5000
       embedding:
-        base-url: ${SPRING_AI_OPENAI_EMBEDDING_BASE_URL:${spring.ai.openai.base-url}}
-        api-key: ${SPRING_AI_OPENAI_EMBEDDING_API_KEY:${spring.ai.openai.api-key}}
+        base-url: https://dashscope.aliyuncs.com/compatible-mode/
         options:
-          dimensions: ${SPRING_AI_OPENAI_EMBEDDING_DIMENSIONS:1536}
-          model: ${SPRING_AI_OPENAI_EMBEDDING_MODEL:text-embedding-v4}
+          dimensions: 1536
+          model: text-embedding-v4
     alibaba:
       python:
         tool:
           enabled: true
       toolcalling:
         tavilysearch:
-          enabled: ${SPRING_AI_ALIBABA_TOOLCALLING_TAVILYSEARCH_ENABLED:false}
-          api-key: ${SPRING_AI_ALIBABA_TOOLCALLING_TAVILYSEARCH_API_KEY:}
-          network-timeout: ${SPRING_AI_ALIBABA_TOOLCALLING_TAVILYSEARCH_NETWORK_TIMEOUT:10000}
+          enabled: false
+          network-timeout: 10000
     vectorstore:
       elasticsearch:
         initialize-schema: true
@@ -40,23 +37,21 @@ spring:
         similarity: cosine
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/cloud_cold}
-    username: ${SPRING_DATASOURCE_USERNAME:root}
-    password: ${SPRING_DATASOURCE_PASSWORD:1234}
+    url: jdbc:mysql://localhost:3306/cloud_cold
+    username: root
+    password: 1234
   session:
     store-type: redis
     timeout: 2592000
   data:
     redis:
-      host: ${SPRING_DATA_REDIS_HOST:localhost}
-      port: ${SPRING_DATA_REDIS_PORT:6379}
-      database: ${SPRING_DATA_REDIS_DATABASE:0}
-      timeout: ${SPRING_DATA_REDIS_TIMEOUT:5s}
+      host: localhost
+      port: 6379
+      database: 0
+      timeout: 5s
   elasticsearch:
-    uris: ${SPRING_ELASTICSEARCH_URIS:http://localhost:9200}
-    username: ${SPRING_ELASTICSEARCH_USERNAME:}
-    password: ${SPRING_ELASTICSEARCH_PASSWORD:}
-    insecure: ${SPRING_ELASTICSEARCH_INSECURE:false}
+    uris: http://localhost:9200
+    insecure: false
 
 server:
   port: 8081
@@ -82,10 +77,10 @@ mybatis-flex:
     map-underscore-to-camel-case: false
 
 minio:
-  endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
-  accessKey: ${MINIO_ACCESS_KEY:minioadmin}
-  secretKey: ${MINIO_SECRET_KEY:minioadmin}
-  bucketName: ${MINIO_BUCKET_NAME:cloud-cold}
+  endpoint: http://localhost:9000
+  accessKey: minioadmin
+  secretKey: minioadmin
+  bucketName: cloud-cold
 
 cloudcold:
   upload:
@@ -96,8 +91,7 @@ cloudcold:
       enabled: true
   pdf:
     multimodal:
-      api-key: ${spring.ai.openai.api-key:}
-      base-url: ${spring.ai.openai.base-url:}
+      base-url: https://dashscope.aliyuncs.com/compatible-mode/
       model: qwen3-vl-plus
       temperature: 0.2
   hitl:
@@ -108,6 +102,7 @@ cloudcold:
     enabled: true
     trigger-rounds: 5
     retrieve-top-k: 5
+    similarity-threshold: 0.5
     max-prompt-memories: 4
     max-memory-chars: 400
     default-pet-name: 小云

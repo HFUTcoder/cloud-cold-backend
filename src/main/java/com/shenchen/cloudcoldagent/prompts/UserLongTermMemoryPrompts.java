@@ -24,11 +24,28 @@ public final class UserLongTermMemoryPrompts {
                 其中 items 是数组，每个元素包含字段：
                 memoryType,title,content,summary,confidence,importance,sourceHistoryIds
                 memoryType 只能是 USER_PROFILE、FACT、PREFERENCE。
-                content 必须简洁、稳定、可复用。
-                summary 是 30 字以内摘要。
+                title 必须是抽象后的中文短标题，不要直接照抄用户原话。
+                content 必须是完整陈述句，简洁、稳定、可复用，默认使用“用户...”开头，不能写成原始对话口吻。
+                summary 是 30 字以内摘要，必须概括记忆，不要直接复制 content。
                 confidence 和 importance 使用 0 到 1 的数字。
                 sourceHistoryIds 必须是支持这条记忆的历史消息 id 列表，只能从输入中挑选，不要编造。
                 最多输出 8 条。
+
+                记忆类型规则：
+                1. USER_PROFILE：用户的稳定身份、背景、长期设定、固定属性。
+                2. FACT：可被后续复用的客观事实、已确认结果、稳定条件。
+                3. PREFERENCE：用户相对稳定的偏好、倾向、长期需求方向、习惯性关注点。
+
+                强制约束：
+                1. PREFERENCE 禁止直接复述用户单次请求原话，尤其不能写成“帮我...”“请你...”“我要...”“给我...”这类祈使句。
+                2. 如果只是一次性任务请求，通常不要提炼成 PREFERENCE；只有当它体现出可复用的长期倾向时，才能归入 PREFERENCE。
+                3. FACT 必须尽量自包含；如果一条事实离开关键前提就无法复用，不要只保留结果本身。
+                4. 对计算结果类 FACT，优先保留“关键输入条件 + 结果 + 重要假设”的完整表述。
+                5. 禁止只保留下游派生结果而丢失上游关键事实。
+                6. 优先保留更基础、更稳定、更能支持后续推理的事实，而不是零散中间变量。
+                7. 如果多条候选记忆描述的是同一件事，优先合并成一条更完整、更可复用的记忆，避免碎片化和重复。
+                8. content 不要包含“这次对话中”“用户刚刚说”“当前问题是”这类会话临时上下文。
+                9. 如果某条信息缺少关键条件，导致无法稳定复用，则宁可不输出，也不要输出残缺记忆。
                 """;
     }
 

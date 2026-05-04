@@ -14,6 +14,5 @@ public final class SkillWorkflowStateKeys {
     public static final String SELECTED_SKILLS = "selectedSkills";
     public static final String SKILL_CONTENTS = "skillContents";
     public static final String SKILL_RESOURCES = "skillResources";
-    public static final String EXECUTION_PLANS = "executionPlans";
-    public static final String ENHANCED_QUESTION = "enhancedQuestion";
+    public static final String SKILL_RUNTIME_CONTEXTS = "skillRuntimeContexts";
 }

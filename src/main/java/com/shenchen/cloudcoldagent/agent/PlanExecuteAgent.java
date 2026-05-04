@@ -248,29 +248,20 @@ public class PlanExecuteAgent extends BaseAgent {
      * @return
      */
     public Flux<AgentStreamEvent> stream(String question) {
-        return streamInternal(null, null, question, null, question, List.of());
+        return streamInternal(null, null, question, null, question);
     }
 
     // 带会话记忆
     public Flux<AgentStreamEvent> stream(Long userId, String conversationId, String question) {
-        return streamInternal(userId, conversationId, question, null, question, List.of());
+        return streamInternal(userId, conversationId, question, null, question);
     }
 
     public Flux<AgentStreamEvent> stream(Long userId, String conversationId, String question, String runtimeSystemPrompt) {
-        return streamInternal(userId, conversationId, question, runtimeSystemPrompt, question, List.of());
+        return streamInternal(userId, conversationId, question, runtimeSystemPrompt, question);
     }
 
     public Flux<AgentStreamEvent> stream(Long userId, String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
-        return streamInternal(userId, conversationId, question, runtimeSystemPrompt, memoryQuestion, List.of());
-    }
-
-    public Flux<AgentStreamEvent> stream(Long userId,
-                                         String conversationId,
-                                         String question,
-                                         String runtimeSystemPrompt,
-                                         String memoryQuestion,
-                                         List<PlanTask> preferredPlan) {
-        return streamInternal(userId, conversationId, question, runtimeSystemPrompt, memoryQuestion, preferredPlan);
+        return streamInternal(userId, conversationId, question, runtimeSystemPrompt, memoryQuestion);
     }
 
     public Flux<AgentStreamEvent> resume(String interruptId, Long userId) {
@@ -281,11 +272,10 @@ public class PlanExecuteAgent extends BaseAgent {
                                                  String conversationId,
                                                  String question,
                                                  String runtimeSystemPrompt,
-                                                 String memoryQuestion,
-                                                 List<PlanTask> preferredPlan) {
+                                                 String memoryQuestion) {
         boolean useMemory = useMemory(conversationId);
 
-        OverAllState state = new OverAllState(userId, conversationId, question, preferredPlan);
+        OverAllState state = new OverAllState(userId, conversationId, question);
 
         if (runtimeSystemPrompt != null && !runtimeSystemPrompt.isBlank()) {
             state.add(new SystemMessage(runtimeSystemPrompt));
@@ -319,10 +309,9 @@ public class PlanExecuteAgent extends BaseAgent {
             try {
                 while (maxRounds <= 0 || state.getRound() < maxRounds) {
                     state.nextRound();
-                    log.info("开始执行 Plan-Execute 第 {} 轮，conversationId={}, preferredPlanAvailable={}",
+                    log.info("开始执行 Plan-Execute 第 {} 轮，conversationId={}",
                             state.getRound(),
-                            state.getConversationId(),
-                            !state.getPreferredPlan().isEmpty() && !state.preferredPlanConsumed);
+                            state.getConversationId());
                     emitStep(sink, state.getConversationId(), "round", "Plan-Execute Round " + state.getRound(), "开始规划与执行");
 
                     // 1.生成计划
@@ -482,7 +471,7 @@ public class PlanExecuteAgent extends BaseAgent {
 
         boolean useMemory = useMemory(conversationId);
 
-        OverAllState state = new OverAllState(userId, conversationId, question, List.of());
+        OverAllState state = new OverAllState(userId, conversationId, question);
 
         if (runtimeSystemPrompt != null && !runtimeSystemPrompt.isBlank()) {
             state.add(new SystemMessage(runtimeSystemPrompt));
@@ -506,10 +495,9 @@ public class PlanExecuteAgent extends BaseAgent {
 
         while (maxRounds <= 0 || state.getRound() < maxRounds) {
             state.nextRound();
-            log.info("开始执行 Plan-Execute 第 {} 轮，conversationId={}, preferredPlanAvailable={}",
+            log.info("开始执行 Plan-Execute 第 {} 轮，conversationId={}",
                     state.getRound(),
-                    state.getConversationId(),
-                    !state.getPreferredPlan().isEmpty() && !state.preferredPlanConsumed);
+                    state.getConversationId());
 
             List<PlanTask> plan = sanitizePlan(generatePlan(state), state);
             log.info("本轮执行计划已生成，conversationId={}, round={}, taskCount={}, summary={}",
@@ -583,11 +571,6 @@ public class PlanExecuteAgent extends BaseAgent {
     }
 
     private List<PlanTask> generatePlan(OverAllState state) {
-        List<PlanTask> preferredPlan = state == null ? List.of() : state.consumePreferredPlan();
-        if (!preferredPlan.isEmpty()) {
-            return preferredPlan;
-        }
-
         String toolDesc = renderToolDescriptions();
         BeanOutputConverter<List<PlanTask>> converter = new BeanOutputConverter<>(new ParameterizedTypeReference<>() {
         });
@@ -1007,7 +990,7 @@ public class PlanExecuteAgent extends BaseAgent {
     }
 
     private OverAllState restoreResumeState(Long userId, String conversationId, ResumeContext resumeContext) {
-        OverAllState state = new OverAllState(userId, conversationId, resumeContext.question(), List.of());
+        OverAllState state = new OverAllState(userId, conversationId, resumeContext.question());
         state.messages.addAll(resumeContext.messages() == null ? List.of() : resumeContext.messages());
         state.executedTasks.putAll(resumeContext.executedTasks() == null ? Map.of() : resumeContext.executedTasks());
         state.approvedToolNames.addAll(resumeContext.approvedToolNames() == null ? List.of() : resumeContext.approvedToolNames());
@@ -1200,44 +1183,15 @@ public class PlanExecuteAgent extends BaseAgent {
         if (task == null || StringUtils.isBlank(task.toolName())) {
             return task;
         }
-        Map<String, Object> templateArguments = findTemplateArguments(task, state);
         Map<String, Object> repairedArguments = JsonArgumentUtils.repairStructuredToolArguments(
                 task.toolName(),
                 task.arguments(),
-                templateArguments
+                Map.of()
         );
         if (Objects.equals(repairedArguments, task.arguments())) {
             return task;
         }
         return new PlanTask(task.id(), task.toolName(), repairedArguments, task.order(), task.summary());
-    }
-
-    private Map<String, Object> findTemplateArguments(PlanTask task, OverAllState state) {
-        if (task == null || state == null || state.getPreferredPlan().isEmpty()) {
-            return Map.of();
-        }
-        List<PlanTask> candidates = state.getPreferredPlan().stream()
-                .filter(Objects::nonNull)
-                .filter(candidate -> StringUtils.equals(candidate.toolName(), task.toolName()))
-                .toList();
-        if (candidates.isEmpty()) {
-            return Map.of();
-        }
-
-        if (StringUtils.isNotBlank(task.summary())) {
-            PlanTask summaryMatched = candidates.stream()
-                    .filter(candidate -> StringUtils.equals(candidate.summary(), task.summary()))
-                    .findFirst()
-                    .orElse(null);
-            if (summaryMatched != null && summaryMatched.arguments() != null) {
-                return summaryMatched.arguments();
-            }
-        }
-
-        if (candidates.size() == 1 && candidates.getFirst().arguments() != null) {
-            return candidates.getFirst().arguments();
-        }
-        return Map.of();
     }
 
     private HitlCheckpointVO createDirectToolCheckpoint(OverAllState state,
@@ -1629,18 +1583,13 @@ public class PlanExecuteAgent extends BaseAgent {
         private final List<Message> messages = new ArrayList<>();
         private final Map<String, ExecutedTaskSnapshot> executedTasks = new LinkedHashMap<>();
         private final Set<String> approvedToolNames = new LinkedHashSet<>();
-        private final List<PlanTask> preferredPlan = new ArrayList<>();
         private HitlCheckpointVO interruptedCheckpoint;
         private int round = 0;
-        private boolean preferredPlanConsumed;
 
-        public OverAllState(Long userId, String conversationId, String question, List<PlanTask> preferredPlan) {
+        public OverAllState(Long userId, String conversationId, String question) {
             this.userId = userId;
             this.question = question;
             this.conversationId = conversationId;
-            if (preferredPlan != null) {
-                this.preferredPlan.addAll(preferredPlan);
-            }
         }
 
         public void nextRound() {
@@ -1667,14 +1616,6 @@ public class PlanExecuteAgent extends BaseAgent {
 
         public boolean hasApprovedToolName(String toolName) {
             return toolName != null && approvedToolNames.contains(toolName);
-        }
-
-        public List<PlanTask> consumePreferredPlan() {
-            if (preferredPlanConsumed || preferredPlan.isEmpty()) {
-                return List.of();
-            }
-            preferredPlanConsumed = true;
-            return new ArrayList<>(preferredPlan);
         }
 
         public void setInterruptedCheckpoint(HitlCheckpointVO interruptedCheckpoint) {

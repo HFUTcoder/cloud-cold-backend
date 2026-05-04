@@ -1,11 +1,9 @@
 package com.shenchen.cloudcoldagent.service.usermemory.impl;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
-import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.Refresh;
 import co.elastic.clients.elasticsearch.core.BulkRequest;
 import co.elastic.clients.elasticsearch.core.DeleteByQueryRequest;
-import co.elastic.clients.elasticsearch.core.IndexRequest;
 import co.elastic.clients.elasticsearch.core.SearchRequest;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.indices.CreateIndexRequest;
@@ -13,6 +11,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shenchen.cloudcoldagent.config.properties.LongTermMemoryProperties;
 import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemoryDoc;
 import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryStore;
+import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryMetadataService;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.elasticsearch.client.RestClient;
@@ -39,6 +38,7 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
     private final EmbeddingModel embeddingModel;
     private final LongTermMemoryProperties properties;
     private final ObjectMapper objectMapper;
+    private final UserLongTermMemoryMetadataService metadataService;
 
     private ElasticsearchVectorStore vectorStore;
 
@@ -46,12 +46,14 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
                                        RestClient restClient,
                                        EmbeddingModel embeddingModel,
                                        LongTermMemoryProperties properties,
-                                       ObjectMapper objectMapper) {
+                                       ObjectMapper objectMapper,
+                                       UserLongTermMemoryMetadataService metadataService) {
         this.elasticsearchClient = elasticsearchClient;
         this.restClient = restClient;
         this.embeddingModel = embeddingModel;
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.metadataService = metadataService;
     }
 
     @PostConstruct
@@ -144,7 +146,7 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
         org.springframework.ai.vectorstore.SearchRequest request = org.springframework.ai.vectorstore.SearchRequest.builder()
                 .query(query)
                 .topK(topK)
-                .similarityThresholdAll()
+                .similarityThreshold(properties.getSimilarityThreshold())
                 .build();
         List<Document> recalled = vectorStore.similaritySearch(request);
         List<Document> documents = recalled == null
@@ -164,19 +166,7 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
         if (ids.isEmpty()) {
             return List.of();
         }
-        SearchRequest keywordRequest = SearchRequest.of(b -> b
-                .index(properties.getKeywordIndexName())
-                .size(ids.size())
-                .query(q -> q.bool(bool -> bool
-                        .must(m -> m.term(t -> t.field("userId").value(userId)))
-                        .must(m -> m.terms(t -> t.field("id").terms(v -> v.value(ids.stream().map(FieldValue::of).toList())))))));
-        SearchResponse<UserLongTermMemoryDoc> response = elasticsearchClient.search(keywordRequest, UserLongTermMemoryDoc.class);
-        Map<String, UserLongTermMemoryDoc> byId = new LinkedHashMap<>();
-        response.hits().hits().forEach(hit -> {
-            if (hit.source() != null && hit.id() != null) {
-                byId.put(hit.id(), hit.source());
-            }
-        });
+        Map<String, UserLongTermMemoryDoc> byId = metadataService.mapActiveDocsByMemoryIds(userId, ids);
         List<UserLongTermMemoryDoc> result = new ArrayList<>();
         for (String id : ids) {
             UserLongTermMemoryDoc memory = byId.get(id);

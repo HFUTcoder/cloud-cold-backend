@@ -2,7 +2,6 @@ package com.shenchen.cloudcoldagent.service.impl;
 
 import com.shenchen.cloudcoldagent.agent.PlanExecuteAgent;
 import com.shenchen.cloudcoldagent.agent.SimpleReactAgent;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shenchen.cloudcoldagent.common.AgentStreamEventFactory;
 import com.shenchen.cloudcoldagent.config.properties.HitlProperties;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
@@ -23,11 +22,8 @@ import com.shenchen.cloudcoldagent.service.SkillService;
 import com.shenchen.cloudcoldagent.service.UserConversationRelationService;
 import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryPreprocessService;
 import com.shenchen.cloudcoldagent.workflow.skill.service.SkillWorkflowService;
-import com.shenchen.cloudcoldagent.model.entity.record.agent.planexecute.PlanTask;
 import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemoryPreprocessResult;
-import com.shenchen.cloudcoldagent.workflow.skill.state.SkillExecutionPlan;
-import com.shenchen.cloudcoldagent.workflow.skill.state.SkillScriptExecutionRequest;
-import com.shenchen.cloudcoldagent.workflow.skill.state.SkillToolCallPlan;
+import com.shenchen.cloudcoldagent.workflow.skill.state.SkillRuntimeContext;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillWorkflowResult;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
@@ -46,10 +42,8 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -90,8 +84,6 @@ public class AgentServiceImpl implements AgentService {
 
     private final ToolCallback[] commonToolCallbacks;
 
-    private final ObjectMapper objectMapper;
-
     private List<Advisor> allAdvisors;
 
     private ChatMemory chatMemory;
@@ -114,8 +106,7 @@ public class AgentServiceImpl implements AgentService {
                             SkillService skillService,
                             UserConversationRelationService userConversationRelationService,
                             ObjectProvider<Advisor> advisorProvider,
-                            @Qualifier("commonTools") ToolCallback[] commonToolCallbacks,
-                            ObjectMapper objectMapper) {
+                            @Qualifier("commonTools") ToolCallback[] commonToolCallbacks) {
         this.openAiChatModel = openAiChatModel;
         this.chatMemoryRepository = chatMemoryRepository;
         this.chatConversationService = chatConversationService;
@@ -131,7 +122,6 @@ public class AgentServiceImpl implements AgentService {
         this.userConversationRelationService = userConversationRelationService;
         this.advisorProvider = advisorProvider;
         this.commonToolCallbacks = commonToolCallbacks;
-        this.objectMapper = objectMapper;
     }
 
     @PostConstruct
@@ -179,38 +169,29 @@ public class AgentServiceImpl implements AgentService {
         chatConversationService.generateTitleOnFirstMessage(userId, conversationId, question);
         var conversation = chatConversationService.getByConversationId(userId, conversationId);
         SkillWorkflowResult workflowResult = skillWorkflowService.preprocess(userId, conversationId, question);
-        log.info("skill workflow 处理完成，conversationId={}, selectedSkills={}, executablePlanCount={}, blockingPlanCount={}",
+        log.info("skill workflow 处理完成，conversationId={}, selectedSkills={}, selectedSkillContextCount={}",
                 conversationId,
                 workflowResult == null ? List.of() : workflowResult.getSelectedSkills(),
-                countExecutablePlans(workflowResult),
-                countBlockingPlans(workflowResult));
-        String blockingSkillReply = resolveBlockingSkillReply(workflowResult);
-        if (blockingSkillReply != null) {
-            persistShortCircuitExchange(conversationId, question, blockingSkillReply);
-            log.info("命中 skill 缺参阻塞，直接返回前端提示，conversationId={}, reason=MISSING_REQUIRED_ARGUMENTS, replyLength={}",
-                    conversationId,
-                    blockingSkillReply.length());
-            return Flux.just(AgentStreamEventFactory.finalAnswer(conversationId, blockingSkillReply));
-        }
-        String workflowEnhancedQuestion = workflowResult.getEnhancedQuestion();
+                workflowResult == null || workflowResult.getSelectedSkillContexts() == null
+                        ? 0
+                        : workflowResult.getSelectedSkillContexts().size());
         KnowledgePreprocessResult knowledgePreprocessResult = knowledgePreprocessService.preprocess(
                 userId,
                 conversation,
-                workflowEnhancedQuestion
+                question
         );
         UserLongTermMemoryPreprocessResult longTermMemoryPreprocessResult =
                 userLongTermMemoryPreprocessService.preprocess(userId, question);
         String effectiveQuestion = knowledgePreprocessResult.effectiveQuestion();
-        List<PlanTask> preferredPlan = buildPreferredPlan(workflowResult);
         String runtimeSystemPrompt = buildRuntimeSystemPrompt(
                 conversation,
-                longTermMemoryPreprocessResult.runtimePrompt()
+                longTermMemoryPreprocessResult.runtimePrompt(),
+                workflowResult == null ? List.of() : workflowResult.getSelectedSkillContexts()
         );
-        log.info("准备路由到具体智能体，conversationId={}, mode={}, targetAgent={}, preferredPlanCount={}, effectiveQuestionLength={}, knowledgePreprocessTriggered={}, knowledgeHitCount={}",
+        log.info("准备路由到具体智能体，conversationId={}, mode={}, targetAgent={}, effectiveQuestionLength={}, knowledgePreprocessTriggered={}, knowledgeHitCount={}",
                 conversationId,
                 mode.getValue(),
                 (mode == AgentModeEnum.FAST ? "SimpleReactAgent" : "PlanExecuteAgent"),
-                preferredPlan.size(),
                 effectiveQuestion == null ? 0 : effectiveQuestion.length(),
                 knowledgePreprocessResult.retrievalTriggered(),
                 knowledgePreprocessResult.retrievedChunks() == null ? 0 : knowledgePreprocessResult.retrievedChunks().size());
@@ -241,7 +222,7 @@ public class AgentServiceImpl implements AgentService {
                 break;
             case THINKING:
             case EXPERT:
-                agentFlux = planExecuteAgent.stream(userId, conversationId, effectiveQuestion, runtimeSystemPrompt, question, preferredPlan);
+                agentFlux = planExecuteAgent.stream(userId, conversationId, effectiveQuestion, runtimeSystemPrompt, question);
                 break;
             default:
                 agentFlux = reactAgent.stream(userId, conversationId, effectiveQuestion, runtimeSystemPrompt, question);
@@ -287,10 +268,15 @@ public class AgentServiceImpl implements AgentService {
     }
 
     private String buildRuntimeSystemPrompt(com.shenchen.cloudcoldagent.model.entity.ChatConversation conversation,
-                                            String longTermMemoryPrompt) {
+                                            String longTermMemoryPrompt,
+                                            List<SkillRuntimeContext> selectedSkillContexts) {
         List<String> segments = new ArrayList<>();
         if (StringUtils.isNotBlank(longTermMemoryPrompt)) {
             segments.add(longTermMemoryPrompt.trim());
+        }
+        String skillRuntimePrompt = buildSkillRuntimePrompt(selectedSkillContexts);
+        if (StringUtils.isNotBlank(skillRuntimePrompt)) {
+            segments.add(skillRuntimePrompt);
         }
         if (conversation != null && conversation.getSelectedKnowledgeId() != null && conversation.getSelectedKnowledgeId() > 0) {
             segments.add("""
@@ -318,100 +304,35 @@ public class AgentServiceImpl implements AgentService {
         ));
     }
 
-    private List<PlanTask> buildPreferredPlan(SkillWorkflowResult workflowResult) {
-        if (workflowResult == null || workflowResult.getExecutionPlans() == null || workflowResult.getExecutionPlans().isEmpty()) {
-            return List.of();
-        }
-        List<PlanTask> tasks = new ArrayList<>();
-        int order = 1;
-        int index = 1;
-        for (Object rawExecutionPlan : workflowResult.getExecutionPlans()) {
-            SkillExecutionPlan executionPlan = objectMapper.convertValue(rawExecutionPlan, SkillExecutionPlan.class);
-            if (executionPlan == null || !Boolean.TRUE.equals(executionPlan.getSelected())
-                    || !Boolean.TRUE.equals(executionPlan.getExecutable())) {
-                continue;
-            }
-            SkillToolCallPlan toolCallPlan = executionPlan.getToolCallPlan();
-            if (toolCallPlan == null || toolCallPlan.getToolName() == null || toolCallPlan.getToolName().isBlank()) {
-                continue;
-            }
-            SkillScriptExecutionRequest request = toolCallPlan.getRequest();
-            if (request == null
-                    || request.getSkillName() == null || request.getSkillName().isBlank()
-                    || request.getScriptPath() == null || request.getScriptPath().isBlank()
-                    || request.getArguments() == null) {
-                continue;
-            }
-            Map<String, Object> toolArguments = new LinkedHashMap<>();
-            toolArguments.put("skillName", request.getSkillName());
-            toolArguments.put("scriptPath", request.getScriptPath());
-            toolArguments.put("arguments", request.getArguments() == null ? Map.of() : request.getArguments());
-            toolArguments.put("argumentSpecs", request.getArgumentSpecs() == null ? Map.of() : request.getArgumentSpecs());
-            tasks.add(new PlanTask(
-                    toolCallPlan.getToolName() + "_" + index++,
-                    toolCallPlan.getToolName(),
-                    toolArguments,
-                    order,
-                    toolCallPlan.getToolName()
-            ));
-        }
-        return tasks;
-    }
-
-    private String resolveBlockingSkillReply(SkillWorkflowResult workflowResult) {
-        if (workflowResult == null || workflowResult.getExecutionPlans() == null || workflowResult.getExecutionPlans().isEmpty()) {
+    private String buildSkillRuntimePrompt(List<SkillRuntimeContext> selectedSkillContexts) {
+        if (selectedSkillContexts == null || selectedSkillContexts.isEmpty()) {
             return null;
         }
-        boolean hasExecutablePlan = workflowResult.getExecutionPlans().stream()
-                .map(rawPlan -> objectMapper.convertValue(rawPlan, SkillExecutionPlan.class))
-                .filter(plan -> plan != null && Boolean.TRUE.equals(plan.getSelected()))
-                .anyMatch(plan -> Boolean.TRUE.equals(plan.getExecutable()));
-        if (hasExecutablePlan) {
-            return null;
+        StringBuilder sb = new StringBuilder();
+        sb.append("[Available Skill Context]\n")
+                .append("以下 skills 已经为本轮选定，请在需要时完整阅读并严格遵循其约束。\n")
+                .append("规则：\n")
+                .append("1. 参数只能来自用户本轮问题原文，或 skill 中明确声明的默认值。\n")
+                .append("2. 缺少必填参数时，应先向用户补问，不要自行编造。\n")
+                .append("3. 不要猜测脚本路径、参数名或默认值。\n\n");
+        for (SkillRuntimeContext context : selectedSkillContexts) {
+            if (context == null || StringUtils.isBlank(context.getSkillName()) || StringUtils.isBlank(context.getContent())) {
+                continue;
+            }
+            sb.append("=== SKILL: ").append(context.getSkillName().trim()).append(" ===\n");
+            if (context.getResourceList() != null) {
+                sb.append("resources:\n");
+                sb.append("references: ")
+                        .append(context.getResourceList().getReferences() == null ? "[]" : context.getResourceList().getReferences())
+                        .append("\n");
+                sb.append("scripts: ")
+                        .append(context.getResourceList().getScripts() == null ? "[]" : context.getResourceList().getScripts())
+                        .append("\n\n");
+            }
+            sb.append(context.getContent().trim()).append("\n");
+            sb.append("=== END SKILL ===\n\n");
         }
-        return workflowResult.getExecutionPlans().stream()
-                .map(rawPlan -> objectMapper.convertValue(rawPlan, SkillExecutionPlan.class))
-                .filter(plan -> plan != null && Boolean.TRUE.equals(plan.getSelected()))
-                .filter(plan -> !Boolean.TRUE.equals(plan.getExecutable()))
-                .filter(plan -> "MISSING_REQUIRED_ARGUMENTS".equals(plan.getBlockingReason()))
-                .map(SkillExecutionPlan::getBlockingUserMessage)
-                .filter(message -> message != null && !message.isBlank())
-                .findFirst()
-                .orElse(null);
-    }
-
-    private long countExecutablePlans(SkillWorkflowResult workflowResult) {
-        if (workflowResult == null || workflowResult.getExecutionPlans() == null) {
-            return 0L;
-        }
-        return workflowResult.getExecutionPlans().stream()
-                .map(rawPlan -> objectMapper.convertValue(rawPlan, SkillExecutionPlan.class))
-                .filter(plan -> plan != null && Boolean.TRUE.equals(plan.getSelected()))
-                .filter(plan -> Boolean.TRUE.equals(plan.getExecutable()))
-                .count();
-    }
-
-    private long countBlockingPlans(SkillWorkflowResult workflowResult) {
-        if (workflowResult == null || workflowResult.getExecutionPlans() == null) {
-            return 0L;
-        }
-        return workflowResult.getExecutionPlans().stream()
-                .map(rawPlan -> objectMapper.convertValue(rawPlan, SkillExecutionPlan.class))
-                .filter(plan -> plan != null && Boolean.TRUE.equals(plan.getSelected()))
-                .filter(plan -> !Boolean.TRUE.equals(plan.getExecutable()))
-                .filter(plan -> StringUtils.isNotBlank(plan.getBlockingUserMessage()))
-                .count();
-    }
-
-    private void persistShortCircuitExchange(String conversationId, String userQuestion, String assistantReply) {
-        if (conversationId == null || conversationId.isBlank() || chatMemory == null) {
-            return;
-        }
-        if (userQuestion != null && !userQuestion.isBlank()) {
-            chatMemory.add(conversationId, new UserMessage(userQuestion));
-        }
-        if (assistantReply != null && !assistantReply.isBlank()) {
-            chatMemory.add(conversationId, new AssistantMessage(assistantReply));
-        }
+        String prompt = sb.toString().trim();
+        return prompt.isEmpty() ? null : prompt;
     }
 }

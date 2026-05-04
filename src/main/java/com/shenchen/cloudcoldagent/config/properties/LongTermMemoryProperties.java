@@ -25,6 +25,11 @@ public class LongTermMemoryProperties {
     private int retrieveTopK = 5;
 
     /**
+     * 长期记忆向量检索的相似度阈值。
+     */
+    private double similarityThreshold = 0.5d;
+
+    /**
      * 注入 Agent 上下文时允许的最大条数。
      */
     private int maxPromptMemories = 4;
