@@ -12,7 +12,7 @@ public interface UserLongTermMemoryService {
 
     List<UserLongTermMemoryVO> listMemories(Long userId);
 
-    boolean setEnabled(Long userId, boolean enabled);
+    boolean triggerManualRebuild(Long userId);
 
     boolean renamePet(Long userId, String petName);
 

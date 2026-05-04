@@ -32,6 +32,8 @@ public interface UserLongTermMemoryMetadataService {
 
     void markConversationUnprocessed(Long userId, String conversationId);
 
+    void markAllUserConversationsUnprocessed(Long userId);
+
     void deleteConversationState(Long userId, String conversationId);
 
     List<UserLongTermMemoryConversationState> listPendingConversationStates(Long userId);

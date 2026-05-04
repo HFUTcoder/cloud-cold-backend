@@ -23,7 +23,7 @@ public final class UserLongTermMemoryPrompts {
                 { "items": [ ... ] }
                 其中 items 是数组，每个元素包含字段：
                 memoryType,title,content,summary,confidence,importance,sourceHistoryIds
-                memoryType 只能是 IDENTITY、PREFERENCE、WORKFLOW、FACT、EXPERIENCE、CONSTRAINT。
+                memoryType 只能是 USER_PROFILE、FACT、PREFERENCE。
                 content 必须简洁、稳定、可复用。
                 summary 是 30 字以内摘要。
                 confidence 和 importance 使用 0 到 1 的数字。

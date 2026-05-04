@@ -326,6 +326,23 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
     }
 
     @Override
+    public void markAllUserConversationsUnprocessed(Long userId) {
+        if (userId == null || userId <= 0) {
+            return;
+        }
+        conversationStateMapper.updateByQuery(
+                UserLongTermMemoryConversationState.builder()
+                        .status(CONVERSATION_STATUS_UNPROCESSED)
+                        .pendingCompletedRounds(0)
+                        .updateTime(LocalDateTime.now())
+                        .build(),
+                QueryWrapper.create()
+                        .eq("userId", userId)
+                        .eq("isDelete", 0)
+        );
+    }
+
+    @Override
     public void deleteConversationState(Long userId, String conversationId) {
         if (userId == null || userId <= 0 || StringUtils.isBlank(conversationId)) {
             return;

@@ -6,6 +6,8 @@ import com.mybatisflex.core.query.QueryWrapper;
 import com.shenchen.cloudcoldagent.config.properties.LongTermMemoryProperties;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
+import com.shenchen.cloudcoldagent.limiter.RateLimiter;
+import com.shenchen.cloudcoldagent.annotation.DistributeLock;
 import com.shenchen.cloudcoldagent.mapper.ChatMemoryHistoryMapper;
 import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistory;
 import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemory;
@@ -24,8 +26,6 @@ import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryStore;
 import com.shenchen.cloudcoldagent.workflow.skill.service.StructuredOutputAgentExecutor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.redisson.api.RLock;
-import org.redisson.api.RedissonClient;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -40,16 +40,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CompletableFuture;
 
 @Service
 @Slf4j
 public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService {
 
-    private static final String USER_MEMORY_ENABLED_KEY = "user_memory:enabled:";
     private static final String USER_MEMORY_PET_NAME_KEY = "user_memory:pet_name:";
     private static final String USER_MEMORY_LAST_LEARNED_AT_KEY = "user_memory:last_learned_at:";
-    private static final String LONG_TERM_MEMORY_USER_LOCK_PREFIX = "long_term_memory:user:";
+    private static final Set<String> SUPPORTED_MEMORY_TYPES = Set.of("USER_PROFILE", "FACT", "PREFERENCE");
 
     private final UserLongTermMemoryStore userLongTermMemoryStore;
     private final UserLongTermMemoryMetadataService metadataService;
@@ -59,7 +58,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
     private final StringRedisTemplate stringRedisTemplate;
     private final LongTermMemoryProperties properties;
     private final ObjectMapper objectMapper;
-    private final RedissonClient redissonClient;
+    private final RateLimiter rateLimiter;
 
     public UserLongTermMemoryServiceImpl(UserLongTermMemoryStore userLongTermMemoryStore,
                                          UserLongTermMemoryMetadataService metadataService,
@@ -69,7 +68,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
                                          StringRedisTemplate stringRedisTemplate,
                                          LongTermMemoryProperties properties,
                                          ObjectMapper objectMapper,
-                                         RedissonClient redissonClient) {
+                                         RateLimiter rateLimiter) {
         this.userLongTermMemoryStore = userLongTermMemoryStore;
         this.metadataService = metadataService;
         this.userConversationRelationService = userConversationRelationService;
@@ -78,14 +77,14 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         this.stringRedisTemplate = stringRedisTemplate;
         this.properties = properties;
         this.objectMapper = objectMapper;
-        this.redissonClient = redissonClient;
+        this.rateLimiter = rateLimiter;
     }
 
     @Override
     public UserPetStateVO getPetState(Long userId) {
         validateUserId(userId);
         UserPetStateVO vo = new UserPetStateVO();
-        vo.setEnabled(isEnabled(userId));
+        vo.setEnabled(true);
         vo.setPetName(resolvePetName(userId));
         vo.setPendingConversationCount(resolvePendingConversationCount(userId));
         vo.setPetMood(resolvePetMood(userId));
@@ -129,9 +128,24 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
     }
 
     @Override
-    public boolean setEnabled(Long userId, boolean enabled) {
+    public boolean triggerManualRebuild(Long userId) {
         validateUserId(userId);
-        stringRedisTemplate.opsForValue().set(USER_MEMORY_ENABLED_KEY + userId, String.valueOf(enabled));
+        if (!properties.isEnabled()) {
+            return false;
+        }
+        boolean allowed = Boolean.TRUE.equals(rateLimiter.tryAcquire("long_term_memory:manual_rebuild:" + userId, 1, 300));
+        if (!allowed) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "5 分钟内最多主动重建一次长期记忆");
+        }
+        List<String> conversationIds = userConversationRelationService.listConversationIdsByUserId(userId);
+        for (String conversationId : conversationIds) {
+            if (StringUtils.isBlank(conversationId)) {
+                continue;
+            }
+            metadataService.ensureConversationState(userId, conversationId);
+        }
+        metadataService.markAllUserConversationsUnprocessed(userId);
+        dispatchPendingConversationsProcessing(userId);
         return true;
     }
 
@@ -164,7 +178,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
 
     @Override
     public void onAssistantMessagePersisted(Long userId, String conversationId, int assistantMessageCount) {
-        if (!properties.isEnabled() || !isEnabled(userId) || StringUtils.isBlank(conversationId) || assistantMessageCount <= 0) {
+        if (!properties.isEnabled() || StringUtils.isBlank(conversationId) || assistantMessageCount <= 0) {
             return;
         }
         metadataService.incrementPendingRounds(userId, conversationId, assistantMessageCount);
@@ -179,12 +193,12 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         if (pendingRounds < properties.getTriggerRounds()) {
             return;
         }
-        processPendingConversations(userId);
+        dispatchPendingConversationsProcessing(userId);
     }
 
     @Override
     public void onConversationDeleted(Long userId, String conversationId) {
-        if (!properties.isEnabled() || !isEnabled(userId) || StringUtils.isBlank(conversationId)) {
+        if (!properties.isEnabled() || StringUtils.isBlank(conversationId)) {
             return;
         }
         try {
@@ -200,7 +214,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
 
     @Override
     public void onHistoryDeleted(Long userId, String conversationId) {
-        if (!properties.isEnabled() || !isEnabled(userId) || StringUtils.isBlank(conversationId)) {
+        if (!properties.isEnabled() || StringUtils.isBlank(conversationId)) {
             return;
         }
         try {
@@ -215,7 +229,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
 
     @Override
     public List<UserLongTermMemoryDoc> retrieveRelevantMemories(Long userId, String question, int topK) {
-        if (!properties.isEnabled() || !isEnabled(userId)) {
+        if (!properties.isEnabled()) {
             return List.of();
         }
         try {
@@ -237,28 +251,23 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
     }
 
     @Override
+    @DistributeLock(scene = "long_term_memory:user", keyExpression = "#userId")
     public void processPendingConversations(Long userId) {
-        if (!properties.isEnabled() || !isEnabled(userId) || userId == null || userId <= 0) {
+        if (!properties.isEnabled() || userId == null || userId <= 0) {
             return;
         }
-        String lockName = LONG_TERM_MEMORY_USER_LOCK_PREFIX + userId;
-        RLock lock = redissonClient.getLock(lockName);
-        boolean locked = false;
         try {
-            locked = lock.tryLock(0, 5, TimeUnit.MINUTES);
-            if (!locked) {
-                return;
-            }
             doProcessPendingConversations(userId);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         } catch (Exception e) {
             log.warn("处理长期记忆待处理会话失败，userId={}, message={}", userId, e.getMessage(), e);
-        } finally {
-            if (locked && lock.isHeldByCurrentThread()) {
-                lock.unlock();
-            }
         }
+    }
+
+    private void dispatchPendingConversationsProcessing(Long userId) {
+        if (userId == null || userId <= 0) {
+            return;
+        }
+        CompletableFuture.runAsync(() -> processPendingConversations(userId));
     }
 
     private void doProcessPendingConversations(Long userId) throws Exception {
@@ -411,6 +420,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
             return null;
         }
         String memoryType = Objects.toString(item.getMemoryType(), "").trim();
+        memoryType = normalizeMemoryType(memoryType);
         String title = Objects.toString(item.getTitle(), "").trim();
         String content = Objects.toString(item.getContent(), "").trim();
         String summary = Objects.toString(item.getSummary(), "").trim();
@@ -494,17 +504,6 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         return StringUtils.isBlank(petName) ? properties.getDefaultPetName() : petName;
     }
 
-    private boolean isEnabled(Long userId) {
-        if (userId == null || userId <= 0) {
-            return false;
-        }
-        String value = stringRedisTemplate.opsForValue().get(USER_MEMORY_ENABLED_KEY + userId);
-        if (value == null) {
-            return properties.isEnabled();
-        }
-        return Boolean.parseBoolean(value);
-    }
-
     private int resolvePendingConversationCount(Long userId) {
         return metadataService.listPendingConversationStates(userId).size();
     }
@@ -526,9 +525,6 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
     }
 
     private String resolvePetMood(Long userId) {
-        if (!isEnabled(userId)) {
-            return "disabled";
-        }
         if (resolvePendingConversationCount(userId) > 0) {
             return "learning";
         }
@@ -577,6 +573,20 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
 
     private String buildMemoryId(Long userId) {
         return userId + "_" + IdUtil.getSnowflakeNextIdStr();
+    }
+
+    private String normalizeMemoryType(String memoryType) {
+        String normalized = Objects.toString(memoryType, "").trim().toUpperCase();
+        if ("IDENTITY".equals(normalized) || "USER_INFO".equals(normalized) || "PROFILE".equals(normalized)) {
+            return "USER_PROFILE";
+        }
+        if ("FACT".equals(normalized) || "OBJECTIVE_FACT".equals(normalized)) {
+            return "FACT";
+        }
+        if ("PREFERENCE".equals(normalized) || "BEHAVIOR_PREFERENCE".equals(normalized) || "PREF".equals(normalized)) {
+            return "PREFERENCE";
+        }
+        return SUPPORTED_MEMORY_TYPES.contains(normalized) ? normalized : "";
     }
 
     private String abbreviate(String value, int maxChars) {

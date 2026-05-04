@@ -7,7 +7,6 @@ import com.shenchen.cloudcoldagent.constant.UserConstant;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.exception.ThrowUtils;
 import com.shenchen.cloudcoldagent.model.dto.usermemory.UserMemoryRenamePetRequest;
-import com.shenchen.cloudcoldagent.model.dto.usermemory.UserMemorySwitchRequest;
 import com.shenchen.cloudcoldagent.model.entity.User;
 import com.shenchen.cloudcoldagent.model.vo.usermemory.UserLongTermMemoryVO;
 import com.shenchen.cloudcoldagent.model.vo.usermemory.UserPetStateVO;
@@ -50,13 +49,11 @@ public class UserLongTermMemoryController {
         return ResultUtils.success(userLongTermMemoryService.listMemories(loginUser.getId()));
     }
 
-    @PostMapping("/switch")
+    @PostMapping("/rebuild")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
-    public BaseResponse<Boolean> switchEnabled(@RequestBody UserMemorySwitchRequest body,
-                                               HttpServletRequest request) {
-        ThrowUtils.throwIf(body == null || body.getEnabled() == null, ErrorCode.PARAMS_ERROR);
+    public BaseResponse<Boolean> rebuild(HttpServletRequest request) {
         User loginUser = userService.getLoginUser(request);
-        return ResultUtils.success(userLongTermMemoryService.setEnabled(loginUser.getId(), body.getEnabled()));
+        return ResultUtils.success(userLongTermMemoryService.triggerManualRebuild(loginUser.getId()));
     }
 
     @PostMapping("/rename")
