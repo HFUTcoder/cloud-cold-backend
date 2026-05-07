@@ -15,9 +15,9 @@
 
 配置入口：
 
-- 默认配置：`src/main/resources/application.yml`
-- 本地覆盖：`src/main/resources/application-local.yml`（不提交到仓库，覆盖数据库、Redis、ES 等连接信息）
-- Profile 切换：通过 `SPRING_PROFILES_ACTIVE=local` 激活本地配置
+- 全部配置集中在 `src/main/resources/application.yml`，包含所有可配置项和注释说明
+- 需要替换的密钥/密码以 `TODO:` 注释标记（共 4 处：DashScope API Key、MySQL 密码、MinIO 凭证、可选 Tavily Key）
+- 本地覆盖（可选）：`src/main/resources/application-local.yml`（已 gitignore，不提交），可覆盖 `application.yml` 中的任意配置
 - 默认服务：`http://localhost:8081/api`
 - Knife4j：`http://localhost:8081/api/doc.html`
 

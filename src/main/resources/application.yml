@@ -1,3 +1,13 @@
+# ============================================================
+# cloud-cold-agent 应用配置
+# ============================================================
+# 启动前需要修改的配置项（搜索 "TODO"）：
+#   1. spring.ai.openai.api-key        — 百炼 DashScope API Key
+#   2. spring.datasource.password       — MySQL 数据库密码
+#   3. minio.accessKey / secretKey      — MinIO 对象存储凭证
+#   4. （可选）tavilysearch.api-key     — Tavily 联网搜索 Key
+# ============================================================
+
 spring:
   profiles:
     active: local
@@ -8,16 +18,23 @@ spring:
       enabled: true
       max-file-size: 100MB
       max-request-size: 100MB
+
+  # ---------- AI 模型配置 ----------
   ai:
     openai:
       base-url: https://dashscope.aliyuncs.com/compatible-mode/
+      # TODO: 替换为你的百炼 API Key（必填）
+      # 获取地址: https://bailian.console.aliyun.com/
+      api-key: your-dashscope-api-key-here
       chat:
         options:
           model: qwen-turbo
-          temperature: 0.7
+          temperature: 0.5
           maxTokens: 5000
       embedding:
         base-url: https://dashscope.aliyuncs.com/compatible-mode/
+        # 通常与 chat 使用同一个 Key，也可以单独配置
+        api-key: ${spring.ai.openai.api-key}
         options:
           dimensions: 1536
           model: text-embedding-v4
@@ -28,6 +45,9 @@ spring:
       toolcalling:
         tavilysearch:
           enabled: false
+          # TODO: （可选）若需要联网搜索功能，替换为你的 Tavily API Key
+          # 获取地址: https://tavily.com/
+          api-key: your-tavily-api-key-here
           network-timeout: 10000
     vectorstore:
       elasticsearch:
@@ -35,11 +55,16 @@ spring:
         index-name: rag_docs_vector
         dimensions: 1536
         similarity: cosine
+
+  # ---------- MySQL 数据库 ----------
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/cloud_cold
     username: root
-    password: 1234
+    # TODO: 替换为你的 MySQL 密码（必填）
+    password: your-mysql-password-here
+
+  # ---------- Redis Session ----------
   session:
     store-type: redis
     timeout: 2592000
@@ -49,8 +74,15 @@ spring:
       port: 6379
       database: 0
       timeout: 5s
+      # 如果 Redis 设置了密码，取消下面注释并填写
+      # password: your-redis-password-here
+
+  # ---------- Elasticsearch ----------
   elasticsearch:
     uris: http://localhost:9200
+    # 如果 ES 开启了安全认证，取消下面注释并填写
+    # username: elastic
+    # password: your-es-password-here
     insecure: false
 
 server:
@@ -61,6 +93,7 @@ server:
       cookie:
         max-age: 2592000
 
+# ---------- Knife4j 接口文档 ----------
 springdoc:
   group-configs:
     - group: 'default'
@@ -72,20 +105,26 @@ knife4j:
   setting:
     language: zh_cn
 
+# ---------- MyBatis-Flex ----------
 mybatis-flex:
   configuration:
     map-underscore-to-camel-case: false
 
+# ---------- MinIO 对象存储 ----------
+minio:
+  endpoint: http://localhost:9000
+  # TODO: 替换为你的 MinIO 凭证（必填）
+  accessKey: your-minio-access-key-here
+  secretKey: your-minio-secret-key-here
+  bucketName: cloud-cold
+
+# ---------- Skill 本地脚本目录 ----------
 skills:
   user-skills-dir: src/main/resources/user-skills
 
-minio:
-  endpoint: http://localhost:9000
-  accessKey: minioadmin
-  secretKey: minioadmin
-  bucketName: cloud-cold
-
+# ---------- cloudcold 业务配置 ----------
 cloudcold:
+  # Agent 配置
   agent:
     memory:
       max-messages: 20
@@ -98,21 +137,28 @@ cloudcold:
       max-tool-retries: 5
       context-char-limit: 5000
       tool-concurrency: 3
+  # 文件上传限制
   upload:
     max-file-size: 100MB
     max-request-size: 100MB
+  # 搜索 mock（开发环境可用；生产环境关闭）
   search:
     mock:
       enabled: true
+  # PDF 多模态识别（用于知识库入库时的图片描述生成）
   pdf:
     multimodal:
       base-url: https://dashscope.aliyuncs.com/compatible-mode/
+      # 通常与大模型使用同一个 Key
+      api-key: ${spring.ai.openai.api-key}
       model: qwen3-vl-plus
       temperature: 0.2
+  # HITL 人工审批
   hitl:
     enabled: true
     intercept-tool-names:
       - execute_skill_script
+  # 长期记忆 / 宠物记忆
   long-term-memory:
     enabled: true
     trigger-rounds: 5
