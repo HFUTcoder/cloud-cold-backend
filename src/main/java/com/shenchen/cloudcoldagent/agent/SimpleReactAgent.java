@@ -26,6 +26,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+/**
+ * 快速模式 Agent，实现单代理 ReAct 推理与工具调用闭环。
+ */
 @Slf4j
 public class SimpleReactAgent extends BaseAgent {
 
@@ -34,6 +37,17 @@ public class SimpleReactAgent extends BaseAgent {
     private final String systemPrompt;
     private ChatClient chatClient;
 
+    /**
+     * 初始化快速模式 Agent，并构建其专属的 ChatClient。
+     *
+     * @param name Agent 名称。
+     * @param chatModel 底层对话模型。
+     * @param tools 可调用工具集合。
+     * @param advisors advisor 集合。
+     * @param systemPrompt 业务侧补充的 system prompt。
+     * @param maxRounds 最大推理轮次。
+     * @param chatMemory 会话记忆对象。
+     */
     public SimpleReactAgent(String name, ChatModel chatModel, List<ToolCallback> tools, List<Advisor> advisors,
                             String systemPrompt, int maxRounds, ChatMemory chatMemory) {
         super(chatModel, tools, advisors, maxRounds, chatMemory);
@@ -47,6 +61,9 @@ public class SimpleReactAgent extends BaseAgent {
         }
     }
 
+    /**
+     * 初始化快速模式所使用的 ChatClient，并关闭框架内部的自动工具执行。
+     */
     private void initChatClient() {
         try {
             ToolCallingChatOptions toolOptions = ToolCallingChatOptions.builder()
@@ -66,28 +83,65 @@ public class SimpleReactAgent extends BaseAgent {
     }
 
     /**
-     * 非流式输出
+     * 以无显式用户上下文的方式同步调用快速模式 Agent。
      *
-     * @param question
-     * @return
+     * @param question 用户问题。
+     * @return Agent 最终回答。
      */
     public String call(String question) {
         return callInternal(null, null, question, null, question);
     }
 
     // 带会话记忆
+    /**
+     * 以带会话上下文的方式同步调用快速模式 Agent。
+     *
+     * @param userId 当前用户 id。
+     * @param conversationId 当前会话 id。
+     * @param question 用户问题。
+     * @return Agent 最终回答。
+     */
     public String call(Long userId, String conversationId, String question) {
         return callInternal(userId, conversationId, question, null, question);
     }
 
+    /**
+     * 以带运行时 system prompt 的方式同步调用快速模式 Agent。
+     *
+     * @param userId 当前用户 id。
+     * @param conversationId 当前会话 id。
+     * @param question 用户问题。
+     * @param runtimeSystemPrompt 动态注入的运行时系统提示词。
+     * @return Agent 最终回答。
+     */
     public String call(Long userId, String conversationId, String question, String runtimeSystemPrompt) {
         return callInternal(userId, conversationId, question, runtimeSystemPrompt, question);
     }
 
+    /**
+     * 以完整参数形式同步调用快速模式 Agent。
+     *
+     * @param userId 当前用户 id。
+     * @param conversationId 当前会话 id。
+     * @param question 实际发给模型的问题。
+     * @param runtimeSystemPrompt 动态注入的运行时系统提示词。
+     * @param memoryQuestion 需要写入会话记忆的问题文本。
+     * @return Agent 最终回答。
+     */
     public String call(Long userId, String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
         return callInternal(userId, conversationId, question, runtimeSystemPrompt, memoryQuestion);
     }
 
+    /**
+     * 快速模式同步执行主循环，负责加载上下文、驱动模型轮询、处理工具调用并在必要时写入记忆。
+     *
+     * @param userId 当前用户 id。
+     * @param conversationId 当前会话 id。
+     * @param question 实际发给模型的问题。
+     * @param runtimeSystemPrompt 动态注入的运行时系统提示词。
+     * @param memoryQuestion 需要写入会话记忆的问题文本。
+     * @return Agent 最终回答。
+     */
     public String callInternal(Long userId, String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
         List<Message> messages = Collections.synchronizedList(new ArrayList<>());
         boolean useMemory = useMemory(conversationId);
@@ -119,13 +173,7 @@ public class SimpleReactAgent extends BaseAgent {
             round++;
             if (maxRounds > 0 && round > maxRounds) {
                 log.warn("=== 达到 maxRounds（{}），强制生成最终答案 ===", maxRounds);
-                messages.add(new UserMessage(
-                        "你已达到最大推理轮次限制。\n" +
-                                "请基于当前已有的上下文信息，\n" +
-                                "直接给出最终答案。\n" +
-                                "禁止再调用任何工具。\n" +
-                                "如果信息不完整，请合理总结和说明。"
-                ));
+                messages.add(new UserMessage(ReactAgentPrompts.FORCE_FINAL_ANSWER_PROMPT));
 
                 String finalText = chatClient.prompt().messages(messages).call().content();
                 if (useMemory) {
@@ -208,28 +256,65 @@ public class SimpleReactAgent extends BaseAgent {
 
 
     /**
-     * 流式输出
+     * 流式处理 `stream` 对应内容。
      *
-     * @param question
-     * @return
+     * @param question question 参数。
+     * @return 返回处理结果。
      */
     public Flux<AgentStreamEvent> stream(String question) {
         return streamInternal(null, null, question, null, question);
     }
 
     // 带会话记忆
+    /**
+     * 流式处理 `stream` 对应内容。
+     *
+     * @param userId userId 参数。
+     * @param conversationId conversationId 参数。
+     * @param question question 参数。
+     * @return 返回处理结果。
+     */
     public Flux<AgentStreamEvent> stream(Long userId, String conversationId, String question) {
         return streamInternal(userId, conversationId, question, null, question);
     }
 
+    /**
+     * 流式处理 `stream` 对应内容。
+     *
+     * @param userId userId 参数。
+     * @param conversationId conversationId 参数。
+     * @param question question 参数。
+     * @param runtimeSystemPrompt runtimeSystemPrompt 参数。
+     * @return 返回处理结果。
+     */
     public Flux<AgentStreamEvent> stream(Long userId, String conversationId, String question, String runtimeSystemPrompt) {
         return streamInternal(userId, conversationId, question, runtimeSystemPrompt, question);
     }
 
+    /**
+     * 流式处理 `stream` 对应内容。
+     *
+     * @param userId userId 参数。
+     * @param conversationId conversationId 参数。
+     * @param question question 参数。
+     * @param runtimeSystemPrompt runtimeSystemPrompt 参数。
+     * @param memoryQuestion memoryQuestion 参数。
+     * @return 返回处理结果。
+     */
     public Flux<AgentStreamEvent> stream(Long userId, String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
         return streamInternal(userId, conversationId, question, runtimeSystemPrompt, memoryQuestion);
     }
 
+    /**
+     * 流式处理 `stream Internal` 对应内容。
+     *
+     * @param userId userId 参数。
+     * @param conversationId conversationId 参数。
+     * @param question question 参数。
+     * @param runtimeSystemPrompt runtimeSystemPrompt 参数。
+     * @param memoryQuestion memoryQuestion 参数。
+     * @return 返回处理结果。
+     */
     public Flux<AgentStreamEvent> streamInternal(Long userId, String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
         List<Message> messages = Collections.synchronizedList(new ArrayList<>());
         boolean useMemory = useMemory(conversationId);
@@ -283,6 +368,18 @@ public class SimpleReactAgent extends BaseAgent {
                 });
     }
 
+    /**
+     * 处理 `schedule Round` 对应逻辑。
+     *
+     * @param messages messages 参数。
+     * @param sink sink 参数。
+     * @param roundCounter roundCounter 参数。
+     * @param hasSentFinalResult hasSentFinalResult 参数。
+     * @param finalAnswerBuffer finalAnswerBuffer 参数。
+     * @param useMemory useMemory 参数。
+     * @param conversationId conversationId 参数。
+     * @param userId userId 参数。
+     */
     private void scheduleRound(List<Message> messages, Sinks.Many<AgentStreamEvent> sink, AtomicLong roundCounter, AtomicBoolean hasSentFinalResult,
                                StringBuilder finalAnswerBuffer, boolean useMemory, String conversationId, Long userId) {
         // 轮次+1
@@ -308,6 +405,14 @@ public class SimpleReactAgent extends BaseAgent {
                 .subscribe();
     }
 
+    /**
+     * 处理 `process Chunk` 对应逻辑。
+     *
+     * @param chunk chunk 参数。
+     * @param sink sink 参数。
+     * @param state state 参数。
+     * @param conversationId conversationId 参数。
+     */
     private void processChunk(ChatResponse chunk, Sinks.Many<AgentStreamEvent> sink, RoundState state, String conversationId) {
 
         if (chunk == null || chunk.getResult() == null ||
@@ -334,6 +439,12 @@ public class SimpleReactAgent extends BaseAgent {
         }
     }
 
+    /**
+     * 处理 `merge Tool Call` 对应逻辑。
+     *
+     * @param state state 参数。
+     * @param incoming incoming 参数。
+     */
     private void mergeToolCall(RoundState state, AssistantMessage.ToolCall incoming) {
         if (incoming == null) {
             return;
@@ -416,14 +527,17 @@ public class SimpleReactAgent extends BaseAgent {
     }
 
 
+    /**
+     * 处理 `force Final Stream` 对应逻辑。
+     *
+     * @param conversationId conversationId 参数。
+     * @param useMemory useMemory 参数。
+     * @param messages messages 参数。
+     * @param sink sink 参数。
+     * @param hasSentFinalResult hasSentFinalResult 参数。
+     */
     private void forceFinalStream(String conversationId, boolean useMemory, List<Message> messages, Sinks.Many<AgentStreamEvent> sink, AtomicBoolean hasSentFinalResult) {
-        messages.add(new UserMessage(
-                "你已达到最大推理轮次限制。\n" +
-                        "请基于当前已有的上下文信息，\n" +
-                        "直接给出最终答案。\n" +
-                        "禁止再调用任何工具。\n" +
-                        "如果信息不完整，请合理总结和说明。"
-        ));
+        messages.add(new UserMessage(ReactAgentPrompts.FORCE_FINAL_ANSWER_PROMPT));
 
         StringBuilder stringBuilder = new StringBuilder();
 
@@ -461,6 +575,16 @@ public class SimpleReactAgent extends BaseAgent {
                 .subscribe();
     }
 
+    /**
+     * 执行 `execute Tool Calls` 对应逻辑。
+     *
+     * @param toolCalls toolCalls 参数。
+     * @param messages messages 参数。
+     * @param hasSentFinalResult hasSentFinalResult 参数。
+     * @param onComplete onComplete 参数。
+     * @param userId userId 参数。
+     * @param conversationId conversationId 参数。
+     */
     private void executeToolCalls(List<AssistantMessage.ToolCall> toolCalls,
                                   List<Message> messages,
                                   AtomicBoolean hasSentFinalResult,
@@ -510,6 +634,13 @@ public class SimpleReactAgent extends BaseAgent {
         }
     }
 
+    /**
+     * 处理 `complete Tool Call` 对应逻辑。
+     *
+     * @param completedCount completedCount 参数。
+     * @param total total 参数。
+     * @param onComplete onComplete 参数。
+     */
     private void completeToolCall(AtomicInteger completedCount, int total, Runnable onComplete) {
         int current = completedCount.incrementAndGet();
         if (current >= total) {
@@ -517,6 +648,13 @@ public class SimpleReactAgent extends BaseAgent {
         }
     }
 
+    /**
+     * 处理 `add Error Tool Response` 对应逻辑。
+     *
+     * @param messages messages 参数。
+     * @param toolCall toolCall 参数。
+     * @param errMsg errMsg 参数。
+     */
     private void addErrorToolResponse(List<Message> messages, AssistantMessage.ToolCall toolCall, String errMsg) {
         ToolResponseMessage.ToolResponse tr = new ToolResponseMessage.ToolResponse(
                 toolCall.id(),
@@ -529,6 +667,12 @@ public class SimpleReactAgent extends BaseAgent {
                 .build());
     }
 
+    /**
+     * 处理 `normalize Tool Calls` 对应逻辑。
+     *
+     * @param toolCalls toolCalls 参数。
+     * @return 返回处理结果。
+     */
     private List<AssistantMessage.ToolCall> normalizeToolCalls(List<AssistantMessage.ToolCall> toolCalls) {
         if (toolCalls == null || toolCalls.isEmpty()) {
             return List.of();
@@ -548,6 +692,12 @@ public class SimpleReactAgent extends BaseAgent {
         return normalized;
     }
 
+    /**
+     * 处理 `normalize Arguments` 对应逻辑。
+     *
+     * @param toolCall toolCall 参数。
+     * @return 返回处理结果。
+     */
     private String normalizeArguments(AssistantMessage.ToolCall toolCall) {
         String rawArguments = toolCall == null ? null : toolCall.arguments();
         NormalizationResult result = JsonArgumentUtils.normalizeJsonArguments(rawArguments);
@@ -562,6 +712,12 @@ public class SimpleReactAgent extends BaseAgent {
         return result.normalizedJson();
     }
 
+    /**
+     * 查找 `find Tool` 对应结果。
+     *
+     * @param name name 参数。
+     * @return 返回处理结果。
+     */
     private ToolCallback findTool(String name) {
         return tools.stream()
                 .filter(t -> t.getToolDefinition().name().equals(name))
@@ -569,10 +725,21 @@ public class SimpleReactAgent extends BaseAgent {
                 .orElse(null);
     }
 
+    /**
+     * 构建 `builder` 对应结果。
+     *
+     * @return 返回处理结果。
+     */
     public static Builder builder() {
         return new Builder();
     }
 
+    /**
+     * 创建 `Builder` 实例。
+     */
+    /**
+     * SimpleReactAgent 构建器。
+     */
     public static class Builder {
         private String name;
         private ChatModel chatModel;
@@ -582,51 +749,110 @@ public class SimpleReactAgent extends BaseAgent {
         private int maxRounds;
         private ChatMemory chatMemory;
 
+        /**
+         * 处理 `chat Memory` 对应逻辑。
+         *
+         * @param chatMemory chatMemory 参数。
+         * @return 返回处理结果。
+         */
         public Builder chatMemory(ChatMemory chatMemory) {
             this.chatMemory = chatMemory;
             return this;
         }
 
+        /**
+         * 处理 `name` 对应逻辑。
+         *
+         * @param name name 参数。
+         * @return 返回处理结果。
+         */
         public Builder name(String name) {
             this.name = name;
             return this;
         }
 
+        /**
+         * 处理 `chat Model` 对应逻辑。
+         *
+         * @param chatModel chatModel 参数。
+         * @return 返回处理结果。
+         */
         public Builder chatModel(ChatModel chatModel) {
             this.chatModel = chatModel;
             return this;
         }
 
+        /**
+         * 处理 `tools` 对应逻辑。
+         *
+         * @param tools tools 参数。
+         * @return 返回处理结果。
+         */
         public Builder tools(ToolCallback... tools) {
             this.tools = tools == null ? new ArrayList<>() : new ArrayList<>(Arrays.asList(tools));
             return this;
         }
 
+        /**
+         * 处理 `tools` 对应逻辑。
+         *
+         * @param tools tools 参数。
+         * @return 返回处理结果。
+         */
         public Builder tools(List<ToolCallback> tools) {
             this.tools = tools == null ? new ArrayList<>() : new ArrayList<>(tools);
             return this;
         }
 
+        /**
+         * 处理 `advisors` 对应逻辑。
+         *
+         * @param advisors advisors 参数。
+         * @return 返回处理结果。
+         */
         public Builder advisors(Advisor... advisors) {
             this.advisors = advisors == null ? new ArrayList<>() : new ArrayList<>(Arrays.asList(advisors));
             return this;
         }
 
+        /**
+         * 处理 `advisors` 对应逻辑。
+         *
+         * @param advisors advisors 参数。
+         * @return 返回处理结果。
+         */
         public Builder advisors(List<Advisor> advisors) {
             this.advisors = advisors == null ? new ArrayList<>() : new ArrayList<>(advisors);
             return this;
         }
 
+        /**
+         * 处理 `system Prompt` 对应逻辑。
+         *
+         * @param systemPrompt systemPrompt 参数。
+         * @return 返回处理结果。
+         */
         public Builder systemPrompt(String systemPrompt) {
             this.systemPrompt = systemPrompt;
             return this;
         }
 
+        /**
+         * 处理 `max Rounds` 对应逻辑。
+         *
+         * @param maxRounds maxRounds 参数。
+         * @return 返回处理结果。
+         */
         public Builder maxRounds(int maxRounds) {
             this.maxRounds = maxRounds;
             return this;
         }
 
+        /**
+         * 构建 `build` 对应结果。
+         *
+         * @return 返回处理结果。
+         */
         public SimpleReactAgent build() {
             if (chatModel == null) {
                 throw new IllegalArgumentException("chatModel 不能为空！");

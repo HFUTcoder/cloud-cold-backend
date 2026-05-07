@@ -4,6 +4,9 @@ import lombok.Data;
 
 import java.io.Serializable;
 
+/**
+ * `KnowledgeHybridSearchRequest` 类型实现。
+ */
 @Data
 public class KnowledgeHybridSearchRequest implements Serializable {
 

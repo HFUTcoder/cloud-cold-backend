@@ -24,6 +24,9 @@ import org.springframework.context.annotation.Lazy;
 
 import javax.net.ssl.SSLContext;
 
+/**
+ * `EsConfig` 类型实现。
+ */
 @Configuration
 public class EsConfig {
 
@@ -32,12 +35,23 @@ public class EsConfig {
     private final EsProperties elasticsearchClientProperties;
     private final ObjectMapper esObjectMapper;
 
+    /**
+     * 创建 `EsConfig` 实例。
+     *
+     * @param elasticsearchClientProperties elasticsearchClientProperties 参数。
+     * @param esObjectMapper esObjectMapper 参数。
+     */
     public EsConfig(EsProperties elasticsearchClientProperties,
                     @Qualifier("esObjectMapper") ObjectMapper esObjectMapper) {
         this.elasticsearchClientProperties = elasticsearchClientProperties;
         this.esObjectMapper = esObjectMapper;
     }
 
+    /**
+     * 处理 `elasticsearch Rest Client` 对应逻辑。
+     *
+     * @return 返回处理结果。
+     */
     @Bean
     @Lazy
     public RestClient elasticsearchRestClient() {
@@ -96,6 +110,12 @@ public class EsConfig {
         }
     }
 
+    /**
+     * 处理 `elasticsearch Client` 对应逻辑。
+     *
+     * @param elasticsearchRestClient elasticsearchRestClient 参数。
+     * @return 返回处理结果。
+     */
     @Bean
     @Lazy
     public ElasticsearchClient elasticsearchClient(RestClient elasticsearchRestClient) {

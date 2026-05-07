@@ -8,6 +8,9 @@ import lombok.NoArgsConstructor;
 import java.io.Serializable;
 import java.util.Map;
 
+/**
+ * `SkillScriptExecutionRequest` 类型实现。
+ */
 @Data
 @Builder
 @NoArgsConstructor

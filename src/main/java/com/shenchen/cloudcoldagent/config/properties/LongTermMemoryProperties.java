@@ -4,6 +4,9 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+/**
+ * `LongTermMemoryProperties` 类型实现。
+ */
 @Data
 @Component
 @ConfigurationProperties(prefix = "cloudcold.long-term-memory")

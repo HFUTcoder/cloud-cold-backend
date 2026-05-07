@@ -83,6 +83,18 @@ minio:
   bucketName: cloud-cold
 
 cloudcold:
+  agent:
+    memory:
+      max-messages: 20
+    react:
+      name: ReactAgent
+      max-rounds: 5
+    plan:
+      agent-type: PlanExecuteAgent
+      max-rounds: 5
+      max-tool-retries: 5
+      context-char-limit: 5000
+      tool-concurrency: 3
   upload:
     max-file-size: 100MB
     max-request-size: 100MB

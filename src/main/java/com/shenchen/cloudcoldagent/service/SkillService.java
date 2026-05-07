@@ -10,6 +10,9 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * `SkillService` 接口定义。
+ */
 public interface SkillService {
 
     /**

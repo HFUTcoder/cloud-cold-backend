@@ -6,6 +6,9 @@ import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/**
+ * `ChatMemoryHistoryVO` 类型实现。
+ */
 @Data
 public class ChatMemoryHistoryVO implements Serializable {
 

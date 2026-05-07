@@ -8,6 +8,7 @@ import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.shenchen.cloudcoldagent.document.extract.cleaner.DocumentCleaner;
 import com.shenchen.cloudcoldagent.document.extract.reader.DocumentReaderFactory;
 import com.shenchen.cloudcoldagent.document.load.store.StoreService;
+import com.shenchen.cloudcoldagent.constant.KnowledgeChunkConstant;
 import com.shenchen.cloudcoldagent.document.transform.splitter.OverlapParagraphTextSplitter;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
@@ -47,6 +48,9 @@ import java.util.stream.Collectors;
 
 import static org.springframework.ai.vectorstore.SearchRequest.SIMILARITY_THRESHOLD_ACCEPT_ALL;
 
+/**
+ * 知识库服务实现，负责知识库管理、文档切分入库、图片描述 chunk 构建以及多路检索融合。
+ */
 @Service
 @Slf4j
 public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge> implements KnowledgeService {
@@ -65,6 +69,16 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
     private final MinioService minioService;
     private final KnowledgeDocumentImageService knowledgeDocumentImageService;
 
+    /**
+     * 注入知识库主链路所需的依赖服务。
+     *
+     * @param documentReaderFactory 文档读取工厂。
+     * @param elasticSearchService Elasticsearch 检索服务。
+     * @param storeService 向量存储服务。
+     * @param documentMapper 文档 mapper。
+     * @param minioService MinIO 文件服务。
+     * @param knowledgeDocumentImageService 文档图片业务服务。
+     */
     public KnowledgeServiceImpl(DocumentReaderFactory documentReaderFactory,
                                 ElasticSearchService elasticSearchService,
                                 StoreService storeService,
@@ -79,6 +93,13 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         this.knowledgeDocumentImageService = knowledgeDocumentImageService;
     }
 
+    /**
+     * 创建一个新的知识库。
+     *
+     * @param userId 当前用户 id。
+     * @param request 创建请求体。
+     * @return 新知识库 id。
+     */
     @Override
     public long createKnowledge(Long userId, KnowledgeAddRequest request) {
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.NOT_LOGIN_ERROR);
@@ -96,6 +117,13 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return knowledge.getId();
     }
 
+    /**
+     * 更新知识库名称和描述。
+     *
+     * @param userId 当前用户 id。
+     * @param request 更新请求体。
+     * @return 是否更新成功。
+     */
     @Override
     public boolean updateKnowledge(Long userId, KnowledgeUpdateRequest request) {
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.NOT_LOGIN_ERROR);
@@ -107,6 +135,13 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return this.updateById(existing);
     }
 
+    /**
+     * 删除知识库及其下属文档、索引和图片资源。
+     *
+     * @param userId 当前用户 id。
+     * @param knowledgeId 知识库 id。
+     * @return 是否删除成功。
+     */
     @Override
     public boolean deleteKnowledge(Long userId, Long knowledgeId) {
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.NOT_LOGIN_ERROR);
@@ -137,6 +172,13 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return this.removeById(knowledge.getId());
     }
 
+    /**
+     * 查询当前用户可访问的单个知识库实体。
+     *
+     * @param userId 当前用户 id。
+     * @param knowledgeId 知识库 id。
+     * @return 知识库实体。
+     */
     @Override
     public Knowledge getKnowledgeById(Long userId, Long knowledgeId) {
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.NOT_LOGIN_ERROR);
@@ -150,6 +192,13 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return knowledge;
     }
 
+    /**
+     * 分页查询当前用户的知识库列表。
+     *
+     * @param userId 当前用户 id。
+     * @param request 分页查询条件。
+     * @return 知识库分页结果。
+     */
     @Override
     public Page<Knowledge> pageByUserId(Long userId, KnowledgeQueryRequest request) {
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.NOT_LOGIN_ERROR);
@@ -157,6 +206,13 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return this.page(Page.of(request.getPageNum(), request.getPageSize()), getQueryWrapper(userId, request));
     }
 
+    /**
+     * 根据查询条件构建知识库分页查询包装器。
+     *
+     * @param userId 当前用户 id。
+     * @param request 查询条件。
+     * @return MyBatis-Flex 查询包装器。
+     */
     @Override
     public QueryWrapper getQueryWrapper(Long userId, KnowledgeQueryRequest request) {
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.NOT_LOGIN_ERROR);
@@ -169,6 +225,12 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
                 .orderBy(request.getSortField(), "ascend".equals(request.getSortOrder()));
     }
 
+    /**
+     * 将知识库实体转换成对外返回的 VO。
+     *
+     * @param knowledge 知识库实体。
+     * @return 知识库 VO。
+     */
     @Override
     public KnowledgeVO getKnowledgeVO(Knowledge knowledge) {
         if (knowledge == null) {
@@ -179,6 +241,12 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return knowledgeVO;
     }
 
+    /**
+     * 批量将知识库实体列表转换成 VO 列表。
+     *
+     * @param knowledges 知识库实体列表。
+     * @return 知识库 VO 列表。
+     */
     @Override
     public List<KnowledgeVO> getKnowledgeVOList(List<Knowledge> knowledges) {
         if (knowledges == null || knowledges.isEmpty()) {
@@ -187,6 +255,12 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return knowledges.stream().map(this::getKnowledgeVO).toList();
     }
 
+    /**
+     * 刷新知识库中的文档数量和最近上传时间统计。
+     *
+     * @param userId 当前用户 id。
+     * @param knowledgeId 知识库 id。
+     */
     @Override
     public void refreshKnowledgeStats(Long userId, Long knowledgeId) {
         Knowledge knowledge = getKnowledgeById(userId, knowledgeId);
@@ -203,6 +277,14 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         this.updateById(knowledge);
     }
 
+    /**
+     * 读取文档、抽取图片并生成入库前的正文 chunk 与图片记录。
+     *
+     * @param file 待处理文件。
+     * @param context 文档索引上下文。
+     * @return 文档索引准备结果。
+     * @throws Exception 读取文档或上传图片失败时抛出。
+     */
     @Override
     public PreparedDocumentIndexResult prepareDocumentIndex(File file, DocumentIndexContext context) throws Exception {
         ThrowUtils.throwIf(file == null, ErrorCode.PARAMS_ERROR, "文件不能为空");
@@ -210,7 +292,7 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         List<KnowledgeDocumentImage> uploadedImages = List.of();
         try {
             uploadedImages = uploadExtractedImages(context, readResult.extractedImages());
-            List<EsDocumentChunk> textChunks = buildChunks(readResult.documents(), context, "TEXT");
+            List<EsDocumentChunk> textChunks = buildChunks(readResult.documents(), context, KnowledgeChunkConstant.CHUNK_TYPE_TEXT);
             return new PreparedDocumentIndexResult(textChunks, uploadedImages);
         } catch (Exception e) {
             cleanupUploadedImages(uploadedImages);
@@ -218,6 +300,13 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         }
     }
 
+    /**
+     * 将已保存的文档图片记录转换成图片描述 chunk。
+     *
+     * @param images 文档图片列表。
+     * @param documentSource 文档来源标识。
+     * @return 图片描述 chunk 列表。
+     */
     @Override
     public List<EsDocumentChunk> buildImageDescriptionChunks(List<KnowledgeDocumentImage> images, String documentSource) {
         if (images == null || images.isEmpty()) {
@@ -229,17 +318,17 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
                 continue;
             }
             Map<String, Object> metadata = new LinkedHashMap<>();
-            metadata.put("userId", image.getUserId());
-            metadata.put("knowledgeId", image.getKnowledgeId());
-            metadata.put("documentId", image.getDocumentId());
-            metadata.put("parentId", image.getId());
-            metadata.put("parentType", "document_image");
-            metadata.put("objectName", image.getObjectName());
-            metadata.put("contentType", image.getContentType());
-            metadata.put("pageNumber", image.getPageNumber());
-            metadata.put("chunkType", "IMAGE_DESCRIPTION");
+            metadata.put(KnowledgeChunkConstant.META_USER_ID, image.getUserId());
+            metadata.put(KnowledgeChunkConstant.META_KNOWLEDGE_ID, image.getKnowledgeId());
+            metadata.put(KnowledgeChunkConstant.META_DOCUMENT_ID, image.getDocumentId());
+            metadata.put(KnowledgeChunkConstant.META_PARENT_ID, image.getId());
+            metadata.put(KnowledgeChunkConstant.META_PARENT_TYPE, KnowledgeChunkConstant.PARENT_TYPE_DOCUMENT_IMAGE);
+            metadata.put(KnowledgeChunkConstant.META_OBJECT_NAME, image.getObjectName());
+            metadata.put(KnowledgeChunkConstant.META_CONTENT_TYPE, image.getContentType());
+            metadata.put(KnowledgeChunkConstant.META_PAGE_NUMBER, image.getPageNumber());
+            metadata.put(KnowledgeChunkConstant.META_CHUNK_TYPE, KnowledgeChunkConstant.CHUNK_TYPE_IMAGE_DESCRIPTION);
             if (documentSource != null && !documentSource.isBlank()) {
-                metadata.put("source", documentSource);
+                metadata.put(KnowledgeChunkConstant.META_SOURCE, documentSource);
             }
             imageDocuments.add(Document.builder()
                     .id("image-" + image.getId())
@@ -247,9 +336,15 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
                     .metadata(metadata)
                     .build());
         }
-        return buildChunks(imageDocuments, null, "IMAGE_DESCRIPTION");
+        return buildChunks(imageDocuments, null, KnowledgeChunkConstant.CHUNK_TYPE_IMAGE_DESCRIPTION);
     }
 
+    /**
+     * 将准备好的 chunk 同步写入关键词索引和向量索引。
+     *
+     * @param chunks 待入库的 chunk 列表。
+     * @throws Exception 写入任一索引失败时抛出。
+     */
     @Override
     public void storePreparedChunks(List<EsDocumentChunk> chunks) throws Exception {
         if (chunks == null || chunks.isEmpty()) {
@@ -259,6 +354,14 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         storeService.storeVectorChunks(chunks);
     }
 
+    /**
+     * 为单个文件执行完整的解析并入库流程。
+     *
+     * @param file 待处理文件。
+     * @param context 文档索引上下文。
+     * @return 写入完成后的正文 chunk 列表。
+     * @throws Exception 解析或入库失败时抛出。
+     */
     @Override
     public List<EsDocumentChunk> indexDocument(File file, DocumentIndexContext context) throws Exception {
         ThrowUtils.throwIf(file == null, ErrorCode.PARAMS_ERROR, "文件不能为空");
@@ -268,6 +371,13 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return preparedResult.textChunks();
     }
 
+    /**
+     * 以本地文件路径为入口执行文档入库。
+     *
+     * @param filePath 本地文件路径。
+     * @return 入库后的正文 chunk 列表。
+     * @throws Exception 解析或入库失败时抛出。
+     */
     @Override
     public List<EsDocumentChunk> add(String filePath) throws Exception {
         PreparedDocumentIndexResult preparedResult = prepareDocumentIndex(new File(filePath).getAbsoluteFile(), null);
@@ -275,6 +385,13 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return preparedResult.textChunks();
     }
 
+    /**
+     * 先删除同 source 的旧索引，再重新执行入库。
+     *
+     * @param filePath 本地文件路径或 source。
+     * @return 重新入库后的正文 chunk 列表。
+     * @throws Exception 删除旧索引或重新入库失败时抛出。
+     */
     @Override
     public List<EsDocumentChunk> update(String filePath) throws Exception {
         String normalizedSource = normalizeSource(filePath);
@@ -282,12 +399,24 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return add(normalizedSource);
     }
 
+    /**
+     * 删除 `delete By Ids` 对应内容。
+     *
+     * @param ids ids 参数。
+     * @throws Exception 异常信息。
+     */
     @Override
     public void deleteByIds(List<String> ids) throws Exception {
         elasticSearchService.deleteByIds(ids);
         elasticSearchService.vectorDeleteByIds(ids);
     }
 
+    /**
+     * 删除 `delete By Document Id` 对应内容。
+     *
+     * @param documentId documentId 参数。
+     * @throws Exception 异常信息。
+     */
     @Override
     public void deleteByDocumentId(Long documentId) throws Exception {
         if (documentId == null || documentId <= 0) {
@@ -302,6 +431,12 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         elasticSearchService.deleteByDocumentId(documentId);
     }
 
+    /**
+     * 删除 `delete By Source` 对应内容。
+     *
+     * @param source source 参数。
+     * @throws Exception 异常信息。
+     */
     @Override
     public void deleteBySource(String source) throws Exception {
         String normalizedSource = normalizeSource(source);
@@ -312,21 +447,57 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         elasticSearchService.deleteBySource(normalizedSource);
     }
 
+    /**
+     * 执行全局关键词检索。
+     *
+     * @param query 查询文本。
+     * @return 命中的 chunk 列表。
+     * @throws Exception 检索失败时抛出。
+     */
     @Override
     public List<EsDocumentChunk> scalarSearch(String query) throws Exception {
         return scalarSearch(query, DEFAULT_SCALAR_TOP_K, false);
     }
 
+    /**
+     * 处理 `scalar Search` 对应逻辑。
+     *
+     * @param query query 参数。
+     * @param size size 参数。
+     * @param useSmartAnalyzer useSmartAnalyzer 参数。
+     * @return 返回处理结果。
+     * @throws Exception 异常信息。
+     */
     @Override
     public List<EsDocumentChunk> scalarSearch(String query, int size, boolean useSmartAnalyzer) throws Exception {
         return elasticSearchService.searchByKeyword(query, size, useSmartAnalyzer);
     }
 
+    /**
+     * 处理 `scalar Search` 对应逻辑。
+     *
+     * @param userId userId 参数。
+     * @param knowledgeId knowledgeId 参数。
+     * @param query query 参数。
+     * @return 返回处理结果。
+     * @throws Exception 异常信息。
+     */
     @Override
     public List<EsDocumentChunk> scalarSearch(Long userId, Long knowledgeId, String query) throws Exception {
         return scalarSearch(userId, knowledgeId, query, DEFAULT_SCALAR_TOP_K, false);
     }
 
+    /**
+     * 处理 `scalar Search` 对应逻辑。
+     *
+     * @param userId userId 参数。
+     * @param knowledgeId knowledgeId 参数。
+     * @param query query 参数。
+     * @param size size 参数。
+     * @param useSmartAnalyzer useSmartAnalyzer 参数。
+     * @return 返回处理结果。
+     * @throws Exception 异常信息。
+     */
     @Override
     public List<EsDocumentChunk> scalarSearch(Long userId, Long knowledgeId, String query, int size,
                                               boolean useSmartAnalyzer) throws Exception {
@@ -334,22 +505,56 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
                 buildKnowledgeScopeMetadata(userId, knowledgeId));
     }
 
+    /**
+     * 处理 `metadata Search` 对应逻辑。
+     *
+     * @param metadataFilters metadataFilters 参数。
+     * @return 返回处理结果。
+     * @throws Exception 异常信息。
+     */
     @Override
     public List<EsDocumentChunk> metadataSearch(Map<String, Object> metadataFilters) throws Exception {
         return metadataSearch(metadataFilters, DEFAULT_SCALAR_TOP_K);
     }
 
+    /**
+     * 处理 `metadata Search` 对应逻辑。
+     *
+     * @param metadataFilters metadataFilters 参数。
+     * @param size size 参数。
+     * @return 返回处理结果。
+     * @throws Exception 异常信息。
+     */
     @Override
     public List<EsDocumentChunk> metadataSearch(Map<String, Object> metadataFilters, int size) throws Exception {
         return elasticSearchService.searchByMetadata(metadataFilters, size);
     }
 
+    /**
+     * 处理 `metadata Search` 对应逻辑。
+     *
+     * @param userId userId 参数。
+     * @param knowledgeId knowledgeId 参数。
+     * @param metadataFilters metadataFilters 参数。
+     * @return 返回处理结果。
+     * @throws Exception 异常信息。
+     */
     @Override
     public List<EsDocumentChunk> metadataSearch(Long userId, Long knowledgeId, Map<String, Object> metadataFilters)
             throws Exception {
         return metadataSearch(userId, knowledgeId, metadataFilters, DEFAULT_SCALAR_TOP_K);
     }
 
+    /**
+     * 处理 `metadata Search` 对应逻辑。
+     *
+     * @param userId userId 参数。
+     * @param knowledgeId knowledgeId 参数。
+     * @param metadataFilters metadataFilters 参数。
+     * @param size size 参数。
+     * @return 返回处理结果。
+     * @throws Exception 异常信息。
+     */
     @Override
     public List<EsDocumentChunk> metadataSearch(Long userId, Long knowledgeId, Map<String, Object> metadataFilters,
                                                 int size) throws Exception {
@@ -357,11 +562,28 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
                 mergeMetadataFilters(buildKnowledgeScopeMetadata(userId, knowledgeId), metadataFilters), size);
     }
 
+    /**
+     * 执行全局向量相似度检索。
+     *
+     * @param query 查询文本。
+     * @return 命中的 chunk 列表。
+     * @throws Exception 检索失败时抛出。
+     */
     @Override
     public List<EsDocumentChunk> vectorSearch(String query) throws Exception {
         return vectorSearch(query, DEFAULT_VECTOR_TOP_K, DEFAULT_ACCEPT_ALL_THRESHOLD, null);
     }
 
+    /**
+     * 处理 `vector Search` 对应逻辑。
+     *
+     * @param query query 参数。
+     * @param topK topK 参数。
+     * @param similarityThreshold similarityThreshold 参数。
+     * @param filterExpression filterExpression 参数。
+     * @return 返回处理结果。
+     * @throws Exception 异常信息。
+     */
     @Override
     public List<EsDocumentChunk> vectorSearch(String query, int topK, double similarityThreshold, String filterExpression)
             throws Exception {
@@ -370,11 +592,31 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
                 .toList();
     }
 
+    /**
+     * 处理 `vector Search` 对应逻辑。
+     *
+     * @param userId userId 参数。
+     * @param knowledgeId knowledgeId 参数。
+     * @param query query 参数。
+     * @return 返回处理结果。
+     * @throws Exception 异常信息。
+     */
     @Override
     public List<EsDocumentChunk> vectorSearch(Long userId, Long knowledgeId, String query) throws Exception {
         return vectorSearch(userId, knowledgeId, query, DEFAULT_VECTOR_TOP_K, DEFAULT_ACCEPT_ALL_THRESHOLD);
     }
 
+    /**
+     * 在指定知识库范围内执行向量相似度检索。
+     *
+     * @param userId 当前用户 id。
+     * @param knowledgeId 知识库 id。
+     * @param query 查询文本。
+     * @param topK 召回数量上限。
+     * @param similarityThreshold 相似度阈值。
+     * @return 命中的 chunk 列表。
+     * @throws Exception 检索失败时抛出。
+     */
     @Override
     public List<EsDocumentChunk> vectorSearch(Long userId, Long knowledgeId, String query, int topK,
                                               double similarityThreshold) throws Exception {
@@ -384,11 +626,30 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
                 .toList();
     }
 
+    /**
+     * 执行全局混合检索，并使用 RRF 融合关键词与向量结果。
+     *
+     * @param query 查询文本。
+     * @return 融合后的 chunk 列表。
+     * @throws Exception 检索失败时抛出。
+     */
     @Override
     public List<EsDocumentChunk> hybridSearch(String query) throws Exception {
         return hybridSearch(query, DEFAULT_SCALAR_TOP_K, false, DEFAULT_VECTOR_TOP_K, DEFAULT_ACCEPT_ALL_THRESHOLD, null);
     }
 
+    /**
+     * 在给定参数下执行全局混合检索。
+     *
+     * @param query 查询文本。
+     * @param keywordSize 关键词检索返回数量。
+     * @param useSmartAnalyzer 是否使用智能分词器。
+     * @param vectorTopK 向量检索返回数量。
+     * @param similarityThreshold 向量相似度阈值。
+     * @param filterExpression 向量检索过滤表达式。
+     * @return 融合后的 chunk 列表。
+     * @throws Exception 检索失败时抛出。
+     */
     @Override
     public List<EsDocumentChunk> hybridSearch(String query, int keywordSize, boolean useSmartAnalyzer, int vectorTopK,
                                               double similarityThreshold, String filterExpression) throws Exception {
@@ -397,12 +658,34 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return rrfFusion(vectorDocuments, scalarResults, Math.max(keywordSize, vectorTopK));
     }
 
+    /**
+     * 在指定知识库范围内执行默认参数的混合检索。
+     *
+     * @param userId 当前用户 id。
+     * @param knowledgeId 知识库 id。
+     * @param query 查询文本。
+     * @return 融合后的 chunk 列表。
+     * @throws Exception 检索失败时抛出。
+     */
     @Override
     public List<EsDocumentChunk> hybridSearch(Long userId, Long knowledgeId, String query) throws Exception {
         return hybridSearch(userId, knowledgeId, query, DEFAULT_SCALAR_TOP_K, false, DEFAULT_VECTOR_TOP_K,
                 DEFAULT_ACCEPT_ALL_THRESHOLD);
     }
 
+    /**
+     * 在指定知识库范围内执行自定义参数的混合检索。
+     *
+     * @param userId 当前用户 id。
+     * @param knowledgeId 知识库 id。
+     * @param query 查询文本。
+     * @param keywordSize 关键词检索返回数量。
+     * @param useSmartAnalyzer 是否使用智能分词器。
+     * @param vectorTopK 向量检索返回数量。
+     * @param similarityThreshold 向量相似度阈值。
+     * @return 融合后的 chunk 列表。
+     * @throws Exception 检索失败时抛出。
+     */
     @Override
     public List<EsDocumentChunk> hybridSearch(Long userId, Long knowledgeId, String query, int keywordSize,
                                               boolean useSmartAnalyzer, int vectorTopK,
@@ -415,6 +698,14 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return rrfFusion(vectorDocuments, scalarResults, Math.max(keywordSize, vectorTopK));
     }
 
+    /**
+     * 将 Spring AI Document 列表切分并转换成 ES chunk 实体。
+     *
+     * @param documents 原始文档列表。
+     * @param context 文档索引上下文。
+     * @param defaultChunkType 默认 chunk 类型。
+     * @return 切分后的 chunk 列表。
+     */
     private List<EsDocumentChunk> buildChunks(List<Document> documents, DocumentIndexContext context, String defaultChunkType) {
         List<Document> workingDocuments = DocumentCleaner.cleanDocuments(documents);
         if (context != null) {
@@ -432,9 +723,9 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
             Map<String, Object> metadata = document.getMetadata() == null
                     ? new LinkedHashMap<>()
                     : new LinkedHashMap<>(document.getMetadata());
-            metadata.putIfAbsent("chunkId", document.getId());
+            metadata.putIfAbsent(KnowledgeChunkConstant.META_CHUNK_ID, document.getId());
             if (defaultChunkType != null && !defaultChunkType.isBlank()) {
-                metadata.putIfAbsent("chunkType", defaultChunkType);
+                metadata.putIfAbsent(KnowledgeChunkConstant.META_CHUNK_TYPE, defaultChunkType);
             }
             chunk.setMetadata(metadata);
             chunks.add(chunk);
@@ -442,6 +733,14 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return chunks;
     }
 
+    /**
+     * 上传解析阶段抽取出的图片，并组装成图片记录实体。
+     *
+     * @param context 文档索引上下文。
+     * @param extractedImages 解析阶段抽取出的图片。
+     * @return 已上传的图片记录列表。
+     * @throws Exception 上传失败时抛出。
+     */
     private List<KnowledgeDocumentImage> uploadExtractedImages(DocumentIndexContext context,
                                                                List<ExtractedDocumentImage> extractedImages) throws Exception {
         if (extractedImages == null || extractedImages.isEmpty()) {
@@ -483,14 +782,28 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         }
     }
 
+    /**
+     * 构建文档图片在对象存储中的对象名。
+     *
+     * @param context 文档索引上下文。
+     * @param imageIndex 图片序号。
+     * @param contentType 图片内容类型。
+     * @return 对象名。
+     */
     private String buildDocumentImageObjectName(DocumentIndexContext context, Integer imageIndex, String contentType) {
         String extension = resolveImageExtension(contentType);
         int safeImageIndex = imageIndex == null || imageIndex < 0 ? 0 : imageIndex;
-        return "knowledge/" + context.knowledgeId()
+        return KnowledgeChunkConstant.OBJECT_PREFIX_KNOWLEDGE + context.knowledgeId()
                 + "/document/" + context.documentId()
                 + "/images/" + safeImageIndex + "-" + UUID.randomUUID() + extension;
     }
 
+    /**
+     * 根据图片 contentType 推导对象存储扩展名。
+     *
+     * @param contentType 图片内容类型。
+     * @return 对应的文件扩展名。
+     */
     private String resolveImageExtension(String contentType) {
         if (contentType == null || contentType.isBlank()) {
             return ".bin";
@@ -505,6 +818,11 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         };
     }
 
+    /**
+     * 清理已经上传到对象存储中的文档图片。
+     *
+     * @param uploadedImages 已上传的图片记录列表。
+     */
     private void cleanupUploadedImages(List<KnowledgeDocumentImage> uploadedImages) {
         if (uploadedImages == null || uploadedImages.isEmpty()) {
             return;
@@ -524,6 +842,12 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         }
     }
 
+    /**
+     * 规范化文档 source 标识，兼容本地路径和带协议地址。
+     *
+     * @param source 原始 source。
+     * @return 规范化后的 source。
+     */
     private String normalizeSource(String source) {
         if (source == null || source.isBlank()) {
             return source;
@@ -534,14 +858,34 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return new File(source).getAbsoluteFile().getAbsolutePath();
     }
 
+    /**
+     * 构建基于 source 的向量检索过滤表达式。
+     *
+     * @param source 规范化后的 source。
+     * @return 过滤表达式。
+     */
     private String buildSourceFilterExpression(String source) {
         return "source == '" + source.replace("\\", "\\\\").replace("'", "\\'") + "'";
     }
 
+    /**
+     * 构建针对数值字段的向量检索过滤表达式。
+     *
+     * @param field 字段名。
+     * @param value 字段值。
+     * @return 过滤表达式。
+     */
     private String buildNumericFilterExpression(String field, Number value) {
         return field + " == " + value;
     }
 
+    /**
+     * 根据元数据条件收集关键词索引中的 chunk id。
+     *
+     * @param metadataFilters 元数据过滤条件。
+     * @return 命中的 chunk id 列表。
+     * @throws Exception 检索失败时抛出。
+     */
     private List<String> collectChunkIdsByMetadata(Map<String, Object> metadataFilters) throws Exception {
         List<EsDocumentChunk> chunks = elasticSearchService.searchByMetadata(metadataFilters, 10_000);
         return chunks.stream()
@@ -551,6 +895,12 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
                 .toList();
     }
 
+    /**
+     * 将向量检索返回的 Spring AI Document 转换成系统内部的 chunk 结构。
+     *
+     * @param document 向量检索命中的文档对象。
+     * @return chunk 实体。
+     */
     private EsDocumentChunk toChunk(Document document) {
         EsDocumentChunk chunk = new EsDocumentChunk();
         chunk.setId(document.getId());
@@ -561,11 +911,18 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         if (document.getScore() != null) {
             metadata.put("vector_score", document.getScore());
         }
-        metadata.putIfAbsent("chunkId", document.getId());
+        metadata.putIfAbsent(KnowledgeChunkConstant.META_CHUNK_ID, document.getId());
         chunk.setMetadata(metadata);
         return chunk;
     }
 
+    /**
+     * 为原始文档列表补齐入库所需的知识库、文档和文件元数据。
+     *
+     * @param documents 原始文档列表。
+     * @param context 文档索引上下文。
+     * @return 补齐元数据后的文档列表。
+     */
     private List<Document> enrichDocuments(List<Document> documents, DocumentIndexContext context) {
         List<Document> result = new ArrayList<>(documents.size());
         for (int i = 0; i < documents.size(); i++) {
@@ -574,18 +931,18 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
             Map<String, Object> metadata = document.getMetadata() == null
                     ? new LinkedHashMap<>()
                     : new LinkedHashMap<>(document.getMetadata());
-            metadata.put("userId", context.userId());
-            metadata.put("knowledgeId", context.knowledgeId());
-            metadata.put("documentId", context.documentId());
-            metadata.put("documentName", context.documentName());
-            metadata.put("objectName", context.objectName());
-            metadata.put("source", context.documentSource());
-            metadata.put("fileName", context.documentName());
-            metadata.put("fileType", context.fileType());
-            metadata.put("contentType", context.contentType());
-            metadata.put("fileSize", context.fileSize());
-            metadata.put("source_document_id", sourceDocumentId);
-            metadata.put("chunkType", "TEXT");
+            metadata.put(KnowledgeChunkConstant.META_USER_ID, context.userId());
+            metadata.put(KnowledgeChunkConstant.META_KNOWLEDGE_ID, context.knowledgeId());
+            metadata.put(KnowledgeChunkConstant.META_DOCUMENT_ID, context.documentId());
+            metadata.put(KnowledgeChunkConstant.META_DOCUMENT_NAME, context.documentName());
+            metadata.put(KnowledgeChunkConstant.META_OBJECT_NAME, context.objectName());
+            metadata.put(KnowledgeChunkConstant.META_SOURCE, context.documentSource());
+            metadata.put(KnowledgeChunkConstant.META_FILE_NAME, context.documentName());
+            metadata.put(KnowledgeChunkConstant.META_FILE_TYPE, context.fileType());
+            metadata.put(KnowledgeChunkConstant.META_CONTENT_TYPE, context.contentType());
+            metadata.put(KnowledgeChunkConstant.META_FILE_SIZE, context.fileSize());
+            metadata.put(KnowledgeChunkConstant.META_SOURCE_DOCUMENT_ID, sourceDocumentId);
+            metadata.put(KnowledgeChunkConstant.META_CHUNK_TYPE, KnowledgeChunkConstant.CHUNK_TYPE_TEXT);
             result.add(document.mutate()
                     .id(sourceDocumentId)
                     .metadata(metadata)
@@ -594,17 +951,31 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return result;
     }
 
+    /**
+     * 构建用于限定检索范围的知识库元数据条件。
+     *
+     * @param userId 当前用户 id。
+     * @param knowledgeId 知识库 id。
+     * @return 范围元数据映射。
+     */
     private Map<String, Object> buildKnowledgeScopeMetadata(Long userId, Long knowledgeId) {
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.NOT_LOGIN_ERROR);
         ThrowUtils.throwIf(knowledgeId == null || knowledgeId <= 0, ErrorCode.PARAMS_ERROR, "知识库 id 非法");
         getKnowledgeById(userId, knowledgeId);
 
         Map<String, Object> scopeMetadata = new LinkedHashMap<>();
-        scopeMetadata.put("userId", userId);
-        scopeMetadata.put("knowledgeId", knowledgeId);
+        scopeMetadata.put(KnowledgeChunkConstant.META_USER_ID, userId);
+        scopeMetadata.put(KnowledgeChunkConstant.META_KNOWLEDGE_ID, knowledgeId);
         return scopeMetadata;
     }
 
+    /**
+     * 合并固定的知识库范围条件和动态查询条件。
+     *
+     * @param fixedFilters 固定范围条件。
+     * @param dynamicFilters 动态过滤条件。
+     * @return 合并后的元数据过滤条件。
+     */
     private Map<String, Object> mergeMetadataFilters(Map<String, Object> fixedFilters, Map<String, Object> dynamicFilters) {
         Map<String, Object> result = new LinkedHashMap<>();
         if (fixedFilters != null) {
@@ -620,6 +991,12 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return result;
     }
 
+    /**
+     * 删除 `delete Document Index` 对应内容。
+     *
+     * @param document document 参数。
+     * @throws Exception 异常信息。
+     */
     private void deleteDocumentIndex(com.shenchen.cloudcoldagent.model.entity.Document document) throws Exception {
         if (document == null) {
             return;
@@ -648,6 +1025,12 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         }
     }
 
+    /**
+     * 删除某个文档关联的全部图片对象和图片记录。
+     *
+     * @param documentId 文档 id。
+     * @throws Exception 删除图片对象失败且不可忽略时抛出。
+     */
     private void deleteDocumentImages(Long documentId) throws Exception {
         if (documentId == null || documentId <= 0) {
             return;
@@ -671,6 +1054,12 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         knowledgeDocumentImageService.deleteByDocumentId(documentId);
     }
 
+    /**
+     * 判断删除阶段出现的异常是否属于对象已不存在这类可忽略场景。
+     *
+     * @param exception 删除时抛出的异常。
+     * @return 可忽略时返回 true。
+     */
     private boolean isIgnorableDeleteException(Exception exception) {
         if (exception instanceof ErrorResponseException errorResponseException) {
             String code = errorResponseException.errorResponse() == null
@@ -757,6 +1146,15 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
                 .toList();
     }
 
+    /**
+     * 为融合后的 chunk 补齐 hybrid score、关键词排名和向量排名信息。
+     *
+     * @param chunk 原始 chunk。
+     * @param rrfScores RRF 融合分值映射。
+     * @param scalarRanks 关键词检索排名映射。
+     * @param vectorRanks 向量检索排名映射。
+     * @return 补齐融合元数据后的 chunk。
+     */
     private EsDocumentChunk enrichHybridChunk(EsDocumentChunk chunk,
                                               Map<String, Double> rrfScores,
                                               Map<String, Integer> scalarRanks,
@@ -776,6 +1174,12 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return copied;
     }
 
+    /**
+     * 复制一份 chunk，避免直接修改原始对象。
+     *
+     * @param source 原始 chunk。
+     * @return 拷贝后的 chunk。
+     */
     private EsDocumentChunk copyChunk(EsDocumentChunk source) {
         EsDocumentChunk copied = new EsDocumentChunk();
         copied.setId(source.getId());
@@ -784,6 +1188,13 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return copied;
     }
 
+    /**
+     * 从元数据中提取 chunkId，若不存在则回退到文档 id。
+     *
+     * @param metadata 文档元数据。
+     * @param fallback 回退 id。
+     * @return 最终使用的 chunk id。
+     */
     private String extractChunkId(Map<String, Object> metadata, String fallback) {
         if (metadata == null) {
             return fallback;

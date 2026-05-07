@@ -7,11 +7,19 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
+/**
+ * `StoreService` 类型实现。
+ */
 @Service
 public class StoreService {
 
     private final ElasticSearchService elasticSearchService;
 
+    /**
+     * 创建 `StoreService` 实例。
+     *
+     * @param elasticSearchService elasticSearchService 参数。
+     */
     public StoreService(ElasticSearchService elasticSearchService) {
         this.elasticSearchService = elasticSearchService;
     }

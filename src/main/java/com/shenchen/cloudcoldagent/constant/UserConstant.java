@@ -1,5 +1,8 @@
 package com.shenchen.cloudcoldagent.constant;
 
+/**
+ * `UserConstant` 接口定义。
+ */
 public interface UserConstant {
     /**
      * 用户登录态键

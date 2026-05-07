@@ -8,6 +8,9 @@ import lombok.NoArgsConstructor;
 import java.io.Serializable;
 import java.util.List;
 
+/**
+ * `UserLongTermMemoryExtractionItem` 类型实现。
+ */
 @Data
 @Builder
 @NoArgsConstructor

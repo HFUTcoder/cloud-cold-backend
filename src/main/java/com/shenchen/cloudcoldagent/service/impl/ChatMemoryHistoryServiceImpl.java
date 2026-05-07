@@ -40,6 +40,15 @@ public class ChatMemoryHistoryServiceImpl extends ServiceImpl<ChatMemoryHistoryM
     private final MinioService minioService;
     private final UserLongTermMemoryService userLongTermMemoryService;
 
+    /**
+     * 创建 `ChatMemoryHistoryServiceImpl` 实例。
+     *
+     * @param chatConversationService chatConversationService 参数。
+     * @param chatMemoryHistoryImageRelationService chatMemoryHistoryImageRelationService 参数。
+     * @param knowledgeDocumentImageService knowledgeDocumentImageService 参数。
+     * @param minioService minioService 参数。
+     * @param userLongTermMemoryService userLongTermMemoryService 参数。
+     */
     public ChatMemoryHistoryServiceImpl(ChatConversationService chatConversationService,
                                         ChatMemoryHistoryImageRelationService chatMemoryHistoryImageRelationService,
                                         KnowledgeDocumentImageService knowledgeDocumentImageService,
@@ -52,6 +61,13 @@ public class ChatMemoryHistoryServiceImpl extends ServiceImpl<ChatMemoryHistoryM
         this.userLongTermMemoryService = userLongTermMemoryService;
     }
 
+    /**
+     * 查询 `list By Conversation Id` 对应集合。
+     *
+     * @param userId userId 参数。
+     * @param conversationId conversationId 参数。
+     * @return 返回处理结果。
+     */
     @Override
     public List<ChatMemoryHistoryVO> listByConversationId(Long userId, String conversationId) {
         if (userId == null || userId <= 0) {
@@ -75,11 +91,24 @@ public class ChatMemoryHistoryServiceImpl extends ServiceImpl<ChatMemoryHistoryM
         return buildHistoryVOs(histories);
     }
 
+    /**
+     * 查询 `list Conversation Ids By User Id` 对应集合。
+     *
+     * @param userId userId 参数。
+     * @return 返回处理结果。
+     */
     @Override
     public List<String> listConversationIdsByUserId(Long userId) {
         return chatConversationService.listConversationIdsByUserId(userId);
     }
 
+    /**
+     * 删除 `delete By History Id` 对应内容。
+     *
+     * @param userId userId 参数。
+     * @param id id 参数。
+     * @return 返回处理结果。
+     */
     @Override
     public boolean deleteByHistoryId(Long userId, Long id) {
         if (userId == null || userId <= 0) {
@@ -113,6 +142,12 @@ public class ChatMemoryHistoryServiceImpl extends ServiceImpl<ChatMemoryHistoryM
         return deleted;
     }
 
+    /**
+     * 将历史消息实体列表转换成前端使用的 VO，并补齐命中的知识库图片。
+     *
+     * @param histories 历史消息实体列表。
+     * @return 历史消息 VO 列表。
+     */
     private List<ChatMemoryHistoryVO> buildHistoryVOs(List<ChatMemoryHistory> histories) {
         if (histories == null || histories.isEmpty()) {
             return List.of();
@@ -135,6 +170,12 @@ public class ChatMemoryHistoryServiceImpl extends ServiceImpl<ChatMemoryHistoryM
         return results;
     }
 
+    /**
+     * 根据历史消息图片关系批量加载图片实体映射。
+     *
+     * @param relationMap historyId 到图片关系列表的映射。
+     * @return imageId 到图片实体的映射。
+     */
     private Map<Long, KnowledgeDocumentImage> buildKnowledgeImageMap(
             Map<Long, List<ChatMemoryHistoryImageRelation>> relationMap) {
         if (relationMap == null || relationMap.isEmpty()) {
@@ -158,6 +199,14 @@ public class ChatMemoryHistoryServiceImpl extends ServiceImpl<ChatMemoryHistoryM
         return imageMap;
     }
 
+    /**
+     * 为单条历史消息构建其命中的知识库图片列表。
+     *
+     * @param history 历史消息实体。
+     * @param relationMap historyId 到图片关系列表的映射。
+     * @param imageMap imageId 到图片实体的映射。
+     * @return 命中的知识库图片列表。
+     */
     private List<RetrievedKnowledgeImage> buildRetrievedImages(ChatMemoryHistory history,
                                                                Map<Long, List<ChatMemoryHistoryImageRelation>> relationMap,
                                                                Map<Long, KnowledgeDocumentImage> imageMap) {
@@ -188,6 +237,12 @@ public class ChatMemoryHistoryServiceImpl extends ServiceImpl<ChatMemoryHistoryM
         return results;
     }
 
+    /**
+     * 为历史消息中的图片生成可访问地址；失败时回退到原始 URL。
+     *
+     * @param image 图片实体。
+     * @return 可访问的图片 URL。
+     */
     private String resolveAccessibleUrl(KnowledgeDocumentImage image) {
         try {
             return minioService.getPresignedUrl(image.getObjectName());

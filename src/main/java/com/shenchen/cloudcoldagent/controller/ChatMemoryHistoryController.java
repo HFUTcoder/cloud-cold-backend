@@ -32,6 +32,12 @@ public class ChatMemoryHistoryController {
 
     private final UserService userService;
 
+    /**
+     * 创建 `ChatMemoryHistoryController` 实例。
+     *
+     * @param chatMemoryHistoryService chatMemoryHistoryService 参数。
+     * @param userService userService 参数。
+     */
     public ChatMemoryHistoryController(ChatMemoryHistoryService chatMemoryHistoryService,
                                        UserService userService) {
         this.chatMemoryHistoryService = chatMemoryHistoryService;

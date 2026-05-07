@@ -30,15 +30,20 @@ public class UserController {
 
     private final UserService userService;
 
+    /**
+     * 注入用户接口所需的业务服务。
+     *
+     * @param userService 用户业务服务。
+     */
     public UserController(UserService userService) {
         this.userService = userService;
     }
 
     /**
-     * 用户注册
+     * 注册新用户账号。
      *
-     * @param userRegisterRequest 用户注册请求
-     * @return 注册结果
+     * @param userRegisterRequest 注册请求体。
+     * @return 新用户 id。
      */
     @PostMapping("/register")
     public BaseResponse<Long> userRegister(@RequestBody UserRegisterRequest userRegisterRequest) {
@@ -51,11 +56,11 @@ public class UserController {
     }
 
     /**
-     * 用户登录
+     * 执行用户登录并建立会话。
      *
-     * @param userLoginRequest 用户登录请求
-     * @param request          请求对象
-     * @return 脱敏后的用户登录信息
+     * @param userLoginRequest 登录请求体。
+     * @param request 当前 HTTP 请求。
+     * @return 已脱敏的登录用户信息。
      */
     @PostMapping("/login")
     public BaseResponse<LoginUserVO> userLogin(@RequestBody UserLoginRequest userLoginRequest, HttpServletRequest request) {
@@ -66,6 +71,12 @@ public class UserController {
         return ResultUtils.success(loginUserVO);
     }
 
+    /**
+     * 获取当前登录用户信息。
+     *
+     * @param request 当前 HTTP 请求。
+     * @return 当前登录用户视图对象。
+     */
     @GetMapping("/get/login")
     public BaseResponse<LoginUserVO> getLoginUser(HttpServletRequest request) {
         User loginUser = userService.getLoginUser(request);
@@ -73,10 +84,10 @@ public class UserController {
     }
 
     /**
-     * 用户注销
+     * 注销当前用户登录态。
      *
-     * @param request 请求对象
-     * @return
+     * @param request 当前 HTTP 请求。
+     * @return 是否注销成功。
      */
     @PostMapping("/logout")
     public BaseResponse<Boolean> userLogout(HttpServletRequest request) {
@@ -155,9 +166,10 @@ public class UserController {
     }
 
     /**
-     * 分页获取用户封装列表（仅管理员）
+     * 分页查询用户列表并返回脱敏后的 VO 结果。
      *
-     * @param userQueryRequest 查询请求参数
+     * @param userQueryRequest 分页查询条件。
+     * @return 用户分页视图结果。
      */
     @PostMapping("/list/page/vo")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)

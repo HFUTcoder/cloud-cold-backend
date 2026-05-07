@@ -38,6 +38,15 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
     private final UserConversationRelationService userConversationRelationService;
     private final UserLongTermMemoryService userLongTermMemoryService;
 
+    /**
+     * 创建 `MysqlChatMemoryRepository` 实例。
+     *
+     * @param chatMemoryHistoryMapper chatMemoryHistoryMapper 参数。
+     * @param chatMemoryHistoryImageRelationMapper chatMemoryHistoryImageRelationMapper 参数。
+     * @param chatMemoryPendingImageBindingService chatMemoryPendingImageBindingService 参数。
+     * @param userConversationRelationService userConversationRelationService 参数。
+     * @param userLongTermMemoryService userLongTermMemoryService 参数。
+     */
     public MysqlChatMemoryRepository(ChatMemoryHistoryMapper chatMemoryHistoryMapper,
                                      ChatMemoryHistoryImageRelationMapper chatMemoryHistoryImageRelationMapper,
                                      ChatMemoryPendingImageBindingService chatMemoryPendingImageBindingService,
@@ -50,6 +59,11 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
         this.userLongTermMemoryService = userLongTermMemoryService;
     }
 
+    /**
+     * 查找 `find Conversation Ids` 对应结果。
+     *
+     * @return 返回处理结果。
+     */
     @Override
     public List<String> findConversationIds() {
         QueryWrapper queryWrapper = QueryWrapper.create()
@@ -65,6 +79,12 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
         return new ArrayList<>(conversationIds);
     }
 
+    /**
+     * 查找 `find By Conversation Id` 对应结果。
+     *
+     * @param conversationId conversationId 参数。
+     * @return 返回处理结果。
+     */
     @Override
     public List<Message> findByConversationId(String conversationId) {
         if (conversationId == null || conversationId.isBlank()) {
@@ -89,6 +109,12 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
         return messages;
     }
 
+    /**
+     * 处理 `save All` 对应逻辑。
+     *
+     * @param conversationId conversationId 参数。
+     * @param messages messages 参数。
+     */
     @Override
     public void saveAll(String conversationId, List<Message> messages) {
         if (conversationId == null || conversationId.isBlank()) {
@@ -133,6 +159,11 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
         notifyLongTermMemory(conversationId, messages, commonPrefixLength);
     }
 
+    /**
+     * 删除 `delete By Conversation Id` 对应内容。
+     *
+     * @param conversationId conversationId 参数。
+     */
     @Override
     public void deleteByConversationId(String conversationId) {
         if (conversationId == null || conversationId.isBlank()) {
@@ -156,6 +187,14 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
         chatMemoryPendingImageBindingService.clearPendingImages(conversationId);
     }
 
+    /**
+     * 处理 `bind Pending Images If Needed` 对应逻辑。
+     *
+     * @param conversationId conversationId 参数。
+     * @param message message 参数。
+     * @param row row 参数。
+     * @param now now 参数。
+     */
     private void bindPendingImagesIfNeeded(String conversationId,
                                            Message message,
                                            ChatMemoryHistory row,
@@ -185,6 +224,12 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
         }
     }
 
+    /**
+     * 解析 `parse Image Id` 对应内容。
+     *
+     * @param imageIdValue imageIdValue 参数。
+     * @return 返回处理结果。
+     */
     private Long parseImageId(Object imageIdValue) {
         if (imageIdValue == null) {
             return null;
@@ -203,6 +248,12 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
         }
     }
 
+    /**
+     * 处理 `to Message` 对应逻辑。
+     *
+     * @param row row 参数。
+     * @return 返回处理结果。
+     */
     private Message toMessage(ChatMemoryHistory row) {
         MessageType messageType;
         try {
@@ -221,6 +272,13 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
         };
     }
 
+    /**
+     * 处理 `common Prefix Length` 对应逻辑。
+     *
+     * @param existingMessages existingMessages 参数。
+     * @param incomingMessages incomingMessages 参数。
+     * @return 返回处理结果。
+     */
     private int commonPrefixLength(List<Message> existingMessages, List<Message> incomingMessages) {
         int prefixLength = 0;
         int limit = Math.min(existingMessages.size(), incomingMessages.size());
@@ -230,6 +288,13 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
         return prefixLength;
     }
 
+    /**
+     * 处理 `same Message` 对应逻辑。
+     *
+     * @param left left 参数。
+     * @param right right 参数。
+     * @return 返回处理结果。
+     */
     private boolean sameMessage(Message left, Message right) {
         if (left == right) {
             return true;
@@ -243,6 +308,13 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
         return Objects.equals(Objects.toString(left.getText(), ""), Objects.toString(right.getText(), ""));
     }
 
+    /**
+     * 处理 `notify Long Term Memory` 对应逻辑。
+     *
+     * @param conversationId conversationId 参数。
+     * @param messages messages 参数。
+     * @param commonPrefixLength commonPrefixLength 参数。
+     */
     private void notifyLongTermMemory(String conversationId, List<Message> messages, int commonPrefixLength) {
         if (conversationId == null || conversationId.isBlank() || messages == null || messages.isEmpty()) {
             return;

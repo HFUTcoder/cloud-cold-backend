@@ -13,6 +13,11 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class CorsConfig implements WebMvcConfigurer {
 
     // 跨域核心配置（适配Spring MVC）
+    /**
+     * 处理 `add Cors Mappings` 对应逻辑。
+     *
+     * @param registry registry 参数。
+     */
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**") // 对所有路径生效
@@ -24,6 +29,11 @@ public class CorsConfig implements WebMvcConfigurer {
     }
 
     // 配置静态资源，解决favicon.ico报错
+    /**
+     * 处理 `add Resource Handlers` 对应逻辑。
+     *
+     * @param registry registry 参数。
+     */
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         // 1. 优先映射favicon.ico，即使文件不存在也不会抛出ERROR级异常

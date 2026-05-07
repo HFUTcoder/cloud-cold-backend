@@ -15,6 +15,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Skill 工作流服务实现，负责驱动图编排执行并将最终状态转换成业务侧可消费的结果。
+ */
 @Service
 @Slf4j
 public class SkillWorkflowServiceImpl implements SkillWorkflowService {
@@ -22,11 +25,25 @@ public class SkillWorkflowServiceImpl implements SkillWorkflowService {
     private final CompiledGraph skillWorkflowGraph;
     private final ObjectMapper objectMapper;
 
+    /**
+     * 注入 skill 工作流图和状态转换所需的对象映射器。
+     *
+     * @param skillWorkflowGraph 已编译的 skill 工作流图。
+     * @param objectMapper 状态对象转换器。
+     */
     public SkillWorkflowServiceImpl(CompiledGraph skillWorkflowGraph, ObjectMapper objectMapper) {
         this.skillWorkflowGraph = skillWorkflowGraph;
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * 执行 skill 工作流图，对当前问题进行 skill 识别、资源加载和运行时上下文构建。
+     *
+     * @param userId 当前用户 id。
+     * @param conversationId 当前会话 id。
+     * @param question 用户原始问题。
+     * @return 预处理后的 skill 结果；失败时回退为空结果。
+     */
     @Override
     public SkillWorkflowResult preprocess(Long userId, String conversationId, String question) {
         Map<String, Object> initialState = new LinkedHashMap<>();
@@ -64,6 +81,12 @@ public class SkillWorkflowServiceImpl implements SkillWorkflowService {
         }
     }
 
+    /**
+     * 将工作流状态中的原始列表值清洗成字符串列表。
+     *
+     * @param rawValue 工作流状态中的原始值。
+     * @return 去空、去空白后的字符串列表。
+     */
     private List<String> normalizeStringList(Object rawValue) {
         if (!(rawValue instanceof List<?> rawList) || rawList.isEmpty()) {
             return List.of();
@@ -81,6 +104,12 @@ public class SkillWorkflowServiceImpl implements SkillWorkflowService {
         return normalized;
     }
 
+    /**
+     * 将工作流状态中的原始上下文对象转换成 SkillRuntimeContext 列表。
+     *
+     * @param rawValue 工作流状态中的原始值。
+     * @return 规范化后的 skill 运行时上下文列表。
+     */
     private List<SkillRuntimeContext> normalizeSkillRuntimeContexts(Object rawValue) {
         if (!(rawValue instanceof List<?> rawList) || rawList.isEmpty()) {
             return List.of();

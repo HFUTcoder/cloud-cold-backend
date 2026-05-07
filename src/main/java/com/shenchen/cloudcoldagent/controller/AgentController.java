@@ -23,6 +23,9 @@ import reactor.core.Disposable;
 import java.io.IOException;
 import jakarta.servlet.http.HttpServletRequest;
 
+/**
+ * Agent 对话入口控制层，负责接收调用 / 恢复请求并以 SSE 形式向前端输出事件流。
+ */
 @RestController
 @RequestMapping("/agent")
 @Slf4j
@@ -34,6 +37,13 @@ public class AgentController {
 
     private final ChatConversationService chatConversationService;
 
+    /**
+     * 注入 Agent 调用和会话处理所需的服务。
+     *
+     * @param agentService Agent 业务服务。
+     * @param userService 用户业务服务。
+     * @param chatConversationService 会话业务服务。
+     */
     public AgentController(AgentService agentService,
                            UserService userService,
                            ChatConversationService chatConversationService) {
@@ -42,6 +52,13 @@ public class AgentController {
         this.chatConversationService = chatConversationService;
     }
 
+    /**
+     * 发起一次新的 Agent 调用；如未携带会话 id，则先为当前用户自动创建会话。
+     *
+     * @param agentCallRequest Agent 调用请求体。
+     * @param request 当前 HTTP 请求。
+     * @return 用于向前端持续推送 Agent 事件的 SSE emitter。
+     */
     @PostMapping("/call")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
     public SseEmitter call(@RequestBody AgentCallRequest agentCallRequest, HttpServletRequest request) {
@@ -107,6 +124,13 @@ public class AgentController {
         return emitter;
     }
 
+    /**
+     * 根据中断 id 恢复一次被 HITL 暂停的 Agent 执行。
+     *
+     * @param agentResumeRequest Agent 恢复请求体。
+     * @param request 当前 HTTP 请求。
+     * @return 用于向前端持续推送恢复后事件的 SSE emitter。
+     */
     @PostMapping("/resume")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
     public SseEmitter resume(@RequestBody AgentResumeRequest agentResumeRequest, HttpServletRequest request) {
@@ -120,7 +144,7 @@ public class AgentController {
                 loginUser.getId(),
                 agentResumeRequest.getInterruptId());
 
-        Disposable disposable = agentService.resume(agentResumeRequest.getInterruptId()).subscribe(
+        Disposable disposable = agentService.resume(agentResumeRequest.getInterruptId(), loginUser.getId()).subscribe(
                 data -> sendEvent(emitter, data),
                 throwable -> {
                     log.error("智能体恢复执行失败，userId={}, interruptId={}, message={}",
@@ -163,6 +187,12 @@ public class AgentController {
         return emitter;
     }
 
+    /**
+     * 向前端发送单条 Agent SSE 事件。
+     *
+     * @param emitter 当前 SSE 通道。
+     * @param data 待发送的 Agent 事件。
+     */
     private void sendEvent(SseEmitter emitter, AgentStreamEvent data) {
         try {
             emitter.send(SseEmitter.event()
@@ -178,6 +208,12 @@ public class AgentController {
         }
     }
 
+    /**
+     * 计算从开始时间到当前的耗时毫秒数。
+     *
+     * @param startNanos 开始时记录的纳秒时间戳。
+     * @return 已过去的毫秒数。
+     */
     private long elapsedMillis(long startNanos) {
         return Math.max(0L, (System.nanoTime() - startNanos) / 1_000_000L);
     }

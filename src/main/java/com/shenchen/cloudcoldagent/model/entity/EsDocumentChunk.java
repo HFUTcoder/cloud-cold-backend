@@ -4,6 +4,9 @@ import lombok.Data;
 
 import java.util.Map;
 
+/**
+ * `EsDocumentChunk` 类型实现。
+ */
 @Data
 public class EsDocumentChunk {
 

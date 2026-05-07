@@ -4,6 +4,9 @@ import lombok.Data;
 
 import java.io.Serializable;
 
+/**
+ * `KnowledgeVectorSearchRequest` 类型实现。
+ */
 @Data
 public class KnowledgeVectorSearchRequest implements Serializable {
 

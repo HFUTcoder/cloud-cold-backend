@@ -8,9 +8,17 @@ import org.springframework.context.annotation.Configuration;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+/**
+ * `SkillConfig` 类型实现。
+ */
 @Configuration
 public class SkillConfig {
 
+    /**
+     * 处理 `skill Registry` 对应逻辑。
+     *
+     * @return 返回处理结果。
+     */
     @Bean
     public SkillRegistry skillRegistry() {
         Path projectSkillsPath = Path.of("src/main/resources/skills").toAbsolutePath().normalize();

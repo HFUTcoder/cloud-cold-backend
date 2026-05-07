@@ -16,11 +16,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+/**
+ * 历史消息-知识库图片关系服务实现，负责绑定和查询历史消息关联的图片。
+ */
 @Service
 public class ChatMemoryHistoryImageRelationServiceImpl
         extends ServiceImpl<ChatMemoryHistoryImageRelationMapper, ChatMemoryHistoryImageRelation>
         implements ChatMemoryHistoryImageRelationService {
 
+    /**
+     * 为某条历史消息重新绑定命中的知识库图片列表。
+     *
+     * @param historyId 历史消息 id。
+     * @param conversationId 会话 id。
+     * @param imageIds 图片 id 列表。
+     */
     @Override
     public void bindImagesToHistory(Long historyId, String conversationId, List<Long> imageIds) {
         validateHistoryId(historyId);
@@ -51,6 +61,12 @@ public class ChatMemoryHistoryImageRelationServiceImpl
         }
     }
 
+    /**
+     * 查询 `list By History Id` 对应集合。
+     *
+     * @param historyId historyId 参数。
+     * @return 返回处理结果。
+     */
     @Override
     public List<ChatMemoryHistoryImageRelation> listByHistoryId(Long historyId) {
         validateHistoryId(historyId);
@@ -61,6 +77,12 @@ public class ChatMemoryHistoryImageRelationServiceImpl
                 .orderBy("id", true));
     }
 
+    /**
+     * 按历史消息 id 批量查询图片关系，并按 historyId 分组。
+     *
+     * @param historyIds 历史消息 id 列表。
+     * @return historyId 到图片关系列表的映射。
+     */
     @Override
     public Map<Long, List<ChatMemoryHistoryImageRelation>> mapByHistoryIds(List<Long> historyIds) {
         if (historyIds == null || historyIds.isEmpty()) {
@@ -89,6 +111,12 @@ public class ChatMemoryHistoryImageRelationServiceImpl
         return result;
     }
 
+    /**
+     * 删除 `delete By History Id` 对应内容。
+     *
+     * @param historyId historyId 参数。
+     * @return 返回处理结果。
+     */
     @Override
     public boolean deleteByHistoryId(Long historyId) {
         validateHistoryId(historyId);
@@ -100,6 +128,12 @@ public class ChatMemoryHistoryImageRelationServiceImpl
         ) > 0;
     }
 
+    /**
+     * 删除 `delete By Conversation Id` 对应内容。
+     *
+     * @param conversationId conversationId 参数。
+     * @return 返回处理结果。
+     */
     @Override
     public boolean deleteByConversationId(String conversationId) {
         validateConversationId(conversationId);
@@ -111,12 +145,22 @@ public class ChatMemoryHistoryImageRelationServiceImpl
         ) > 0;
     }
 
+    /**
+     * 校验 `validate History Id` 对应内容。
+     *
+     * @param historyId historyId 参数。
+     */
     private void validateHistoryId(Long historyId) {
         if (historyId == null || historyId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "historyId 不合法");
         }
     }
 
+    /**
+     * 校验 `validate Conversation Id` 对应内容。
+     *
+     * @param conversationId conversationId 参数。
+     */
     private void validateConversationId(String conversationId) {
         if (conversationId == null || conversationId.isBlank()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "conversationId 不能为空");

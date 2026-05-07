@@ -4,6 +4,9 @@ import lombok.Data;
 
 import java.io.Serializable;
 
+/**
+ * `ChatConversationKnowledgeUpdateRequest` 类型实现。
+ */
 @Data
 public class ChatConversationKnowledgeUpdateRequest implements Serializable {
 

@@ -13,15 +13,29 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
+/**
+ * `LoadSkillContentsNode` 类型实现。
+ */
 @Component
 public class LoadSkillContentsNode {
 
     private final SkillService skillService;
 
+    /**
+     * 创建 `LoadSkillContentsNode` 实例。
+     *
+     * @param skillService skillService 参数。
+     */
     public LoadSkillContentsNode(SkillService skillService) {
         this.skillService = skillService;
     }
 
+    /**
+     * 处理 `apply` 对应逻辑。
+     *
+     * @param state state 参数。
+     * @return 返回处理结果。
+     */
     @SuppressWarnings("unchecked")
     public CompletableFuture<Map<String, Object>> apply(OverAllState state) {
         List<String> selectedSkills =

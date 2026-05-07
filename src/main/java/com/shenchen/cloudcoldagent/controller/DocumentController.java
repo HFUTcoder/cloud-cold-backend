@@ -28,6 +28,9 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
+/**
+ * 文档控制层，负责文档管理、上传入库、预览和按知识库查询。
+ */
 @RestController
 @RequestMapping("/document")
 public class DocumentController {
@@ -40,6 +43,14 @@ public class DocumentController {
 
     private final MinioService minioService;
 
+    /**
+     * 注入文档接口所需的业务服务。
+     *
+     * @param documentService 文档业务服务。
+     * @param userService 用户业务服务。
+     * @param knowledgeDocumentIngestionService 文档入库服务。
+     * @param minioService MinIO 文件服务。
+     */
     public DocumentController(DocumentService documentService,
                               UserService userService,
                               KnowledgeDocumentIngestionService knowledgeDocumentIngestionService,
@@ -50,6 +61,13 @@ public class DocumentController {
         this.minioService = minioService;
     }
 
+    /**
+     * 创建一条文档记录。
+     *
+     * @param request 创建请求体。
+     * @param httpServletRequest 当前 HTTP 请求。
+     * @return 新文档 id。
+     */
     @PostMapping("/create")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
     public BaseResponse<Long> createDocument(@RequestBody DocumentAddRequest request, HttpServletRequest httpServletRequest) {
@@ -58,6 +76,14 @@ public class DocumentController {
         return ResultUtils.success(documentService.addDocument(loginUser.getId(), request));
     }
 
+    /**
+     * 上传 PDF 文档并同步完成知识库入库。
+     *
+     * @param knowledgeId 目标知识库 id。
+     * @param file 上传文件。
+     * @param httpServletRequest 当前 HTTP 请求。
+     * @return 入库后的文档视图对象。
+     */
     @PostMapping("/upload")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
     public BaseResponse<DocumentVO> uploadDocument(@RequestParam Long knowledgeId,
@@ -69,6 +95,13 @@ public class DocumentController {
         return ResultUtils.success(knowledgeDocumentIngestionService.uploadDocument(loginUser.getId(), knowledgeId, file));
     }
 
+    /**
+     * 查询指定文档详情。
+     *
+     * @param id 文档 id。
+     * @param httpServletRequest 当前 HTTP 请求。
+     * @return 文档视图对象。
+     */
     @GetMapping("/get")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
     public BaseResponse<DocumentVO> getDocument(long id, HttpServletRequest httpServletRequest) {
@@ -77,6 +110,14 @@ public class DocumentController {
         return ResultUtils.success(documentService.getDocumentVO(documentService.getDocumentById(loginUser.getId(), id)));
     }
 
+    /**
+     * 获取文档原始文件的预签名预览地址。
+     *
+     * @param id 文档 id。
+     * @param httpServletRequest 当前 HTTP 请求。
+     * @return MinIO 预签名 URL。
+     * @throws Exception 生成预签名地址失败时抛出。
+     */
     @GetMapping("/preview-url")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
     public BaseResponse<String> getDocumentPreviewUrl(@RequestParam Long id, HttpServletRequest httpServletRequest) throws Exception {
@@ -88,6 +129,13 @@ public class DocumentController {
         return ResultUtils.success(minioService.getPresignedUrl(document.getObjectName()));
     }
 
+    /**
+     * 更新文档基础信息。
+     *
+     * @param request 更新请求体。
+     * @param httpServletRequest 当前 HTTP 请求。
+     * @return 是否更新成功。
+     */
     @PostMapping("/update")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
     public BaseResponse<Boolean> updateDocument(@RequestBody DocumentUpdateRequest request, HttpServletRequest httpServletRequest) {
@@ -96,6 +144,13 @@ public class DocumentController {
         return ResultUtils.success(documentService.updateDocument(loginUser.getId(), request));
     }
 
+    /**
+     * 删除文档及其关联入库信息。
+     *
+     * @param request 删除请求体。
+     * @param httpServletRequest 当前 HTTP 请求。
+     * @return 是否删除成功。
+     */
     @PostMapping("/delete")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
     public BaseResponse<Boolean> deleteDocument(@RequestBody DeleteRequest request, HttpServletRequest httpServletRequest) {
@@ -104,6 +159,13 @@ public class DocumentController {
         return ResultUtils.success(documentService.deleteDocument(loginUser.getId(), request.getId()));
     }
 
+    /**
+     * 分页查询当前用户的文档列表。
+     *
+     * @param request 分页查询条件。
+     * @param httpServletRequest 当前 HTTP 请求。
+     * @return 文档分页视图结果。
+     */
     @PostMapping("/list/page/my")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
     public BaseResponse<Page<DocumentVO>> listMyDocumentByPage(@RequestBody DocumentQueryRequest request,
@@ -116,6 +178,13 @@ public class DocumentController {
         return ResultUtils.success(documentVOPage);
     }
 
+    /**
+     * 查询某个知识库下的全部文档列表。
+     *
+     * @param knowledgeId 知识库 id。
+     * @param httpServletRequest 当前 HTTP 请求。
+     * @return 文档视图列表。
+     */
     @GetMapping("/list/by/knowledge")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
     public BaseResponse<List<DocumentVO>> listByKnowledgeId(@RequestParam Long knowledgeId, HttpServletRequest httpServletRequest) {

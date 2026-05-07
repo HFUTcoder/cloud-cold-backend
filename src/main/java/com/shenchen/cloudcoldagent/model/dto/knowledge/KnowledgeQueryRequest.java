@@ -6,6 +6,9 @@ import lombok.EqualsAndHashCode;
 
 import java.io.Serializable;
 
+/**
+ * `KnowledgeQueryRequest` 类型实现。
+ */
 @EqualsAndHashCode(callSuper = true)
 @Data
 public class KnowledgeQueryRequest extends PageRequest implements Serializable {

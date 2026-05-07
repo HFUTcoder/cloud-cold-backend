@@ -25,15 +25,22 @@ public class AuthInterceptor {
 
     private final UserService userService;
 
+    /**
+     * 创建 `AuthInterceptor` 实例。
+     *
+     * @param userService userService 参数。
+     */
     public AuthInterceptor(UserService userService) {
         this.userService = userService;
     }
 
     /**
-     * 执行拦截
+     * 处理 `do Interceptor` 对应逻辑。
      *
-     * @param joinPoint 切入点
-     * @param authCheck 权限校验注解
+     * @param joinPoint joinPoint 参数。
+     * @param authCheck authCheck 参数。
+     * @return 返回处理结果。
+     * @throws Throwable 异常信息。
      */
     @Around("@annotation(authCheck)")
     public Object doInterceptor(ProceedingJoinPoint joinPoint, AuthCheck authCheck) throws Throwable {

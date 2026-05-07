@@ -27,7 +27,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * 会话服务实现
+ * 会话服务实现，负责会话创建、归属校验、绑定关系维护以及删除时的级联清理。
  */
 @Service
 @Slf4j
@@ -56,6 +56,20 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
 
     private final UserLongTermMemoryService userLongTermMemoryService;
 
+    /**
+     * 注入会话主链路所需的依赖。
+     *
+     * @param skillRegistry skill 注册表。
+     * @param chatConversationMapper 会话数据访问对象。
+     * @param chatMemoryRepository 对话记忆仓库。
+     * @param chatMemoryHistoryMapper 历史消息 mapper。
+     * @param userConversationRelationService 用户会话归属服务。
+     * @param hitlCheckpointMapper HITL checkpoint mapper。
+     * @param conversationKnowledgeRelationService 会话知识库绑定服务。
+     * @param conversationSkillRelationService 会话 skill 绑定服务。
+     * @param knowledgeService 知识库业务服务。
+     * @param userLongTermMemoryService 长期记忆业务服务。
+     */
     public ChatConversationServiceImpl(SkillRegistry skillRegistry,
                                        ChatConversationMapper chatConversationMapper,
                                        ChatMemoryRepository chatMemoryRepository,
@@ -78,6 +92,12 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         this.userLongTermMemoryService = userLongTermMemoryService;
     }
 
+    /**
+     * 查询某个用户拥有的全部会话 id。
+     *
+     * @param userId 用户 id。
+     * @return 当前用户的会话 id 列表。
+     */
     @Override
     public List<String> listConversationIdsByUserId(Long userId) {
         if (userId == null || userId <= 0) {
@@ -86,6 +106,12 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         return userConversationRelationService.listConversationIdsByUserId(userId);
     }
 
+    /**
+     * 查询当前用户的会话列表，并补齐 skill / 知识库绑定信息。
+     *
+     * @param userId 用户 id。
+     * @return 会话列表。
+     */
     @Override
     public List<ChatConversation> listByUserId(Long userId) {
         if (userId == null || userId <= 0) {
@@ -104,6 +130,12 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         return conversations;
     }
 
+    /**
+     * 刷新会话活跃时间；若会话不存在则补建并绑定到当前用户。
+     *
+     * @param userId 用户 id。
+     * @param conversationId 会话 id。
+     */
     @Override
     public void touchConversation(Long userId, String conversationId) {
         String normalizedConversationId = normalizeConversationId(userId, conversationId);
@@ -133,6 +165,12 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         this.updateById(existing);
     }
 
+    /**
+     * 为当前用户显式创建一个新会话。
+     *
+     * @param userId 用户 id。
+     * @return 新会话 id。
+     */
     @Override
     public String createConversation(Long userId) {
         String conversationId = normalizeConversationId(userId, null);
@@ -159,6 +197,13 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         return conversationId;
     }
 
+    /**
+     * 删除会话并级联清理记忆、绑定关系、HITL checkpoint 和长期记忆侧状态。
+     *
+     * @param userId 用户 id。
+     * @param conversationId 会话 id。
+     * @return 是否删除成功。
+     */
     @Override
     public boolean deleteConversation(Long userId, String conversationId) {
         String normalizedConversationId = normalizeConversationId(userId, conversationId);
@@ -197,12 +242,26 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         return deleted;
     }
 
+    /**
+     * 判断某个会话是否归属于指定用户。
+     *
+     * @param userId 用户 id。
+     * @param conversationId 会话 id。
+     * @return 会话归属匹配时返回 true。
+     */
     @Override
     public boolean isConversationOwnedByUser(Long userId, String conversationId) {
         String normalizedConversationId = normalizeConversationId(userId, conversationId);
         return userConversationRelationService.isConversationOwnedByUser(userId, normalizedConversationId);
     }
 
+    /**
+     * 获取 `get By Conversation Id` 对应结果。
+     *
+     * @param userId userId 参数。
+     * @param conversationId conversationId 参数。
+     * @return 返回处理结果。
+     */
     @Override
     public ChatConversation getByConversationId(Long userId, String conversationId) {
         String normalizedConversationId = normalizeConversationId(userId, conversationId);
@@ -220,6 +279,13 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         return conversation;
     }
 
+    /**
+     * 更新 `update Conversation Skills` 对应内容。
+     *
+     * @param userId userId 参数。
+     * @param conversationId conversationId 参数。
+     * @param selectedSkills selectedSkills 参数。
+     */
     @Override
     public void updateConversationSkills(Long userId, String conversationId, List<String> selectedSkills) {
         ChatConversation conversation = getByConversationId(userId, conversationId);
@@ -241,6 +307,13 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
                 normalizedSkills);
     }
 
+    /**
+     * 更新 `update Conversation Knowledge` 对应内容。
+     *
+     * @param userId userId 参数。
+     * @param conversationId conversationId 参数。
+     * @param knowledgeId knowledgeId 参数。
+     */
     @Override
     public void updateConversationKnowledge(Long userId, String conversationId, Long knowledgeId) {
         ChatConversation conversation = getByConversationId(userId, conversationId);
@@ -262,6 +335,13 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
                 knowledge.getKnowledgeName());
     }
 
+    /**
+     * 构建 `build Conversation Skill Prompt` 对应结果。
+     *
+     * @param userId userId 参数。
+     * @param conversationId conversationId 参数。
+     * @return 返回处理结果。
+     */
     @Override
     public String buildConversationSkillPrompt(Long userId, String conversationId) {
         log.debug("buildConversationSkillPrompt 已废弃，当前 skill 前置能力统一由 skill workflow 负责，conversationId={}",
@@ -269,6 +349,13 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         return "";
     }
 
+    /**
+     * 处理 `normalize Conversation Id` 对应逻辑。
+     *
+     * @param userId userId 参数。
+     * @param rawConversationId rawConversationId 参数。
+     * @return 返回处理结果。
+     */
     @Override
     public String normalizeConversationId(Long userId, String rawConversationId) {
         if (userId == null || userId <= 0) {
@@ -280,6 +367,13 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         return rawConversationId.trim();
     }
 
+    /**
+     * 生成 `generate Title On First Message` 对应结果。
+     *
+     * @param userId userId 参数。
+     * @param conversationId conversationId 参数。
+     * @param firstMessage firstMessage 参数。
+     */
     @Override
     public void generateTitleOnFirstMessage(Long userId, String conversationId, String firstMessage) {
         String normalizedConversationId = normalizeConversationId(userId, conversationId);
@@ -313,6 +407,12 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         this.updateById(conversation);
     }
 
+    /**
+     * 处理 `fill Conversation Bindings` 对应逻辑。
+     *
+     * @param userId userId 参数。
+     * @param conversation conversation 参数。
+     */
     private void fillConversationBindings(Long userId, ChatConversation conversation) {
         if (conversation == null) {
             return;
@@ -323,6 +423,12 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         fillSelectedKnowledge(userId, conversation);
     }
 
+    /**
+     * 处理 `fill Selected Knowledge` 对应逻辑。
+     *
+     * @param userId userId 参数。
+     * @param conversation conversation 参数。
+     */
     private void fillSelectedKnowledge(Long userId, ChatConversation conversation) {
         if (conversation == null || userId == null || userId <= 0) {
             return;
@@ -342,6 +448,12 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         }
     }
 
+    /**
+     * 处理 `normalize Selected Skills` 对应逻辑。
+     *
+     * @param selectedSkills selectedSkills 参数。
+     * @return 返回处理结果。
+     */
     private List<String> normalizeSelectedSkills(List<String> selectedSkills) {
         if (selectedSkills == null || selectedSkills.isEmpty()) {
             return new ArrayList<>();

@@ -1,6 +1,11 @@
 package com.shenchen.cloudcoldagent.prompts;
 
+/**
+ * `ReactAgentPrompts` 类型实现。
+ */
 public final class ReactAgentPrompts {
+
+    public static final String DEFAULT_REACT_SYSTEM_PROMPT = "你是专业的研究分析助手！";
 
     public static final String STRICT_REACT_SYSTEM_PROMPT = """
             ## 角色
@@ -14,9 +19,25 @@ public final class ReactAgentPrompts {
             5. 若本轮没有工具调用，则直接给出最终自然语言答案。
             """;
 
+    public static final String FORCE_FINAL_ANSWER_PROMPT = """
+            你已达到最大推理轮次限制。
+            请基于当前已有的上下文信息，
+            直接给出最终答案。
+            禁止再调用任何工具。
+            如果信息不完整，请合理总结和说明。
+            """;
+
+    /**
+     * 创建 `ReactAgentPrompts` 实例。
+     */
     private ReactAgentPrompts() {
     }
 
+    /**
+     * 获取 `get Web Search Prompt` 对应结果。
+     *
+     * @return 返回处理结果。
+     */
     public static String getWebSearchPrompt() {
         return BaseAgentPrompts.getBasePromptWithPrefix("""
                 ## 角色补充
@@ -29,6 +50,11 @@ public final class ReactAgentPrompts {
                 """);
     }
 
+    /**
+     * 获取 `get File Prompt` 对应结果。
+     *
+     * @return 返回处理结果。
+     */
     public static String getFilePrompt() {
         return BaseAgentPrompts.getBasePromptWithPrefix("""
                 ## 角色补充
@@ -43,14 +69,29 @@ public final class ReactAgentPrompts {
                 """);
     }
 
+    /**
+     * 获取 `get Web Search Base Prompt` 对应结果。
+     *
+     * @return 返回处理结果。
+     */
     public static String getWebSearchBasePrompt() {
         return getWebSearchPrompt();
     }
 
+    /**
+     * 获取 `get File Base Prompt` 对应结果。
+     *
+     * @return 返回处理结果。
+     */
     public static String getFileBasePrompt() {
         return getFilePrompt();
     }
 
+    /**
+     * 获取 `get Recommend Prompt` 对应结果。
+     *
+     * @return 返回处理结果。
+     */
     public static String getRecommendPrompt() {
         return """
                 ## 任务

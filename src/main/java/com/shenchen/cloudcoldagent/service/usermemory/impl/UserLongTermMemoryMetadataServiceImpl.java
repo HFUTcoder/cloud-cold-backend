@@ -21,6 +21,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
+/**
+ * 长期记忆元数据服务实现，负责记忆实体、来源关系和会话处理状态的持久化维护。
+ */
 @Service
 public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemoryMetadataService {
 
@@ -33,6 +36,13 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
     private final UserLongTermMemorySourceRelationMapper sourceRelationMapper;
     private final UserLongTermMemoryConversationStateMapper conversationStateMapper;
 
+    /**
+     * 创建 `UserLongTermMemoryMetadataServiceImpl` 实例。
+     *
+     * @param userLongTermMemoryMapper userLongTermMemoryMapper 参数。
+     * @param sourceRelationMapper sourceRelationMapper 参数。
+     * @param conversationStateMapper conversationStateMapper 参数。
+     */
     public UserLongTermMemoryMetadataServiceImpl(UserLongTermMemoryMapper userLongTermMemoryMapper,
                                                  UserLongTermMemorySourceRelationMapper sourceRelationMapper,
                                                  UserLongTermMemoryConversationStateMapper conversationStateMapper) {
@@ -41,6 +51,13 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
         this.conversationStateMapper = conversationStateMapper;
     }
 
+    /**
+     * 批量写入提炼后的长期记忆实体及其来源关系。
+     *
+     * @param userId 当前用户 id。
+     * @param conversationId 来源会话 id。
+     * @param memories 待写入的长期记忆文档列表。
+     */
     @Override
     public void upsertMemories(Long userId, String conversationId, List<UserLongTermMemoryDoc> memories) {
         if (userId == null || userId <= 0 || StringUtils.isBlank(conversationId) || memories == null || memories.isEmpty()) {
@@ -93,6 +110,13 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
         }
     }
 
+    /**
+     * 查询 `list Active By User Id` 对应集合。
+     *
+     * @param userId userId 参数。
+     * @param size size 参数。
+     * @return 返回处理结果。
+     */
     @Override
     public List<UserLongTermMemory> listActiveByUserId(Long userId, int size) {
         if (userId == null || userId <= 0) {
@@ -106,6 +130,13 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
                 .limit(size));
     }
 
+    /**
+     * 按 memoryId 批量查询仍处于激活状态的长期记忆实体。
+     *
+     * @param userId 当前用户 id。
+     * @param memoryIds 记忆 id 列表。
+     * @return memoryId 到实体的映射。
+     */
     @Override
     public Map<String, UserLongTermMemory> mapActiveByMemoryIds(Long userId, List<String> memoryIds) {
         if (userId == null || userId <= 0 || memoryIds == null || memoryIds.isEmpty()) {
@@ -126,6 +157,13 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
         return result;
     }
 
+    /**
+     * 按 memoryId 批量查询激活记忆，并组装成向量存储层使用的文档对象。
+     *
+     * @param userId 当前用户 id。
+     * @param memoryIds 记忆 id 列表。
+     * @return memoryId 到长期记忆文档的映射。
+     */
     @Override
     public Map<String, UserLongTermMemoryDoc> mapActiveDocsByMemoryIds(Long userId, List<String> memoryIds) {
         if (userId == null || userId <= 0 || memoryIds == null || memoryIds.isEmpty()) {
@@ -181,6 +219,12 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
         return result;
     }
 
+    /**
+     * 批量查询多个记忆对应的来源关系。
+     *
+     * @param memoryIds 记忆 id 列表。
+     * @return memoryId 到来源关系列表的映射。
+     */
     @Override
     public Map<String, List<UserLongTermMemorySourceRelation>> mapSourcesByMemoryIds(List<String> memoryIds) {
         if (memoryIds == null || memoryIds.isEmpty()) {
@@ -200,6 +244,12 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
         return result;
     }
 
+    /**
+     * 更新一批长期记忆的最近召回时间。
+     *
+     * @param userId 当前用户 id。
+     * @param memoryIds 被召回的记忆 id 列表。
+     */
     @Override
     public void markRetrieved(Long userId, List<String> memoryIds) {
         if (userId == null || userId <= 0 || memoryIds == null || memoryIds.isEmpty()) {
@@ -216,6 +266,13 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
         );
     }
 
+    /**
+     * 删除 `delete Memory` 对应内容。
+     *
+     * @param userId userId 参数。
+     * @param memoryId memoryId 参数。
+     * @return 返回处理结果。
+     */
     @Override
     public boolean deleteMemory(Long userId, String memoryId) {
         if (userId == null || userId <= 0 || StringUtils.isBlank(memoryId)) {
@@ -245,6 +302,11 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
         ) > 0;
     }
 
+    /**
+     * 逻辑删除某个用户的全部长期记忆及来源关系。
+     *
+     * @param userId 当前用户 id。
+     */
     @Override
     public void softDeleteByUserId(Long userId) {
         if (userId == null || userId <= 0) {
@@ -272,6 +334,12 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
         );
     }
 
+    /**
+     * 删除 `delete By Conversation Id` 对应内容。
+     *
+     * @param userId userId 参数。
+     * @param conversationId conversationId 参数。
+     */
     @Override
     public void deleteByConversationId(Long userId, String conversationId) {
         if (userId == null || userId <= 0 || StringUtils.isBlank(conversationId)) {
@@ -316,6 +384,12 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
         );
     }
 
+    /**
+     * 确保某个会话存在长期记忆处理状态记录。
+     *
+     * @param userId 当前用户 id。
+     * @param conversationId 会话 id。
+     */
     @Override
     public void ensureConversationState(Long userId, String conversationId) {
         if (userId == null || userId <= 0 || StringUtils.isBlank(conversationId)) {
@@ -341,6 +415,13 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
                 .build());
     }
 
+    /**
+     * 为某个会话累计待学习轮次，并标记为未处理状态。
+     *
+     * @param userId 当前用户 id。
+     * @param conversationId 会话 id。
+     * @param roundCount 本次新增的完整轮次数量。
+     */
     @Override
     public void incrementPendingRounds(Long userId, String conversationId, int roundCount) {
         if (userId == null || userId <= 0 || StringUtils.isBlank(conversationId) || roundCount <= 0) {
@@ -361,6 +442,12 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
         conversationStateMapper.update(existing);
     }
 
+    /**
+     * 将某个会话标记为待重新处理状态。
+     *
+     * @param userId 当前用户 id。
+     * @param conversationId 会话 id。
+     */
     @Override
     public void markConversationUnprocessed(Long userId, String conversationId) {
         if (userId == null || userId <= 0 || StringUtils.isBlank(conversationId)) {
@@ -380,6 +467,11 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
         );
     }
 
+    /**
+     * 将当前用户的全部会话状态重置为待处理。
+     *
+     * @param userId 当前用户 id。
+     */
     @Override
     public void markAllUserConversationsUnprocessed(Long userId) {
         if (userId == null || userId <= 0) {
@@ -397,6 +489,12 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
         );
     }
 
+    /**
+     * 删除 `delete Conversation State` 对应内容。
+     *
+     * @param userId userId 参数。
+     * @param conversationId conversationId 参数。
+     */
     @Override
     public void deleteConversationState(Long userId, String conversationId) {
         if (userId == null || userId <= 0 || StringUtils.isBlank(conversationId)) {
@@ -414,6 +512,12 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
         );
     }
 
+    /**
+     * 查询 `list Pending Conversation States` 对应集合。
+     *
+     * @param userId userId 参数。
+     * @return 返回处理结果。
+     */
     @Override
     public List<UserLongTermMemoryConversationState> listPendingConversationStates(Long userId) {
         if (userId == null || userId <= 0) {
@@ -427,6 +531,11 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
                 .orderBy("id", true));
     }
 
+    /**
+     * 查询 `list User Ids With Pending Conversation States` 对应集合。
+     *
+     * @return 返回处理结果。
+     */
     @Override
     public List<Long> listUserIdsWithPendingConversationStates() {
         List<UserLongTermMemoryConversationState> rows = conversationStateMapper.selectListByQuery(QueryWrapper.create()
@@ -442,6 +551,12 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
         return new ArrayList<>(userIds);
     }
 
+    /**
+     * 将某个会话标记为已处理，并记录最近构建时间。
+     *
+     * @param userId 当前用户 id。
+     * @param conversationId 会话 id。
+     */
     @Override
     public void markConversationProcessed(Long userId, String conversationId) {
         if (userId == null || userId <= 0 || StringUtils.isBlank(conversationId)) {

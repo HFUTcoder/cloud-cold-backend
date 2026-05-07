@@ -9,6 +9,9 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * `UserLongTermMemoryDoc` 类型实现。
+ */
 @Data
 @Builder
 @NoArgsConstructor

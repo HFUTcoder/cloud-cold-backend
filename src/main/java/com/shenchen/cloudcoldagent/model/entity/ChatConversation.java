@@ -15,6 +15,9 @@ import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/**
+ * `ChatConversation` 类型实现。
+ */
 @Data
 @Builder
 @NoArgsConstructor

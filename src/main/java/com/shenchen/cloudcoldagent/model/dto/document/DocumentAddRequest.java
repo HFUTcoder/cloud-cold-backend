@@ -4,6 +4,9 @@ import lombok.Data;
 
 import java.io.Serializable;
 
+/**
+ * `DocumentAddRequest` 类型实现。
+ */
 @Data
 public class DocumentAddRequest implements Serializable {
 

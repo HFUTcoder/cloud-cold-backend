@@ -29,6 +29,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+/**
+ * 长期记忆存储服务实现，负责关键词索引、向量索引以及相关召回逻辑。
+ */
 @Service
 @Slf4j
 public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
@@ -42,6 +45,16 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
 
     private ElasticsearchVectorStore vectorStore;
 
+    /**
+     * 注入长期记忆存储所需的 ES、向量和元数据依赖。
+     *
+     * @param elasticsearchClient ES Java 客户端。
+     * @param restClient ES RestClient。
+     * @param embeddingModel 向量化模型。
+     * @param properties 长期记忆配置。
+     * @param objectMapper 对象映射器。
+     * @param metadataService 长期记忆元数据服务。
+     */
     public UserLongTermMemoryStoreImpl(ElasticsearchClient elasticsearchClient,
                                        RestClient restClient,
                                        EmbeddingModel embeddingModel,
@@ -56,6 +69,9 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
         this.metadataService = metadataService;
     }
 
+    /**
+     * 初始化长期记忆向量存储并确保索引存在。
+     */
     @PostConstruct
     public void init() {
         ElasticsearchVectorStoreOptions options = new ElasticsearchVectorStoreOptions();
@@ -68,6 +84,9 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
         ensureIndexes();
     }
 
+    /**
+     * 确保关键词索引和向量索引都已创建完成。
+     */
     @Override
     public void ensureIndexes() {
         try {
@@ -82,6 +101,13 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
         }
     }
 
+    /**
+     * 批量写入长期记忆，同时同步更新关键词索引和向量索引。
+     *
+     * @param userId 当前用户 id。
+     * @param memories 待写入的长期记忆文档。
+     * @throws Exception 写入索引失败时抛出。
+     */
     @Override
     public void addMemories(Long userId, List<UserLongTermMemoryDoc> memories) throws Exception {
         if (userId == null || userId <= 0 || memories == null || memories.isEmpty()) {
@@ -118,6 +144,14 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
         }
     }
 
+    /**
+     * 查询当前用户在关键词索引中的长期记忆列表。
+     *
+     * @param userId 当前用户 id。
+     * @param size 返回条数上限。
+     * @return 长期记忆文档列表。
+     * @throws Exception 查询失败时抛出。
+     */
     @Override
     public List<UserLongTermMemoryDoc> listByUserId(Long userId, int size) throws Exception {
         if (userId == null || userId <= 0) {
@@ -138,6 +172,15 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
         return result;
     }
 
+    /**
+     * 对当前用户的长期记忆执行向量相似度召回。
+     *
+     * @param userId 当前用户 id。
+     * @param query 查询文本。
+     * @param topK 召回数量上限。
+     * @return 命中的长期记忆文档列表。
+     * @throws Exception 查询失败时抛出。
+     */
     @Override
     public List<UserLongTermMemoryDoc> similaritySearch(Long userId, String query, int topK) throws Exception {
         if (userId == null || userId <= 0 || query == null || query.isBlank()) {
@@ -177,6 +220,13 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
         return result;
     }
 
+    /**
+     * 删除 `delete By Id` 对应内容。
+     *
+     * @param userId userId 参数。
+     * @param memoryId memoryId 参数。
+     * @throws Exception 异常信息。
+     */
     @Override
     public void deleteById(Long userId, String memoryId) throws Exception {
         if (userId == null || userId <= 0 || memoryId == null || memoryId.isBlank()) {
@@ -186,6 +236,12 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
         vectorStore.delete(List.of(memoryId));
     }
 
+    /**
+     * 删除某个用户的全部长期记忆索引数据。
+     *
+     * @param userId 当前用户 id。
+     * @throws Exception 删除关键词索引或向量索引失败时抛出。
+     */
     @Override
     public void deleteByUserId(Long userId) throws Exception {
         if (userId == null || userId <= 0) {
@@ -204,6 +260,13 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
         }
     }
 
+    /**
+     * 删除某个会话来源对应的长期记忆索引数据。
+     *
+     * @param userId 当前用户 id。
+     * @param conversationId 会话 id。
+     * @throws Exception 删除关键词索引或向量索引失败时抛出。
+     */
     @Override
     public void deleteByConversationId(Long userId, String conversationId) throws Exception {
         if (userId == null || userId <= 0 || conversationId == null || conversationId.isBlank()) {
@@ -226,6 +289,12 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
         vectorStore.delete(ids);
     }
 
+    /**
+     * 判断指定关键词索引是否已经存在。
+     *
+     * @param indexName 索引名。
+     * @return 索引存在时返回 true。
+     */
     private boolean indexExists(String indexName) {
         try {
             return elasticsearchClient.indices().exists(e -> e.index(indexName)).value();
@@ -234,6 +303,11 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
         }
     }
 
+    /**
+     * 创建长期记忆关键词索引及其字段映射。
+     *
+     * @throws Exception 创建索引失败时抛出。
+     */
     private void createKeywordIndex() throws Exception {
         String mapping = """
                 {
@@ -275,6 +349,12 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
         elasticsearchClient.indices().create(request);
     }
 
+    /**
+     * 为长期记忆构建写入向量存储时使用的元数据。
+     *
+     * @param memory 长期记忆文档。
+     * @return 向量存储元数据映射。
+     */
     private Map<String, Object> buildMetadata(UserLongTermMemoryDoc memory) {
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("userId", memory.getUserId());
@@ -285,6 +365,13 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
         return metadata;
     }
 
+    /**
+     * 判断向量检索返回的文档是否属于当前用户。
+     *
+     * @param document 向量检索命中的文档。
+     * @param userId 当前用户 id。
+     * @return 命中当前用户时返回 true。
+     */
     private boolean matchesUserId(Document document, Long userId) {
         if (document == null || document.getMetadata() == null || document.getMetadata().isEmpty()) {
             return false;

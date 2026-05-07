@@ -34,6 +34,12 @@ public class ChatConversationController {
 
     private final UserService userService;
 
+    /**
+     * 注入会话接口所需的会话服务和用户服务。
+     *
+     * @param chatConversationService 会话业务服务。
+     * @param userService 用户业务服务。
+     */
     public ChatConversationController(ChatConversationService chatConversationService,
                                       UserService userService) {
         this.chatConversationService = chatConversationService;

@@ -8,6 +8,9 @@ import java.time.LocalDateTime;
  */
 public final class BaseAgentPrompts {
 
+    /**
+     * 创建 `BaseAgentPrompts` 实例。
+     */
     private BaseAgentPrompts() {
     }
 
@@ -90,10 +93,10 @@ public final class BaseAgentPrompts {
     }
 
     /**
-     * 获取带自定义前缀的基础提示词
+     * 获取 `get Base Prompt With Prefix` 对应结果。
      *
-     * @param prefix 前缀内容
-     * @return 完整的提示词
+     * @param prefix prefix 参数。
+     * @return 返回处理结果。
      */
     public static String getBasePromptWithPrefix(String prefix) {
         if (prefix == null || prefix.isEmpty()) {

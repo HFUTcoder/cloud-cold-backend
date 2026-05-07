@@ -7,11 +7,19 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * `EmbeddingService` 类型实现。
+ */
 @Service
 public class EmbeddingService {
 
     private final EmbeddingModel embeddingModel;
 
+    /**
+     * 创建 `EmbeddingService` 实例。
+     *
+     * @param embeddingModel embeddingModel 参数。
+     */
     public EmbeddingService(EmbeddingModel embeddingModel) {
         this.embeddingModel = embeddingModel;
     }

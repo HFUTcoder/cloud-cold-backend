@@ -14,11 +14,21 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 
+/**
+ * 会话-skill 绑定服务实现，负责读取和替换某个会话当前绑定的 skill 列表。
+ */
 @Service
 public class ConversationSkillRelationServiceImpl
         extends ServiceImpl<ConversationSkillRelationMapper, ConversationSkillRelation>
         implements ConversationSkillRelationService {
 
+    /**
+     * 查询指定用户某个会话当前绑定的 skill 名称列表。
+     *
+     * @param userId 用户 id。
+     * @param conversationId 会话 id。
+     * @return 去重后的 skill 名称列表。
+     */
     @Override
     public List<String> listSkillNamesByUserIdAndConversationId(Long userId, String conversationId) {
         validateUserId(userId);
@@ -39,6 +49,14 @@ public class ConversationSkillRelationServiceImpl
                 ));
     }
 
+    /**
+     * 用新的 skill 列表覆盖会话现有绑定关系。
+     *
+     * @param userId 用户 id。
+     * @param conversationId 会话 id。
+     * @param skillNames 新的 skill 名称列表。
+     * @param now 更新时间；为空时使用当前时间。
+     */
     @Override
     public void replaceSkills(Long userId, String conversationId, List<String> skillNames, LocalDateTime now) {
         validateUserId(userId);
@@ -82,6 +100,12 @@ public class ConversationSkillRelationServiceImpl
         }
     }
 
+    /**
+     * 按会话 id 逻辑删除 skill 绑定关系。
+     *
+     * @param conversationId 会话 id。
+     * @return 是否成功删除绑定关系。
+     */
     @Override
     public boolean deleteByConversationId(String conversationId) {
         validateConversationId(conversationId);
@@ -93,12 +117,22 @@ public class ConversationSkillRelationServiceImpl
         ) > 0;
     }
 
+    /**
+     * 校验 `validate User Id` 对应内容。
+     *
+     * @param userId userId 参数。
+     */
     private void validateUserId(Long userId) {
         if (userId == null || userId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "userId 不合法");
         }
     }
 
+    /**
+     * 校验 `validate Conversation Id` 对应内容。
+     *
+     * @param conversationId conversationId 参数。
+     */
     private void validateConversationId(String conversationId) {
         if (conversationId == null || conversationId.isBlank()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "conversationId 不能为空");

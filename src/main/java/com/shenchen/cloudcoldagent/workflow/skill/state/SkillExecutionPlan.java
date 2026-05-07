@@ -7,6 +7,9 @@ import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
 
+/**
+ * `SkillExecutionPlan` 类型实现。
+ */
 @Data
 @Builder
 @NoArgsConstructor

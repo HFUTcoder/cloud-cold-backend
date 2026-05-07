@@ -7,11 +7,39 @@ import org.springframework.ai.chat.messages.MessageType;
 
 import java.util.List;
 
+/**
+ * `SkillWorkflowPrompts` 类型实现。
+ */
 public final class SkillWorkflowPrompts {
 
+    /**
+     * 创建 `SkillWorkflowPrompts` 实例。
+     */
     private SkillWorkflowPrompts() {
     }
 
+    /**
+     * 构建 `build Selected Skill Runtime Header Prompt` 对应结果。
+     *
+     * @return 返回处理结果。
+     */
+    public static String buildSelectedSkillRuntimeHeaderPrompt() {
+        return """
+                [Available Skill Context]
+                以下 skills 已经为本轮选定，请在需要时完整阅读并严格遵循其约束。
+                规则：
+                1. 参数只能来自用户本轮问题原文，或 skill 中明确声明的默认值。
+                2. 缺少必填参数时，应先向用户补问，不要自行编造。
+                3. 不要猜测脚本路径、参数名或默认值。
+
+                """;
+    }
+
+    /**
+     * 构建 `build Bound Skill Recognition Prompt` 对应结果。
+     *
+     * @return 返回处理结果。
+     */
     public static String buildBoundSkillRecognitionPrompt() {
         return """
                 你是 skill 绑定相关性识别节点。
@@ -27,6 +55,14 @@ public final class SkillWorkflowPrompts {
                 """;
     }
 
+    /**
+     * 构建 `build Bound Skill Recognition Input` 对应结果。
+     *
+     * @param question question 参数。
+     * @param historyText historyText 参数。
+     * @param metadataJson metadataJson 参数。
+     * @return 返回处理结果。
+     */
     public static String buildBoundSkillRecognitionInput(String question, String historyText, String metadataJson) {
         return """
                 最近对话历史（按时间顺序，若为空则忽略）：
@@ -44,6 +80,11 @@ public final class SkillWorkflowPrompts {
         );
     }
 
+    /**
+     * 构建 `build Unbound Skill Discovery Prompt` 对应结果。
+     *
+     * @return 返回处理结果。
+     */
     public static String buildUnboundSkillDiscoveryPrompt() {
         return """
                 你是 skill 发现节点。
@@ -59,6 +100,14 @@ public final class SkillWorkflowPrompts {
                 """;
     }
 
+    /**
+     * 构建 `build Unbound Skill Discovery Input` 对应结果。
+     *
+     * @param question question 参数。
+     * @param historyText historyText 参数。
+     * @param metadataJson metadataJson 参数。
+     * @return 返回处理结果。
+     */
     public static String buildUnboundSkillDiscoveryInput(String question, String historyText, String metadataJson) {
         return """
                 最近对话历史（按时间顺序，若为空则忽略）：
@@ -76,6 +125,12 @@ public final class SkillWorkflowPrompts {
         );
     }
 
+    /**
+     * 处理 `render Conversation History` 对应逻辑。
+     *
+     * @param history history 参数。
+     * @return 返回处理结果。
+     */
     public static String renderConversationHistory(List<Message> history) {
         if (history == null || history.isEmpty()) {
             return "（无）";

@@ -27,6 +27,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+/**
+ * Elasticsearch 服务实现，负责关键词索引、向量索引以及相关检索 / 删除辅助逻辑。
+ */
 @Service
 @Slf4j
 public class ElasticSearchServiceImpl implements ElasticSearchService {
@@ -45,11 +48,20 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
 
     private static final String FIELD_CONTENT = "content";
 
+    /**
+     * 注入关键词索引和向量检索所需的客户端依赖。
+     *
+     * @param client Elasticsearch Java 客户端。
+     * @param vectorStore 向量存储实现。
+     */
     public ElasticSearchServiceImpl(ElasticsearchClient client, VectorStore vectorStore) {
         this.client = client;
         this.vectorStore = vectorStore;
     }
 
+    /**
+     * 在服务启动时确保关键词索引存在。
+     */
     @PostConstruct
     public void init() {
         try {
@@ -201,6 +213,12 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         }
     }
 
+    /**
+     * 删除 `delete By Ids` 对应内容。
+     *
+     * @param ids ids 参数。
+     * @throws Exception 异常信息。
+     */
     @Override
     public void deleteByIds(List<String> ids) throws Exception {
         if (ids == null || ids.isEmpty()) {
@@ -234,6 +252,12 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         }
     }
 
+    /**
+     * 删除 `delete By Document Id` 对应内容。
+     *
+     * @param documentId documentId 参数。
+     * @throws Exception 异常信息。
+     */
     @Override
     public void deleteByDocumentId(Long documentId) throws Exception {
         if (documentId == null || documentId <= 0) {
@@ -252,6 +276,12 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         ));
     }
 
+    /**
+     * 删除 `delete By Source` 对应内容。
+     *
+     * @param source source 参数。
+     * @throws Exception 异常信息。
+     */
     @Override
     public void deleteBySource(String source) throws Exception {
         if (source == null || source.isBlank()) {
@@ -270,6 +300,13 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         ));
     }
 
+    /**
+     * 判断指定关键词索引是否存在。
+     *
+     * @param indexName 索引名。
+     * @return 存在时返回 true。
+     * @throws IOException 查询索引状态失败时抛出。
+     */
     @Override
     public boolean indexExists(String indexName) throws IOException {
         ExistsRequest request = ExistsRequest.of(b -> b.index(indexName));
@@ -292,6 +329,16 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         return searchByKeyword(keyword, size, useSmartAnalyzer, Collections.emptyMap());
     }
 
+    /**
+     * 按关键词执行全文检索，并可附带元数据过滤条件。
+     *
+     * @param keyword 查询关键词。
+     * @param size 返回条数上限。
+     * @param useSmartAnalyzer 是否使用智能分词字段。
+     * @param metadataFilters 元数据过滤条件。
+     * @return 命中的 chunk 列表。
+     * @throws Exception 检索失败时抛出。
+     */
     @Override
     public List<EsDocumentChunk> searchByKeyword(String keyword, int size, boolean useSmartAnalyzer,
                                                  Map<String, Object> metadataFilters) throws Exception {
@@ -334,11 +381,26 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         return result;
     }
 
+    /**
+     * 按元数据条件执行检索。
+     *
+     * @param metadataFilters 元数据过滤条件。
+     * @return 命中的 chunk 列表。
+     * @throws Exception 检索失败时抛出。
+     */
     @Override
     public List<EsDocumentChunk> searchByMetadata(Map<String, Object> metadataFilters) throws Exception {
         return searchByMetadata(metadataFilters, 10);
     }
 
+    /**
+     * 按元数据条件执行检索，并限制返回数量。
+     *
+     * @param metadataFilters 元数据过滤条件。
+     * @param size 返回条数上限。
+     * @return 命中的 chunk 列表。
+     * @throws Exception 检索失败时抛出。
+     */
     @Override
     public List<EsDocumentChunk> searchByMetadata(Map<String, Object> metadataFilters, int size) throws Exception {
         List<co.elastic.clients.elasticsearch._types.query_dsl.Query> filters = buildMetadataFilterQueries(metadataFilters);
@@ -364,6 +426,12 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         return result;
     }
 
+    /**
+     * 将 Spring AI Document 批量写入向量索引。
+     *
+     * @param documents 待写入的文档列表。
+     * @throws Exception 写入向量索引失败时抛出。
+     */
     @Override
     public void vectorAddDocuments(List<Document> documents) throws Exception {
         if (documents == null || documents.isEmpty()) {
@@ -385,6 +453,12 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         log.info("Successfully indexed {} vector documents", validDocuments.size());
     }
 
+    /**
+     * 将内部 chunk 列表转换后批量写入向量索引。
+     *
+     * @param chunks 待写入的 chunk 列表。
+     * @throws Exception 写入向量索引失败时抛出。
+     */
     @Override
     public void vectorAddChunks(List<EsDocumentChunk> chunks) throws Exception {
         if (chunks == null || chunks.isEmpty()) {
@@ -400,12 +474,29 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         vectorAddDocuments(documents);
     }
 
+    /**
+     * 执行默认参数的向量相似度检索。
+     *
+     * @param query 查询文本。
+     * @return 命中的向量文档列表。
+     * @throws Exception 检索失败时抛出。
+     */
     @Override
     public List<Document> similaritySearch(String query) throws Exception {
         return similaritySearch(query, org.springframework.ai.vectorstore.SearchRequest.DEFAULT_TOP_K,
                 org.springframework.ai.vectorstore.SearchRequest.SIMILARITY_THRESHOLD_ACCEPT_ALL, (String) null);
     }
 
+    /**
+     * 按指定参数执行向量相似度检索，可附带过滤表达式。
+     *
+     * @param query 查询文本。
+     * @param topK 返回条数上限。
+     * @param similarityThreshold 相似度阈值。
+     * @param filterExpression 过滤表达式。
+     * @return 命中的向量文档列表。
+     * @throws Exception 检索失败时抛出。
+     */
     @Override
     public List<Document> similaritySearch(String query, int topK, double similarityThreshold, String filterExpression)
             throws Exception {
@@ -427,6 +518,16 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         return vectorStore.similaritySearch(builder.build());
     }
 
+    /**
+     * 按元数据条件执行向量相似度检索。
+     *
+     * @param query 查询文本。
+     * @param topK 返回条数上限。
+     * @param similarityThreshold 相似度阈值。
+     * @param metadataFilters 元数据过滤条件。
+     * @return 过滤后的向量文档列表。
+     * @throws Exception 检索失败时抛出。
+     */
     @Override
     public List<Document> similaritySearch(String query, int topK, double similarityThreshold,
                                            Map<String, Object> metadataFilters) throws Exception {
@@ -442,6 +543,12 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
                 .toList();
     }
 
+    /**
+     * 按 id 批量删除向量索引中的文档。
+     *
+     * @param ids 文档 id 列表。
+     * @throws Exception 删除失败时抛出。
+     */
     @Override
     public void vectorDeleteByIds(List<String> ids) throws Exception {
         if (ids == null || ids.isEmpty()) {
@@ -450,6 +557,12 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         vectorStore.delete(ids);
     }
 
+    /**
+     * 按过滤表达式删除向量索引中的文档。
+     *
+     * @param filterExpression 过滤表达式。
+     * @throws Exception 删除失败时抛出。
+     */
     @Override
     public void vectorDeleteByFilter(String filterExpression) throws Exception {
         if (filterExpression == null || filterExpression.isBlank()) {
@@ -459,6 +572,12 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         vectorStore.delete(expression);
     }
 
+    /**
+     * 判断向量索引是否已就绪。
+     *
+     * @return 向量索引可用时返回 true。
+     * @throws Exception 查询索引状态失败时抛出。
+     */
     @Override
     public boolean vectorIndexExists() throws Exception {
         if (vectorStore instanceof ElasticsearchVectorStore elasticsearchVectorStore) {
@@ -467,6 +586,12 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         return vectorStore.getNativeClient().isPresent();
     }
 
+    /**
+     * 将内部 chunk 结构转换成向量存储所需的 Document。
+     *
+     * @param chunk 原始 chunk。
+     * @return 向量文档对象。
+     */
     private Document toVectorDocument(EsDocumentChunk chunk) {
         Map<String, Object> metadata = chunk.getMetadata() == null
                 ? new LinkedHashMap<>()
@@ -479,6 +604,12 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
                 .build();
     }
 
+    /**
+     * 将元数据过滤条件转换成 Elasticsearch term 查询列表。
+     *
+     * @param metadataFilters 元数据过滤条件。
+     * @return ES filter query 列表。
+     */
     private List<co.elastic.clients.elasticsearch._types.query_dsl.Query> buildMetadataFilterQueries(
             Map<String, Object> metadataFilters) {
         if (metadataFilters == null || metadataFilters.isEmpty()) {
@@ -495,6 +626,12 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
                 .toList();
     }
 
+    /**
+     * 将任意 Java 对象转换成 Elasticsearch 可接受的 FieldValue。
+     *
+     * @param value 原始值。
+     * @return ES FieldValue。
+     */
     private FieldValue toFieldValue(Object value) {
         if (value instanceof Integer || value instanceof Long || value instanceof Short || value instanceof Byte) {
             return FieldValue.of(((Number) value).longValue());
@@ -508,6 +645,12 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         return FieldValue.of(value.toString());
     }
 
+    /**
+     * 将元数据过滤条件转换成向量存储过滤表达式。
+     *
+     * @param metadataFilters 元数据过滤条件。
+     * @return 过滤表达式文本。
+     */
     private String buildFilterExpression(Map<String, Object> metadataFilters) {
         if (metadataFilters == null || metadataFilters.isEmpty()) {
             return null;
@@ -520,6 +663,13 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
                 .orElse(null);
     }
 
+    /**
+     * 判断向量检索命中的文档是否满足给定元数据条件。
+     *
+     * @param document 命中的向量文档。
+     * @param metadataFilters 元数据过滤条件。
+     * @return 满足所有条件时返回 true。
+     */
     private boolean matchesMetadataFilters(Document document, Map<String, Object> metadataFilters) {
         if (metadataFilters == null || metadataFilters.isEmpty()) {
             return true;
@@ -541,6 +691,13 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         return true;
     }
 
+    /**
+     * 比较元数据中的实际值与期望值是否相等。
+     *
+     * @param actualValue 实际值。
+     * @param expectedValue 期望值。
+     * @return 相等时返回 true。
+     */
     private boolean metadataValueEquals(Object actualValue, Object expectedValue) {
         if (actualValue == null || expectedValue == null) {
             return false;
@@ -551,6 +708,12 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         return Objects.equals(String.valueOf(actualValue), String.valueOf(expectedValue));
     }
 
+    /**
+     * 将过滤值格式化成向量存储过滤表达式中的文本片段。
+     *
+     * @param value 原始值。
+     * @return 格式化后的表达式值。
+     */
     private String formatFilterValue(Object value) {
         if (value instanceof Number || value instanceof Boolean) {
             return value.toString();

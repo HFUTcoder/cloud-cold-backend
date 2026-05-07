@@ -6,6 +6,9 @@ import lombok.Data;
 import java.io.Serializable;
 import java.util.List;
 
+/**
+ * `HitlCheckpointResolveRequest` 类型实现。
+ */
 @Data
 public class HitlCheckpointResolveRequest implements Serializable {
 

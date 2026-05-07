@@ -5,6 +5,9 @@ import lombok.Data;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
+/**
+ * `DocumentVO` 类型实现。
+ */
 @Data
 public class DocumentVO implements Serializable {
 

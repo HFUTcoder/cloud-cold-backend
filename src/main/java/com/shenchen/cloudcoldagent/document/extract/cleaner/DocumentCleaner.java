@@ -21,6 +21,12 @@ public class DocumentCleaner {
     private static final Pattern IMAGE_TAG_PATTERN = Pattern.compile("<image\\b[^>]*?>.*?</image>", Pattern.DOTALL);
     private static final Pattern INLINE_SPACE_PATTERN = Pattern.compile("[ \\t\\x0B\\f]+");
 
+    /**
+     * 处理 `clean Documents` 对应逻辑。
+     *
+     * @param documents documents 参数。
+     * @return 返回处理结果。
+     */
     public static List<Document> cleanDocuments(List<Document> documents) {
         if (CollectionUtils.isEmpty(documents)) {
             return documents;
@@ -31,6 +37,12 @@ public class DocumentCleaner {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 处理 `clean Document` 对应逻辑。
+     *
+     * @param doc doc 参数。
+     * @return 返回处理结果。
+     */
     private static Document cleanDocument(Document doc) {
         if (doc == null || doc.getText() == null) {
             return doc;
@@ -68,10 +80,23 @@ public class DocumentCleaner {
                 .build();
     }
 
+    /**
+     * 处理 `normalize Newlines` 对应逻辑。
+     *
+     * @param text text 参数。
+     * @return 返回处理结果。
+     */
     private static String normalizeNewlines(String text) {
         return text.replace("\r\n", "\n").replace('\r', '\n');
     }
 
+    /**
+     * 处理 `protect Image Tags` 对应逻辑。
+     *
+     * @param text text 参数。
+     * @param protectedImageTags protectedImageTags 参数。
+     * @return 返回处理结果。
+     */
     private static String protectImageTags(String text, List<String> protectedImageTags) {
         Matcher matcher = IMAGE_TAG_PATTERN.matcher(text);
         StringBuffer buffer = new StringBuffer();
@@ -85,11 +110,23 @@ public class DocumentCleaner {
         return buffer.toString();
     }
 
+    /**
+     * 处理 `clean Line` 对应逻辑。
+     *
+     * @param line line 参数。
+     * @return 返回处理结果。
+     */
     private static String cleanLine(String line) {
         String normalizedSpace = INLINE_SPACE_PATTERN.matcher(line).replaceAll(" ").trim();
         return removeControlCharacters(normalizedSpace);
     }
 
+    /**
+     * 删除 `remove Control Characters` 对应内容。
+     *
+     * @param text text 参数。
+     * @return 返回处理结果。
+     */
     private static String removeControlCharacters(String text) {
         StringBuilder cleaned = new StringBuilder(text.length());
         for (int i = 0; i < text.length(); i++) {
@@ -101,6 +138,12 @@ public class DocumentCleaner {
         return cleaned.toString();
     }
 
+    /**
+     * 处理 `deduplicate Lines` 对应逻辑。
+     *
+     * @param lines lines 参数。
+     * @return 返回处理结果。
+     */
     private static List<String> deduplicateLines(List<String> lines) {
         Set<String> seen = new LinkedHashSet<>();
         List<String> deduplicated = new ArrayList<>();
@@ -123,6 +166,13 @@ public class DocumentCleaner {
         return deduplicated;
     }
 
+    /**
+     * 处理 `restore Image Tags` 对应逻辑。
+     *
+     * @param text text 参数。
+     * @param protectedImageTags protectedImageTags 参数。
+     * @return 返回处理结果。
+     */
     private static String restoreImageTags(String text, List<String> protectedImageTags) {
         String restored = text;
         for (int i = 0; i < protectedImageTags.size(); i++) {

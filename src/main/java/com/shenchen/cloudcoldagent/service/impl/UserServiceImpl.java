@@ -26,12 +26,19 @@ import java.util.stream.Collectors;
 import static com.shenchen.cloudcoldagent.constant.UserConstant.USER_LOGIN_STATE;
 
 /**
- * 用户服务层实现
- *
+ * 用户服务实现，负责注册、登录、登录态读取以及用户视图转换。
  */
 @Service
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
 
+    /**
+     * 注册新用户，并写入默认昵称和默认角色。
+     *
+     * @param userAccount 用户账号。
+     * @param userPassword 用户密码。
+     * @param checkPassword 确认密码。
+     * @return 新用户 id。
+     */
     @Override
     public long userRegister(String userAccount, String userPassword, String checkPassword) {
         // 1. 校验参数
@@ -69,6 +76,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return user.getId();
     }
 
+    /**
+     * 将用户实体转换成登录场景下的脱敏视图对象。
+     *
+     * @param user 用户实体。
+     * @return 登录用户视图对象。
+     */
     @Override
     public LoginUserVO getLoginUserVO(User user) {
         if (user == null) {
@@ -79,6 +92,14 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return loginUserVO;
     }
 
+    /**
+     * 校验账号密码并建立当前请求的登录 Session。
+     *
+     * @param userAccount 用户账号。
+     * @param userPassword 用户密码。
+     * @param request 当前 HTTP 请求。
+     * @return 登录成功后的用户视图。
+     */
     @Override
     public LoginUserVO userLogin(String userAccount, String userPassword, HttpServletRequest request) {
         // 1. 校验参数
@@ -107,6 +128,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return this.getLoginUserVO(user);
     }
 
+    /**
+     * 从当前请求的 Session 中读取并校验登录用户。
+     *
+     * @param request 当前 HTTP 请求。
+     * @return 当前登录用户实体。
+     */
     @Override
     public User getLoginUser(HttpServletRequest request) {
         // 先判断用户是否登录
@@ -124,6 +151,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return currentUser;
     }
 
+    /**
+     * 将用户实体转换成对外暴露的用户视图对象。
+     *
+     * @param user 用户实体。
+     * @return 用户视图对象。
+     */
     @Override
     public UserVO getUserVO(User user) {
         if (user == null) {
@@ -134,6 +167,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return userVO;
     }
 
+    /**
+     * 批量将用户实体列表转换成用户视图列表。
+     *
+     * @param userList 用户实体列表。
+     * @return 用户视图列表。
+     */
     @Override
     public List<UserVO> getUserVOList(List<User> userList) {
         if (CollUtil.isEmpty(userList)) {
@@ -144,6 +183,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 移除当前请求中的用户登录态。
+     *
+     * @param request 当前 HTTP 请求。
+     * @return 是否注销成功。
+     */
     @Override
     public boolean userLogout(HttpServletRequest request) {
         // 先判断用户是否登录
@@ -156,6 +201,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return true;
     }
 
+    /**
+     * 根据查询条件构建用户列表查询包装器。
+     *
+     * @param userQueryRequest 用户查询条件。
+     * @return MyBatis-Flex 查询包装器。
+     */
     @Override
     public QueryWrapper getQueryWrapper(UserQueryRequest userQueryRequest) {
         if (userQueryRequest == null) {
@@ -177,6 +228,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 .orderBy(sortField, "ascend".equals(sortOrder));
     }
 
+    /**
+     * 对原始密码执行统一的 MD5 加盐加密。
+     *
+     * @param userPassword 原始密码。
+     * @return 加密后的密码。
+     */
     @Override
     public String getEncryptPassword(String userPassword) {
         // 盐值，混淆密码

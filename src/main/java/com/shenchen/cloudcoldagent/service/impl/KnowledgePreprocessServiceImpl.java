@@ -1,10 +1,12 @@
 package com.shenchen.cloudcoldagent.service.impl;
 
+import com.shenchen.cloudcoldagent.constant.KnowledgeChunkConstant;
 import com.shenchen.cloudcoldagent.model.entity.ChatConversation;
 import com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk;
 import com.shenchen.cloudcoldagent.model.entity.record.agent.knowledge.KnowledgePreprocessResult;
 import com.shenchen.cloudcoldagent.model.entity.KnowledgeDocumentImage;
 import com.shenchen.cloudcoldagent.model.vo.RetrievedKnowledgeImage;
+import com.shenchen.cloudcoldagent.prompts.KnowledgePrompts;
 import com.shenchen.cloudcoldagent.service.KnowledgeDocumentImageService;
 import com.shenchen.cloudcoldagent.service.KnowledgePreprocessService;
 import com.shenchen.cloudcoldagent.service.KnowledgeService;
@@ -21,6 +23,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.Objects;
 
+/**
+ * 知识库预处理服务实现，负责在进入 Agent 前执行预检索、拼装增强问题并提取命中图片。
+ */
 @Service
 @Slf4j
 public class KnowledgePreprocessServiceImpl implements KnowledgePreprocessService {
@@ -32,6 +37,13 @@ public class KnowledgePreprocessServiceImpl implements KnowledgePreprocessServic
     private final KnowledgeDocumentImageService knowledgeDocumentImageService;
     private final MinioService minioService;
 
+    /**
+     * 注入知识库预处理链路所需的依赖服务。
+     *
+     * @param knowledgeService 知识库检索服务。
+     * @param knowledgeDocumentImageService 知识库图片服务。
+     * @param minioService MinIO 文件服务。
+     */
     public KnowledgePreprocessServiceImpl(KnowledgeService knowledgeService,
                                           KnowledgeDocumentImageService knowledgeDocumentImageService,
                                           MinioService minioService) {
@@ -40,6 +52,14 @@ public class KnowledgePreprocessServiceImpl implements KnowledgePreprocessServic
         this.minioService = minioService;
     }
 
+    /**
+     * 对当前问题执行知识库预检索，并输出增强后的问题文本与命中图片。
+     *
+     * @param userId 当前用户 id。
+     * @param conversation 当前会话。
+     * @param question 用户原始问题。
+     * @return 知识库预处理结果。
+     */
     @Override
     public KnowledgePreprocessResult preprocess(Long userId, ChatConversation conversation, String question) {
         String safeQuestion = question == null ? "" : question.trim();
@@ -81,30 +101,27 @@ public class KnowledgePreprocessServiceImpl implements KnowledgePreprocessServic
         }
     }
 
+    /**
+     * 将命中的知识片段拼进用户问题，构建供 Agent 使用的增强问题。
+     *
+     * @param question 用户原始问题。
+     * @param chunks 预检索命中的 chunk 列表。
+     * @return 增强后的问题文本。
+     */
     private String buildKnowledgeAugmentedQuestion(String question, List<EsDocumentChunk> chunks) {
         List<String> snippets = collectContentSnippets(chunks);
         if (snippets.isEmpty()) {
-            return """
-                    请优先基于知识库内容回答用户问题。
-                    当前会话已绑定知识库，但本次预检索没有命中可直接使用的知识内容。
-                    如果无法仅根据知识库确定答案，请明确说明，不要编造。
-
-                    【用户问题】
-                    %s
-                    """.formatted(question);
+            return KnowledgePrompts.buildNoHitAugmentedQuestion(question);
         }
-        return """
-                请优先基于以下知识库内容回答用户问题。
-                如果知识库内容不足以支持结论，请明确说明，不要编造。
-
-                【知识库内容】
-                %s
-
-                【用户问题】
-                %s
-                """.formatted(String.join("\n\n", snippets), question);
+        return KnowledgePrompts.buildHitAugmentedQuestion(String.join("\n\n", snippets), question);
     }
 
+    /**
+     * 从命中 chunk 中收集可注入提示词的正文片段，并做去重与长度控制。
+     *
+     * @param chunks 命中的 chunk 列表。
+     * @return 用于增强问题的片段列表。
+     */
     private List<String> collectContentSnippets(List<EsDocumentChunk> chunks) {
         if (chunks == null || chunks.isEmpty()) {
             return List.of();
@@ -127,6 +144,12 @@ public class KnowledgePreprocessServiceImpl implements KnowledgePreprocessServic
         return new ArrayList<>(deduplicated);
     }
 
+    /**
+     * 规范化 chunk 正文内容，统一换行并去掉首尾空白。
+     *
+     * @param content 原始内容。
+     * @return 规范化后的文本。
+     */
     private String normalizeContent(String content) {
         if (content == null) {
             return "";
@@ -134,6 +157,12 @@ public class KnowledgePreprocessServiceImpl implements KnowledgePreprocessServic
         return content.replace("\r", "\n").trim();
     }
 
+    /**
+     * 从命中的图片描述 chunk 中提取可回显到前端的图片信息。
+     *
+     * @param chunks 命中的 chunk 列表。
+     * @return 命中图片列表。
+     */
     private List<RetrievedKnowledgeImage> extractRetrievedImages(List<EsDocumentChunk> chunks) {
         if (chunks == null || chunks.isEmpty()) {
             return List.of();
@@ -164,6 +193,12 @@ public class KnowledgePreprocessServiceImpl implements KnowledgePreprocessServic
         return results;
     }
 
+    /**
+     * 为命中的图片生成可访问地址；失败时回退为数据库中的原始地址。
+     *
+     * @param image 图片记录。
+     * @return 可访问的图片 URL。
+     */
     private String resolveAccessibleImageUrl(KnowledgeDocumentImage image) {
         if (image == null || StringUtils.isBlank(image.getObjectName())) {
             return null;
@@ -180,6 +215,12 @@ public class KnowledgePreprocessServiceImpl implements KnowledgePreprocessServic
         }
     }
 
+    /**
+     * 从命中 chunk 的元数据中收集图片 id。
+     *
+     * @param chunks 命中的 chunk 列表。
+     * @return 图片 id 列表。
+     */
     private List<Long> collectImageIds(List<EsDocumentChunk> chunks) {
         Set<Long> imageIds = new LinkedHashSet<>();
         for (EsDocumentChunk chunk : chunks) {
@@ -189,7 +230,7 @@ public class KnowledgePreprocessServiceImpl implements KnowledgePreprocessServic
             if (!isImageDescriptionChunk(chunk)) {
                 continue;
             }
-            Object parentId = chunk.getMetadata().get("parentId");
+            Object parentId = chunk.getMetadata().get(KnowledgeChunkConstant.META_PARENT_ID);
             Long imageId = toLong(parentId);
             if (imageId != null && imageId > 0) {
                 imageIds.add(imageId);
@@ -198,25 +239,37 @@ public class KnowledgePreprocessServiceImpl implements KnowledgePreprocessServic
         return new ArrayList<>(imageIds);
     }
 
+    /**
+     * 从命中 chunk 的元数据中提取图片所属文档名。
+     *
+     * @param chunks 命中的 chunk 列表。
+     * @return imageId 到文档名的映射。
+     */
     private Map<Long, String> collectDocumentNamesByImageId(List<EsDocumentChunk> chunks) {
         Map<Long, String> result = new LinkedHashMap<>();
         for (EsDocumentChunk chunk : chunks) {
             if (chunk == null || chunk.getMetadata() == null || chunk.getMetadata().isEmpty()) {
                 continue;
             }
-            Long imageId = toLong(chunk.getMetadata().get("parentId"));
+            Long imageId = toLong(chunk.getMetadata().get(KnowledgeChunkConstant.META_PARENT_ID));
             if (imageId == null || imageId <= 0 || result.containsKey(imageId)) {
                 continue;
             }
-            Object documentName = chunk.getMetadata().get("documentName");
+            Object documentName = chunk.getMetadata().get(KnowledgeChunkConstant.META_DOCUMENT_NAME);
             if (documentName == null || StringUtils.isBlank(String.valueOf(documentName))) {
-                documentName = chunk.getMetadata().get("fileName");
+                documentName = chunk.getMetadata().get(KnowledgeChunkConstant.META_FILE_NAME);
             }
             result.put(imageId, documentName == null ? null : String.valueOf(documentName));
         }
         return result;
     }
 
+    /**
+     * 将元数据里的任意值安全转换成 Long。
+     *
+     * @param value 原始值。
+     * @return 转换后的 Long；无法转换时返回 null。
+     */
     private Long toLong(Object value) {
         if (value instanceof Number number) {
             return number.longValue();
@@ -231,14 +284,27 @@ public class KnowledgePreprocessServiceImpl implements KnowledgePreprocessServic
         return null;
     }
 
+    /**
+     * 判断某个 chunk 是否属于图片描述类型。
+     *
+     * @param chunk 待判断的 chunk。
+     * @return 图片描述 chunk 时返回 true。
+     */
     private boolean isImageDescriptionChunk(EsDocumentChunk chunk) {
         if (chunk == null || chunk.getMetadata() == null || chunk.getMetadata().isEmpty()) {
             return false;
         }
-        Object chunkType = chunk.getMetadata().get("chunkType");
-        return chunkType != null && Objects.equals("IMAGE_DESCRIPTION", String.valueOf(chunkType));
+        Object chunkType = chunk.getMetadata().get(KnowledgeChunkConstant.META_CHUNK_TYPE);
+        return chunkType != null && Objects.equals(KnowledgeChunkConstant.CHUNK_TYPE_IMAGE_DESCRIPTION, String.valueOf(chunkType));
     }
 
+    /**
+     * 输出知识库预检索命中明细，方便排查命中质量。
+     *
+     * @param conversationId 当前会话 id。
+     * @param query 用户查询文本。
+     * @param chunks 命中的 chunk 列表。
+     */
     private void logRetrievedChunks(String conversationId, String query, List<EsDocumentChunk> chunks) {
         if (chunks == null || chunks.isEmpty()) {
             log.info("知识库预检索命中明细为空，conversationId={}, query={}", conversationId, query);
@@ -259,9 +325,9 @@ public class KnowledgePreprocessServiceImpl implements KnowledgePreprocessServic
                     : new LinkedHashMap<>(chunk.getMetadata());
             sb.append(i + 1)
                     .append(". chunkId=")
-                    .append(defaultObjectText(firstNonNull(metadata.get("chunkId"), chunk == null ? null : chunk.getId())))
+                    .append(defaultObjectText(firstNonNull(metadata.get(KnowledgeChunkConstant.META_CHUNK_ID), chunk == null ? null : chunk.getId())))
                     .append(", chunkType=")
-                    .append(defaultObjectText(metadata.get("chunkType")))
+                    .append(defaultObjectText(metadata.get(KnowledgeChunkConstant.META_CHUNK_TYPE)))
                     .append(", keyword_score=")
                     .append(defaultObjectText(metadata.get("keyword_score")))
                     .append(", vector_score=")
@@ -279,14 +345,34 @@ public class KnowledgePreprocessServiceImpl implements KnowledgePreprocessServic
         log.info(sb.toString());
     }
 
+    /**
+     * 返回两个值中的第一个非空对象。
+     *
+     * @param first 首选值。
+     * @param second 备选值。
+     * @return 第一个非空对象；若都为空则返回 null。
+     */
     private Object firstNonNull(Object first, Object second) {
         return first == null ? second : first;
     }
 
+    /**
+     * 将任意对象转换成日志中可展示的文本。
+     *
+     * @param value 原始对象。
+     * @return 可读文本；为空时返回“无”。
+     */
     private String defaultObjectText(Object value) {
         return value == null ? "无" : String.valueOf(value);
     }
 
+    /**
+     * 截断日志中的长文本片段。
+     *
+     * @param text 原始文本。
+     * @param maxLength 最大长度。
+     * @return 截断后的文本。
+     */
     private String abbreviate(String text, int maxLength) {
         if (text == null || text.length() <= maxLength) {
             return text;

@@ -8,6 +8,9 @@ import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
 
+/**
+ * `SkillArgumentSpec` 类型实现。
+ */
 @JsonIgnoreProperties(ignoreUnknown = true)
 @Data
 @Builder

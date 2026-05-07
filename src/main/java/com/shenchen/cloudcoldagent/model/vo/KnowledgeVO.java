@@ -5,6 +5,9 @@ import lombok.Data;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
+/**
+ * `KnowledgeVO` 类型实现。
+ */
 @Data
 public class KnowledgeVO implements Serializable {
 

@@ -7,6 +7,9 @@ import org.springframework.stereotype.Component;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
+/**
+ * `HitlProperties` 类型实现。
+ */
 @Data
 @Component
 @ConfigurationProperties(prefix = "cloudcold.hitl")

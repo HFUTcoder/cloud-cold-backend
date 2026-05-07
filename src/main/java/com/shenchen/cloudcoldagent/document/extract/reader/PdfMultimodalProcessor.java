@@ -1,5 +1,6 @@
 package com.shenchen.cloudcoldagent.document.extract.reader;
 
+import com.shenchen.cloudcoldagent.prompts.KnowledgePrompts;
 import com.shenchen.cloudcoldagent.model.entity.record.knowledge.DocumentReadResult;
 import com.shenchen.cloudcoldagent.model.entity.record.knowledge.ExtractedDocumentImage;
 import com.shenchen.cloudcoldagent.config.properties.PdfMultimodalProperties;
@@ -64,16 +65,34 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
 
     private final PdfMultimodalProperties pdfMultimodalProperties;
 
+    /**
+     * 注入 PDF 多模态处理所需的模型配置。
+     *
+     * @param pdfMultimodalProperties PDF 多模态识别配置。
+     */
     public PdfMultimodalProcessor(PdfMultimodalProperties pdfMultimodalProperties) {
         this.pdfMultimodalProperties = pdfMultimodalProperties;
     }
 
+    /**
+     * 判断当前文件是否由该处理器负责读取。
+     *
+     * @param file 待处理文件。
+     * @return 文件扩展名为 pdf 时返回 true。
+     */
     @Override
     public boolean supports(File file) {
         String name = file.getName().toLowerCase();
         return name.endsWith(".pdf");
     }
 
+    /**
+     * 读取 PDF 文件并输出文档正文与抽取到的图片结果。
+     *
+     * @param file 待读取的 PDF 文件。
+     * @return 文本内容与图片提取结果组成的读取结果。
+     * @throws IOException 读取或解析 PDF 失败时抛出。
+     */
     @Override
     public DocumentReadResult read(File file) throws IOException {
         try {
@@ -90,18 +109,11 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
     }
 
     /**
-     * 处理PDF文件，提取其中的文字和图片内容
+     * 逐页解析 PDF，按阅读顺序整合文本并同步抽取图片描述。
      *
-     * @param pdfFile PDF文件对象
-     * @return 按照阅读顺序整合后的文本内容（包含图片的文本描述）
-     * @throws Exception 文件读取或处理过程中的异常
-     *                   <p>
-     *                   处理流程：
-     *                   1. 加载PDF文档
-     *                   2. 逐页遍历处理
-     *                   3. 对每一页，使用自定义的UnifiedContentStripper同时提取文字和图片
-     *                   4. 按照坐标位置对提取的内容进行排序
-     *                   5. 按顺序拼接所有内容
+     * @param pdfFile 待处理的 PDF 文件。
+     * @return 按页面顺序整理后的正文和图片列表。
+     * @throws Exception PDF 解析或图片识别过程中发生异常时抛出。
      */
     public PdfProcessingResult processPdf(File pdfFile) throws Exception {
         try (PDDocument document = Loader.loadPDF(pdfFile)) {
@@ -160,19 +172,6 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
     }
 
     /**
-     * 处理单张图片，将图片转换为Base64编码并调用AI进行图片识别
-     *
-     * @param image PDFBox的图片对象
-     * @return 图片的文本描述（通过AI识别得到）
-     *
-     * 处理流程：
-     * 1. 将PDImageXObject转换为BufferedImage
-     * 2. 将BufferedImage编码为PNG格式的字节数组
-     * 3. 将字节数组转换为Base64字符串
-     * 4. 调用AI接口进行图片识别，获取文本描述
-     * 5. 如果处理失败，返回错误提示
-     */
-    /**
      * 处理单张图片：上传 MinIO + AI 识别 + 返回 <image> 标签
      */
     private ExtractedDocumentImage processImage(PDImageXObject image, int pageNumber, int imageIndex) {
@@ -204,17 +203,10 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
     }
 
     /**
-     * 转义XML特殊字符，防止XML解析错误
+     * 对 XML 特殊字符进行转义。
      *
-     * @param text 需要转义的文本
-     * @return 转义后的文本
-     * <p>
-     * 转义规则：
-     * & -> &amp;
-     * < -> &lt;
-     * > -> &gt;
-     * " -> &quot;
-     * ' -> &apos;
+     * @param text 原始文本。
+     * @return 转义后的文本。
      */
     private String escapeXml(String text) {
         if (text == null) return "";
@@ -224,6 +216,9 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
 
     private OpenAiChatModel multimodalChatModel;
 
+    /**
+     * 初始化用于图片理解的多模态模型客户端。
+     */
     @PostConstruct
     public void init() {
         OpenAiChatOptions options = OpenAiChatOptions.builder()
@@ -241,16 +236,16 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
 
 
     /**
-     * 将图片转换为文本描述（使用AI识别）
+     * 调用多模态模型将图片内容转换成文本描述。
      *
-     * @param imageBase64 图片的Base64编码字符串
-     * @return 图片的文本描述
+     * @param imageBase64 PNG 图片的 base64 文本。
+     * @return 模型输出的图片描述。
      */
     public String image2Text(String imageBase64) {
         byte[] imageBytes = Base64.getDecoder().decode(imageBase64);
         ByteArrayResource imageResource = new ByteArrayResource(imageBytes);
         var userMessage = UserMessage.builder()
-                .text("请描述这张图片的内容，包括场景、对象、布局、颜色、文字信息，直接输出纯文本描述，不要多余说明。")
+                .text(KnowledgePrompts.buildImageDescriptionPrompt())
                 .media(List.of(new Media(MimeTypeUtils.IMAGE_PNG, imageResource)))
                 .build();
         var response = multimodalChatModel.call(new Prompt(List.of(userMessage)));
@@ -261,6 +256,12 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
         return resp;
     }
 
+    /**
+     * 截断日志中的图片描述文本，避免输出过长。
+     *
+     * @param text 原始文本。
+     * @return 截断后的日志文本。
+     */
     private String truncateForLog(String text) {
         if (text == null || text.length() <= 500) {
             return text;
@@ -268,6 +269,12 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
         return text.substring(0, 500) + "...(truncated)";
     }
 
+    /**
+     * 构建写入 Spring AI Document 的文件元数据。
+     *
+     * @param file 原始 PDF 文件。
+     * @return 包含路径、文件名、大小等信息的元数据。
+     */
     private Map<String, Object> buildMetadata(File file) {
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("source", file.getAbsolutePath());
@@ -278,6 +285,13 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
         return metadata;
     }
 
+    /**
+     * 基于文件路径、大小和修改时间生成稳定的文档 id。
+     *
+     * @param file 原始 PDF 文件。
+     * @return 文档唯一标识。
+     * @throws IOException 生成摘要失败时抛出。
+     */
     private String buildDocumentId(File file) throws IOException {
         String identity = file.getAbsolutePath() + ":" + file.length() + ":" + file.lastModified();
         try {
@@ -289,6 +303,12 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
         }
     }
 
+    /**
+     * 将字节数组转换为十六进制字符串。
+     *
+     * @param bytes 原始字节数组。
+     * @return 十六进制字符串。
+     */
     private String toHex(byte[] bytes) {
         StringBuilder hex = new StringBuilder(bytes.length * 2);
         for (byte current : bytes) {
@@ -298,6 +318,9 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
         return hex.toString();
     }
 
+    /**
+     * 单个 PDF 处理结果，包含整理后的正文文本和抽取出的图片信息。
+     */
     public record PdfProcessingResult(String content, List<ExtractedDocumentImage> extractedImages) {
     }
 
@@ -341,14 +364,14 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
         private final int y1;
 
         /**
-         * 构造函数
+         * 创建 `ContentElement` 实例。
          *
-         * @param type    内容类型
-         * @param content 内容文本
-         * @param x0      左上角X坐标
-         * @param y0      左上角Y坐标（相对于页面底部）
-         * @param x1      右下角X坐标
-         * @param y1      右下角Y坐标
+         * @param type type 参数。
+         * @param content content 参数。
+         * @param x0 x0 参数。
+         * @param y0 y0 参数。
+         * @param x1 x1 参数。
+         * @param y1 y1 参数。
          */
         public ContentElement(ContentType type, String content, int x0, int y0, int x1, int y1) {
             this.type = type;
@@ -360,36 +383,36 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
         }
 
         /**
-         * 获取内容类型
+         * 获取 `get Type` 对应结果。
          *
-         * @return 内容类型（TEXT或IMAGE）
+         * @return 返回处理结果。
          */
         public ContentType getType() {
             return type;
         }
 
         /**
-         * 获取内容文本
+         * 获取 `get Content` 对应结果。
          *
-         * @return 对于文本元素返回原文本，对于图片元素返回AI识别后的描述
+         * @return 返回处理结果。
          */
         public String getContent() {
             return content;
         }
 
         /**
-         * 获取左上角X坐标
+         * 获取 `get X 0` 对应结果。
          *
-         * @return X坐标值
+         * @return 返回处理结果。
          */
         public int getX0() {
             return x0;
         }
 
         /**
-         * 获取左上角Y坐标（相对于页面底部的距离）
+         * 获取 `get Y 0` 对应结果。
          *
-         * @return Y坐标值
+         * @return 返回处理结果。
          */
         public int getY0() {
             return y0;
@@ -424,10 +447,13 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
         private final List<ExtractedDocumentImage> extractedImages;
 
         /**
-         * 构造函数
+         * 创建 `UnifiedContentStripper` 实例。
          *
-         * @param pageHeight 页面高度，用于将PDF坐标系（原点在左下）转换为阅读坐标系（原点在左上）
-         * @throws IOException 初始化异常
+         * @param pageHeight pageHeight 参数。
+         * @param pageNumber pageNumber 参数。
+         * @param imageIndexCounter imageIndexCounter 参数。
+         * @param extractedImages extractedImages 参数。
+         * @throws IOException 异常信息。
          */
         public UnifiedContentStripper(float pageHeight,
                                       int pageNumber,
@@ -446,17 +472,10 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
         }
 
         /**
-         * 重写writeString方法，捕获文本内容及其位置信息
-         * 此方法在PDFTextStripper提取到文本时被调用
+         * 处理 `write String` 对应逻辑。
          *
-         * @param text          提取到的文本内容
-         * @param textPositions 文本中每个字符的位置信息列表
-         *                      <p>
-         *                      处理逻辑：
-         *                      1. 检查文本和位置信息是否有效（非空且非纯空白）
-         *                      2. 获取第一个字符的位置作为该文本块的位置
-         *                      3. 将PDF坐标系（原点在左下）转换为统一坐标系（相对于底部的距离）
-         *                      4. 创建TEXT类型的ContentElement并添加到elements列表
+         * @param text text 参数。
+         * @param textPositions textPositions 参数。
          */
         @Override
         protected void writeString(String text, List<TextPosition> textPositions) {
@@ -474,23 +493,11 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
         }
 
         /**
-         * 重写processOperator方法，拦截PDF内容流操作符
-         * 主要用于捕获图片绘制指令（Do操作符）
+         * 处理 `process Operator` 对应逻辑。
          *
-         * @param operator PDF操作符对象
-         * @param operands 操作符的操作数列表
-         * @throws IOException 处理异常
-         *                     <p>
-         *                     PDF中的Do操作符用于绘制XObject，包括图片、表单等
-         *                     我们拦截此操作符来获取图片对象及其位置信息
-         *                     <p>
-         *                     坐标系说明：
-         *                     - PDF使用CTM（当前变换矩阵）来定位和缩放对象
-         *                     - CTM的坐标系原点在左下角，Y轴向上为正
-         *                     - getTranslateX()获取图片左下角的X坐标
-         *                     - getTranslateY()获取图片左下角的Y坐标
-         *                     - getScalingFactorY()获取图片的高度
-         *                     - 图片上沿Y坐标 = 左下角Y坐标 + 高度
+         * @param operator operator 参数。
+         * @param operands operands 参数。
+         * @throws IOException 异常信息。
          */
         @Override
         protected void processOperator(Operator operator, List<COSBase> operands) throws IOException {
@@ -533,9 +540,9 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
         }
 
         /**
-         * 获取提取到的所有内容元素列表
+         * 获取 `get Elements` 对应结果。
          *
-         * @return 包含文字和图片的内容元素列表
+         * @return 返回处理结果。
          */
         public List<ContentElement> getElements() {
             return elements;

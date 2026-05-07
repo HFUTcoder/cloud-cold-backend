@@ -31,6 +31,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
+/**
+ * 知识库控制层，负责知识库管理以及调试/验证用的多种检索接口。
+ */
 @RestController
 @RequestMapping("/knowledge")
 public class KnowledgeController {
@@ -39,12 +42,25 @@ public class KnowledgeController {
 
     private final UserService userService;
 
+    /**
+     * 注入知识库接口所需的业务服务。
+     *
+     * @param knowledgeService 知识库业务服务。
+     * @param userService 用户业务服务。
+     */
     public KnowledgeController(KnowledgeService knowledgeService,
                                UserService userService) {
         this.knowledgeService = knowledgeService;
         this.userService = userService;
     }
 
+    /**
+     * 为当前用户创建一个新的知识库。
+     *
+     * @param request 创建请求体。
+     * @param httpServletRequest 当前 HTTP 请求。
+     * @return 新知识库 id。
+     */
     @PostMapping("/create")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
     public BaseResponse<Long> createKnowledge(@RequestBody KnowledgeAddRequest request, HttpServletRequest httpServletRequest) {
@@ -53,6 +69,13 @@ public class KnowledgeController {
         return ResultUtils.success(knowledgeService.createKnowledge(loginUser.getId(), request));
     }
 
+    /**
+     * 查询指定知识库详情。
+     *
+     * @param id 知识库 id。
+     * @param httpServletRequest 当前 HTTP 请求。
+     * @return 知识库详情。
+     */
     @GetMapping("/get")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
     public BaseResponse<KnowledgeVO> getKnowledge(long id, HttpServletRequest httpServletRequest) {
@@ -62,6 +85,13 @@ public class KnowledgeController {
         return ResultUtils.success(knowledgeService.getKnowledgeVO(knowledge));
     }
 
+    /**
+     * 更新当前用户名下的知识库信息。
+     *
+     * @param request 更新请求体。
+     * @param httpServletRequest 当前 HTTP 请求。
+     * @return 是否更新成功。
+     */
     @PostMapping("/update")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
     public BaseResponse<Boolean> updateKnowledge(@RequestBody KnowledgeUpdateRequest request, HttpServletRequest httpServletRequest) {
@@ -70,6 +100,13 @@ public class KnowledgeController {
         return ResultUtils.success(knowledgeService.updateKnowledge(loginUser.getId(), request));
     }
 
+    /**
+     * 删除当前用户名下的知识库。
+     *
+     * @param request 删除请求体。
+     * @param httpServletRequest 当前 HTTP 请求。
+     * @return 是否删除成功。
+     */
     @PostMapping("/delete")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
     public BaseResponse<Boolean> deleteKnowledge(@RequestBody DeleteRequest request, HttpServletRequest httpServletRequest) {
@@ -78,6 +115,13 @@ public class KnowledgeController {
         return ResultUtils.success(knowledgeService.deleteKnowledge(loginUser.getId(), request.getId()));
     }
 
+    /**
+     * 分页查询当前用户创建的知识库列表。
+     *
+     * @param request 分页查询条件。
+     * @param httpServletRequest 当前 HTTP 请求。
+     * @return 当前用户知识库分页结果。
+     */
     @PostMapping("/list/page/my")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
     public BaseResponse<Page<KnowledgeVO>> listMyKnowledgeByPage(@RequestBody KnowledgeQueryRequest request,
@@ -91,7 +135,7 @@ public class KnowledgeController {
     }
 
     /**
-     * 1. 文档写入
+     * 将本地文档写入知识库索引，主要用于调试或离线验证。
      */
     @PostMapping("/write")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
@@ -104,7 +148,7 @@ public class KnowledgeController {
     }
 
     /**
-     * 2. 文档标量检索
+     * 执行基于关键词的标量检索。
      */
     @PostMapping("/scalar-search")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
@@ -125,7 +169,7 @@ public class KnowledgeController {
     }
 
     /**
-     * 3. 文档元数据检索
+     * 执行基于元数据过滤条件的检索。
      */
     @PostMapping("/metadata-search")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
@@ -144,7 +188,7 @@ public class KnowledgeController {
     }
 
     /**
-     * 4. 文档相似度检索
+     * 执行基于向量相似度的语义检索。
      */
     @PostMapping("/vector-search")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
@@ -165,7 +209,7 @@ public class KnowledgeController {
     }
 
     /**
-     * 5. 文档混合检索
+     * 执行融合关键词检索和向量检索的混合检索。
      */
     @PostMapping("/hybrid-search")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)

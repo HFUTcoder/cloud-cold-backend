@@ -14,6 +14,9 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
+/**
+ * `ChatMemoryHistoryImageRelation` 类型实现。
+ */
 @Data
 @Builder
 @NoArgsConstructor

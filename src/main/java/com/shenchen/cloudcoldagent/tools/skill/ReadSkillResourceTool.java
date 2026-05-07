@@ -7,6 +7,9 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
+/**
+ * `ReadSkillResourceTool` 类型实现。
+ */
 @Component
 public class ReadSkillResourceTool extends BaseTool {
 
@@ -14,11 +17,26 @@ public class ReadSkillResourceTool extends BaseTool {
 
     private final SkillService skillService;
 
+    /**
+     * 创建 `ReadSkillResourceTool` 实例。
+     *
+     * @param skillService skillService 参数。
+     */
     public ReadSkillResourceTool(SkillService skillService) {
         super(false);
         this.skillService = skillService;
     }
 
+    /**
+     * 处理 `read Skill Resource` 对应逻辑。
+     *
+     * @param skillName skillName 参数。
+     * @param resourceType resourceType 参数。
+     * @param resourcePath resourcePath 参数。
+     * @param startLine startLine 参数。
+     * @param endLine endLine 参数。
+     * @return 返回处理结果。
+     */
     @Tool(name = "read_skill_resource", description = "读取 skill 内部某个具体资源的内容，可按需读取 references 或 scripts 下的文件，也支持按行范围读取。")
     public String readSkillResource(@ToolParam(description = "skill 名称") String skillName,
                                     @ToolParam(description = "资源类型，仅支持 main/reference/script") String resourceType,
@@ -40,6 +58,12 @@ public class ReadSkillResourceTool extends BaseTool {
         }
     }
 
+    /**
+     * 处理 `format Result` 对应逻辑。
+     *
+     * @param result result 参数。
+     * @return 返回处理结果。
+     */
     private String formatResult(SkillResourceContentVO result) {
         return """
                 skillName: %s

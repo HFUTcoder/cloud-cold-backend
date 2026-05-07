@@ -6,6 +6,9 @@ import lombok.EqualsAndHashCode;
 
 import java.io.Serializable;
 
+/**
+ * `DocumentQueryRequest` 类型实现。
+ */
 @EqualsAndHashCode(callSuper = true)
 @Data
 public class DocumentQueryRequest extends PageRequest implements Serializable {

@@ -5,7 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
-import com.shenchen.cloudcoldagent.hitl.HITLAdvisor;
+import com.shenchen.cloudcoldagent.advisors.HITLAdvisor;
 import com.shenchen.cloudcoldagent.hitl.HITLState;
 import com.shenchen.cloudcoldagent.model.entity.record.support.ToolCallSnapshot;
 import com.shenchen.cloudcoldagent.model.entity.record.support.ToolResponseSnapshot;
@@ -21,13 +21,25 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * `HitlSerializationUtils` 类型实现。
+ */
 public final class HitlSerializationUtils {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
+    /**
+     * 创建 `HitlSerializationUtils` 实例。
+     */
     private HitlSerializationUtils() {
     }
 
+    /**
+     * 处理 `write Messages` 对应逻辑。
+     *
+     * @param messages messages 参数。
+     * @return 返回处理结果。
+     */
     public static String writeMessages(List<Message> messages) {
         List<MessageSnapshot> snapshots = new ArrayList<>();
         if (messages != null) {
@@ -41,11 +53,20 @@ public final class HitlSerializationUtils {
         return writeJson(snapshots);
     }
 
+    /**
+     * 处理 `read Messages` 对应逻辑。
+     *
+     * @param json json 参数。
+     * @return 返回处理结果。
+     */
     public static List<Message> readMessages(String json) {
         if (json == null || json.isBlank()) {
             return List.of();
         }
         try {
+            /**
+             * `` 类型实现。
+             */
             List<MessageSnapshot> snapshots = OBJECT_MAPPER.readValue(json, new TypeReference<>() {
             });
             List<Message> messages = new ArrayList<>();
@@ -61,6 +82,12 @@ public final class HitlSerializationUtils {
         }
     }
 
+    /**
+     * 处理 `write Context` 对应逻辑。
+     *
+     * @param context context 参数。
+     * @return 返回处理结果。
+     */
     public static String writeContext(Map<String, Object> context) {
         Map<String, Object> normalized = new LinkedHashMap<>();
         if (context != null) {
@@ -78,11 +105,20 @@ public final class HitlSerializationUtils {
         return writeJson(normalized);
     }
 
+    /**
+     * 处理 `read Context` 对应逻辑。
+     *
+     * @param json json 参数。
+     * @return 返回处理结果。
+     */
     public static Map<String, Object> readContext(String json) {
         if (json == null || json.isBlank()) {
             return new LinkedHashMap<>();
         }
         try {
+            /**
+             * `` 类型实现。
+             */
             Map<String, Object> raw = OBJECT_MAPPER.readValue(json, new TypeReference<>() {
             });
             Map<String, Object> restored = new LinkedHashMap<>();
@@ -106,14 +142,29 @@ public final class HitlSerializationUtils {
         }
     }
 
+    /**
+     * 处理 `write Json` 对应逻辑。
+     *
+     * @param value value 参数。
+     * @return 返回处理结果。
+     */
     public static <T> String writeJson(T value) {
         try {
             return OBJECT_MAPPER.writeValueAsString(value);
         } catch (JsonProcessingException e) {
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "HITL checkpoint JSON 序列化失败");
+            String targetType = value == null ? "null" : value.getClass().getName();
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR,
+                    "HITL checkpoint JSON 序列化失败: type=" + targetType + ", message=" + e.getOriginalMessage());
         }
     }
 
+    /**
+     * 处理 `read Json` 对应逻辑。
+     *
+     * @param json json 参数。
+     * @param typeReference typeReference 参数。
+     * @return 返回处理结果。
+     */
     public static <T> T readJson(String json, TypeReference<T> typeReference) {
         if (json == null || json.isBlank()) {
             return null;
@@ -125,6 +176,12 @@ public final class HitlSerializationUtils {
         }
     }
 
+    /**
+     * 处理 `to Snapshot` 对应逻辑。
+     *
+     * @param message message 参数。
+     * @return 返回处理结果。
+     */
     private static MessageSnapshot toSnapshot(Message message) {
         MessageSnapshot snapshot = new MessageSnapshot();
         snapshot.setMessageType(message.getMessageType() == null ? null : message.getMessageType().name());
@@ -147,6 +204,12 @@ public final class HitlSerializationUtils {
         return snapshot;
     }
 
+    /**
+     * 处理 `from Snapshot` 对应逻辑。
+     *
+     * @param snapshot snapshot 参数。
+     * @return 返回处理结果。
+     */
     private static Message fromSnapshot(MessageSnapshot snapshot) {
         MessageType messageType = snapshot.getMessageType() == null
                 ? null
@@ -180,40 +243,86 @@ public final class HitlSerializationUtils {
         throw new BusinessException(ErrorCode.SYSTEM_ERROR, "不支持的消息类型");
     }
 
+    /**
+     * 创建 `MessageSnapshot` 实例。
+     */
+    /**
+     * `MessageSnapshot` 类型实现。
+     */
     public static class MessageSnapshot {
         private String messageType;
         private String text;
         private List<ToolCallSnapshot> toolCalls;
         private List<ToolResponseSnapshot> toolResponses;
 
+        /**
+         * 获取 `get Message Type` 对应结果。
+         *
+         * @return 返回处理结果。
+         */
         public String getMessageType() {
             return messageType;
         }
 
+        /**
+         * 设置 `set Message Type` 对应值。
+         *
+         * @param messageType messageType 参数。
+         */
         public void setMessageType(String messageType) {
             this.messageType = messageType;
         }
 
+        /**
+         * 获取 `get Text` 对应结果。
+         *
+         * @return 返回处理结果。
+         */
         public String getText() {
             return text;
         }
 
+        /**
+         * 设置 `set Text` 对应值。
+         *
+         * @param text text 参数。
+         */
         public void setText(String text) {
             this.text = text;
         }
 
+        /**
+         * 获取 `get Tool Calls` 对应结果。
+         *
+         * @return 返回处理结果。
+         */
         public List<ToolCallSnapshot> getToolCalls() {
             return toolCalls;
         }
 
+        /**
+         * 设置 `set Tool Calls` 对应值。
+         *
+         * @param toolCalls toolCalls 参数。
+         */
         public void setToolCalls(List<ToolCallSnapshot> toolCalls) {
             this.toolCalls = toolCalls;
         }
 
+        /**
+         * 获取 `get Tool Responses` 对应结果。
+         *
+         * @return 返回处理结果。
+         */
         public List<ToolResponseSnapshot> getToolResponses() {
             return toolResponses;
         }
 
+        /**
+         * 设置 `set Tool Responses` 对应值。
+         *
+         * @param toolResponses toolResponses 参数。
+         */
         public void setToolResponses(List<ToolResponseSnapshot> toolResponses) {
             this.toolResponses = toolResponses;
         }

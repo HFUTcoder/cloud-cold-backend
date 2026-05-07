@@ -7,6 +7,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+/**
+ * `UserLongTermMemoryScheduler` 类型实现。
+ */
 @Component
 @Slf4j
 public class UserLongTermMemoryScheduler {
@@ -15,6 +18,13 @@ public class UserLongTermMemoryScheduler {
     private final UserLongTermMemoryMetadataService metadataService;
     private final UserLongTermMemoryService userLongTermMemoryService;
 
+    /**
+     * 创建 `UserLongTermMemoryScheduler` 实例。
+     *
+     * @param properties properties 参数。
+     * @param metadataService metadataService 参数。
+     * @param userLongTermMemoryService userLongTermMemoryService 参数。
+     */
     public UserLongTermMemoryScheduler(LongTermMemoryProperties properties,
                                        UserLongTermMemoryMetadataService metadataService,
                                        UserLongTermMemoryService userLongTermMemoryService) {
@@ -23,6 +33,9 @@ public class UserLongTermMemoryScheduler {
         this.userLongTermMemoryService = userLongTermMemoryService;
     }
 
+    /**
+     * 处理 `process Pending Memories On The Hour` 对应逻辑。
+     */
     @Scheduled(cron = "0 0 * * * *", zone = "Asia/Shanghai")
     public void processPendingMemoriesOnTheHour() {
         if (!properties.isEnabled()) {

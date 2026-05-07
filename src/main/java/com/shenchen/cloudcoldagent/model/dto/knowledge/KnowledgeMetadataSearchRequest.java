@@ -5,6 +5,9 @@ import lombok.Data;
 import java.io.Serializable;
 import java.util.Map;
 
+/**
+ * `KnowledgeMetadataSearchRequest` 类型实现。
+ */
 @Data
 public class KnowledgeMetadataSearchRequest implements Serializable {
 

@@ -4,6 +4,9 @@ import lombok.Data;
 
 import java.io.Serializable;
 
+/**
+ * `AgentResumeRequest` 类型实现。
+ */
 @Data
 public class AgentResumeRequest implements Serializable {
 

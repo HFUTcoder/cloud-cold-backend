@@ -1,4 +1,4 @@
-package com.shenchen.cloudcoldagent.hitl;
+package com.shenchen.cloudcoldagent.advisors;
 
 import com.shenchen.cloudcoldagent.model.entity.record.hitl.PendingToolCall;
 import org.springframework.ai.chat.client.ChatClientRequest;
@@ -11,6 +11,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
+/**
+ * `HITLAdvisor` 类型实现。
+ */
 public class HITLAdvisor implements CallAdvisor {
 
     public static final String HITL_REQUIRED = "hitl.required";
@@ -19,17 +22,35 @@ public class HITLAdvisor implements CallAdvisor {
     public static final String HITL_NON_INTERCEPT_TOOLS = "hitl.non.intercept.tools";
 
     private final Set<String> interceptToolNames;
-    private final Set<String> approvedToolNames;
+    private final Set<String> approvedToolCallIds;
 
+    /**
+     * 创建 `HITLAdvisor` 实例。
+     *
+     * @param interceptToolNames interceptToolNames 参数。
+     */
     public HITLAdvisor(Set<String> interceptToolNames) {
         this(interceptToolNames, Set.of());
     }
 
-    public HITLAdvisor(Set<String> interceptToolNames, Set<String> approvedToolNames) {
+    /**
+     * 创建 `HITLAdvisor` 实例。
+     *
+     * @param interceptToolNames interceptToolNames 参数。
+     * @param approvedToolCallIds approvedToolCallIds 参数。
+     */
+    public HITLAdvisor(Set<String> interceptToolNames, Set<String> approvedToolCallIds) {
         this.interceptToolNames = interceptToolNames;
-        this.approvedToolNames = approvedToolNames == null ? Set.of() : approvedToolNames;
+        this.approvedToolCallIds = approvedToolCallIds == null ? Set.of() : approvedToolCallIds;
     }
 
+    /**
+     * 处理 `advise Call` 对应逻辑。
+     *
+     * @param chatClientRequest chatClientRequest 参数。
+     * @param callAdvisorChain callAdvisorChain 参数。
+     * @return 返回处理结果。
+     */
     @Override
     public ChatClientResponse adviseCall(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain) {
         ChatClientResponse response = callAdvisorChain.nextCall(chatClientRequest);
@@ -46,7 +67,7 @@ public class HITLAdvisor implements CallAdvisor {
                 nonInterceptTools.add(tc);
                 continue;
             }
-            if (approvedToolNames.contains(tc.name())) {
+            if (approvedToolCallIds.contains(tc.id())) {
                 nonInterceptTools.add(tc);
                 continue;
             }
@@ -68,11 +89,21 @@ public class HITLAdvisor implements CallAdvisor {
         return response;
     }
 
+    /**
+     * 获取 `get Name` 对应结果。
+     *
+     * @return 返回处理结果。
+     */
     @Override
     public String getName() {
         return "HITLAdvisor";
     }
 
+    /**
+     * 获取 `get Order` 对应结果。
+     *
+     * @return 返回处理结果。
+     */
     @Override
     public int getOrder() {
         return 0;

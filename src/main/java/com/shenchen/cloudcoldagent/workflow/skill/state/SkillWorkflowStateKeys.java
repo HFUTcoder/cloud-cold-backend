@@ -1,7 +1,13 @@
 package com.shenchen.cloudcoldagent.workflow.skill.state;
 
+/**
+ * `SkillWorkflowStateKeys` 类型实现。
+ */
 public final class SkillWorkflowStateKeys {
 
+    /**
+     * 创建 `SkillWorkflowStateKeys` 实例。
+     */
     private SkillWorkflowStateKeys() {
     }
 

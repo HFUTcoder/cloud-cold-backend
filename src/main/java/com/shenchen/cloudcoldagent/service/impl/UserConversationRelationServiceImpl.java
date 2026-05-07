@@ -13,10 +13,19 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
 
+/**
+ * 用户-会话归属关系服务实现，负责维护会话归属和相关查询。
+ */
 @Service
 public class UserConversationRelationServiceImpl extends ServiceImpl<UserConversationRelationMapper, UserConversationRelation>
         implements UserConversationRelationService {
 
+    /**
+     * 查询 `list Conversation Ids By User Id` 对应集合。
+     *
+     * @param userId userId 参数。
+     * @return 返回处理结果。
+     */
     @Override
     public List<String> listConversationIdsByUserId(Long userId) {
         validateUserId(userId);
@@ -31,6 +40,12 @@ public class UserConversationRelationServiceImpl extends ServiceImpl<UserConvers
                 .toList();
     }
 
+    /**
+     * 根据会话 id 查询其归属用户。
+     *
+     * @param conversationId 会话 id。
+     * @return 用户 id；不存在时返回 null。
+     */
     @Override
     public Long getUserIdByConversationId(String conversationId) {
         validateConversationId(conversationId);
@@ -41,6 +56,13 @@ public class UserConversationRelationServiceImpl extends ServiceImpl<UserConvers
         return relation == null ? null : relation.getUserId();
     }
 
+    /**
+     * 判断 `is Conversation Owned By User` 条件是否成立。
+     *
+     * @param userId userId 参数。
+     * @param conversationId conversationId 参数。
+     * @return 返回处理结果。
+     */
     @Override
     public boolean isConversationOwnedByUser(Long userId, String conversationId) {
         validateUserId(userId);
@@ -51,6 +73,13 @@ public class UserConversationRelationServiceImpl extends ServiceImpl<UserConvers
                 .eq("isDelete", 0)) > 0;
     }
 
+    /**
+     * 建立用户与会话之间的归属关系。
+     *
+     * @param userId 用户 id。
+     * @param conversationId 会话 id。
+     * @param now 绑定时间；为空时使用当前时间。
+     */
     @Override
     public void bindUserConversation(Long userId, String conversationId, LocalDateTime now) {
         validateUserId(userId);
@@ -72,6 +101,12 @@ public class UserConversationRelationServiceImpl extends ServiceImpl<UserConvers
                 .build());
     }
 
+    /**
+     * 删除 `delete By Conversation Id` 对应内容。
+     *
+     * @param conversationId conversationId 参数。
+     * @return 返回处理结果。
+     */
     @Override
     public boolean deleteByConversationId(String conversationId) {
         validateConversationId(conversationId);
@@ -86,12 +121,22 @@ public class UserConversationRelationServiceImpl extends ServiceImpl<UserConvers
         ) > 0;
     }
 
+    /**
+     * 校验 `validate User Id` 对应内容。
+     *
+     * @param userId userId 参数。
+     */
     private void validateUserId(Long userId) {
         if (userId == null || userId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "userId 不合法");
         }
     }
 
+    /**
+     * 校验 `validate Conversation Id` 对应内容。
+     *
+     * @param conversationId conversationId 参数。
+     */
     private void validateConversationId(String conversationId) {
         if (conversationId == null || conversationId.isBlank()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "conversationId 不能为空");

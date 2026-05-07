@@ -7,6 +7,9 @@ import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
 
+/**
+ * `AgentStreamEvent` 类型实现。
+ */
 @Data
 @Builder
 @NoArgsConstructor

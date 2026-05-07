@@ -9,11 +9,22 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * `UserLongTermMemoryPrompts` 类型实现。
+ */
 public final class UserLongTermMemoryPrompts {
 
+    /**
+     * 创建 `UserLongTermMemoryPrompts` 实例。
+     */
     private UserLongTermMemoryPrompts() {
     }
 
+    /**
+     * 构建 `build Extraction System Prompt` 对应结果。
+     *
+     * @return 返回处理结果。
+     */
     public static String buildExtractionSystemPrompt() {
         return """
                 你是一个用户长期记忆整理器。
@@ -49,6 +60,13 @@ public final class UserLongTermMemoryPrompts {
                 """;
     }
 
+    /**
+     * 构建 `build Extraction User Prompt` 对应结果。
+     *
+     * @param userId userId 参数。
+     * @param transcriptJson transcriptJson 参数。
+     * @return 返回处理结果。
+     */
     public static String buildExtractionUserPrompt(Long userId, String transcriptJson) {
         return """
                 用户ID：%s
@@ -57,6 +75,13 @@ public final class UserLongTermMemoryPrompts {
                 """.formatted(userId, StringUtils.defaultString(transcriptJson, "[]"));
     }
 
+    /**
+     * 构建 `build Runtime Prompt` 对应结果。
+     *
+     * @param memories memories 参数。
+     * @param maxPromptMemories maxPromptMemories 参数。
+     * @return 返回处理结果。
+     */
     public static String buildRuntimePrompt(List<UserLongTermMemoryDoc> memories, int maxPromptMemories) {
         if (memories == null || memories.isEmpty() || maxPromptMemories <= 0) {
             return null;
@@ -82,6 +107,13 @@ public final class UserLongTermMemoryPrompts {
                 """.formatted(String.join("\n", lines));
     }
 
+    /**
+     * 处理 `render Transcript Json` 对应逻辑。
+     *
+     * @param objectMapper objectMapper 参数。
+     * @param transcript transcript 参数。
+     * @return 返回处理结果。
+     */
     public static String renderTranscriptJson(ObjectMapper objectMapper, List<Map<String, Object>> transcript) {
         if (objectMapper == null || transcript == null) {
             return "[]";

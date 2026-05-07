@@ -8,6 +8,9 @@ import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * `HitlCheckpointCreateRequest` 类型实现。
+ */
 @Data
 public class HitlCheckpointCreateRequest implements Serializable {
 

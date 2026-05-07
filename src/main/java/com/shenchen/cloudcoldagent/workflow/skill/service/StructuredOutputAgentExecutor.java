@@ -10,6 +10,9 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
+/**
+ * `StructuredOutputAgentExecutor` 类型实现。
+ */
 @Component
 public class StructuredOutputAgentExecutor {
 
@@ -17,12 +20,25 @@ public class StructuredOutputAgentExecutor {
 
     private final ObjectMapper objectMapper;
 
+    /**
+     * 创建 `StructuredOutputAgentExecutor` 实例。
+     *
+     * @param chatModel chatModel 参数。
+     * @param objectMapper objectMapper 参数。
+     */
     public StructuredOutputAgentExecutor(ChatModel chatModel,
                                          ObjectMapper objectMapper) {
         this.chatModel = chatModel;
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * 执行 `execute` 对应逻辑。
+     *
+     * @param messages messages 参数。
+     * @param outputType outputType 参数。
+     * @return 返回处理结果。
+     */
     public <T> T execute(List<Message> messages, Class<T> outputType) {
         try {
             ReactAgent agent = ReactAgent.builder()
@@ -36,6 +52,14 @@ public class StructuredOutputAgentExecutor {
         }
     }
 
+    /**
+     * 执行 `execute` 对应逻辑。
+     *
+     * @param messages messages 参数。
+     * @param outputType outputType 参数。
+     * @param converter converter 参数。
+     * @return 返回处理结果。
+     */
     public <T> T execute(List<Message> messages,
                          Class<T> outputType,
                          BeanOutputConverter<T> converter) {
@@ -55,6 +79,14 @@ public class StructuredOutputAgentExecutor {
         }
     }
 
+    /**
+     * 执行 `execute With Schema` 对应逻辑。
+     *
+     * @param messages messages 参数。
+     * @param outputType outputType 参数。
+     * @param outputSchema outputSchema 参数。
+     * @return 返回处理结果。
+     */
     public <T> T executeWithSchema(List<Message> messages,
                                    Class<T> outputType,
                                    String outputSchema) {
@@ -74,6 +106,13 @@ public class StructuredOutputAgentExecutor {
         }
     }
 
+    /**
+     * 解析 `parse Response` 对应内容。
+     *
+     * @param response response 参数。
+     * @param outputType outputType 参数。
+     * @return 返回处理结果。
+     */
     private <T> T parseResponse(AssistantMessage response, Class<T> outputType) {
         try {
             String text = response == null ? null : response.getText();
@@ -94,6 +133,12 @@ public class StructuredOutputAgentExecutor {
         }
     }
 
+    /**
+     * 处理 `normalize Json Payload` 对应逻辑。
+     *
+     * @param rawText rawText 参数。
+     * @return 返回处理结果。
+     */
     private String normalizeJsonPayload(String rawText) {
         if (rawText == null) {
             return null;
@@ -119,6 +164,12 @@ public class StructuredOutputAgentExecutor {
         return extracted == null || extracted.isBlank() ? trimmed : extracted;
     }
 
+    /**
+     * 查找 `find Json Start` 对应结果。
+     *
+     * @param text text 参数。
+     * @return 返回处理结果。
+     */
     private int findJsonStart(String text) {
         int objectStart = text.indexOf('{');
         int arrayStart = text.indexOf('[');
@@ -131,6 +182,13 @@ public class StructuredOutputAgentExecutor {
         return Math.min(objectStart, arrayStart);
     }
 
+    /**
+     * 提取 `extract Balanced Json` 对应内容。
+     *
+     * @param text text 参数。
+     * @param startIndex startIndex 参数。
+     * @return 返回处理结果。
+     */
     private String extractBalancedJson(String text, int startIndex) {
         if (startIndex < 0 || startIndex >= text.length()) {
             return null;

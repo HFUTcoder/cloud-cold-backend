@@ -2,6 +2,9 @@ package com.shenchen.cloudcoldagent.exception;
 
 import lombok.Getter;
 
+/**
+ * `ErrorCode` 枚举定义。
+ */
 @Getter
 public enum ErrorCode {
 
@@ -17,6 +20,12 @@ public enum ErrorCode {
     private final int code;
     private final String message;
 
+    /**
+     * 创建 `ErrorCode` 实例。
+     *
+     * @param code code 参数。
+     * @param message message 参数。
+     */
     ErrorCode(int code, String message) {
         this.code = code;
         this.message = message;

@@ -11,6 +11,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * `OverlapParagraphTextSplitter` 类型实现。
+ */
 public class OverlapParagraphTextSplitter extends TextSplitter {
 
     // 每块最大字符数
@@ -19,6 +22,12 @@ public class OverlapParagraphTextSplitter extends TextSplitter {
     // 相邻块之间重叠字符数
     protected final int overlap;
 
+    /**
+     * 创建 `OverlapParagraphTextSplitter` 实例。
+     *
+     * @param chunkSize chunkSize 参数。
+     * @param overlap overlap 参数。
+     */
     public OverlapParagraphTextSplitter(int chunkSize, int overlap) {
         if (chunkSize <= 0) {
             throw new IllegalArgumentException("chunkSize 必须大于 0");
@@ -33,6 +42,12 @@ public class OverlapParagraphTextSplitter extends TextSplitter {
         this.overlap = overlap;
     }
 
+    /**
+     * 处理 `split Text` 对应逻辑。
+     *
+     * @param text text 参数。
+     * @return 返回处理结果。
+     */
     @Override
     protected List<String> splitText(String text) {
         if (StringUtils.isBlank(text)) {
@@ -103,6 +118,13 @@ public class OverlapParagraphTextSplitter extends TextSplitter {
         return result;
     }
 
+    /**
+     * 处理 `flush Chunk` 对应逻辑。
+     *
+     * @param allChunks allChunks 参数。
+     * @param currentChunk currentChunk 参数。
+     * @return 返回处理结果。
+     */
     private StringBuilder flushChunk(List<String> allChunks, StringBuilder currentChunk) {
         allChunks.add(currentChunk.toString());
 
@@ -119,6 +141,15 @@ public class OverlapParagraphTextSplitter extends TextSplitter {
         return nextChunk;
     }
 
+    /**
+     * 创建 `create Chunk Document` 对应内容。
+     *
+     * @param sourceDocument sourceDocument 参数。
+     * @param chunkText chunkText 参数。
+     * @param chunkIndex chunkIndex 参数。
+     * @param chunkTotal chunkTotal 参数。
+     * @return 返回处理结果。
+     */
     private Document createChunkDocument(Document sourceDocument, String chunkText, int chunkIndex, int chunkTotal) {
         Map<String, Object> metadata = sourceDocument.getMetadata() == null
                 ? new LinkedHashMap<>()
@@ -139,6 +170,13 @@ public class OverlapParagraphTextSplitter extends TextSplitter {
                 .build();
     }
 
+    /**
+     * 构建 `build Chunk Id` 对应结果。
+     *
+     * @param sourceDocumentId sourceDocumentId 参数。
+     * @param chunkIndex chunkIndex 参数。
+     * @return 返回处理结果。
+     */
     private String buildChunkId(String sourceDocumentId, int chunkIndex) {
         String parentId = StringUtils.defaultIfBlank(sourceDocumentId, "document");
         return parentId + "#chunk-" + chunkIndex;

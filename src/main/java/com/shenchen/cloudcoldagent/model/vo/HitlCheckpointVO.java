@@ -10,6 +10,9 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * `HitlCheckpointVO` 类型实现。
+ */
 @Data
 @Builder
 public class HitlCheckpointVO implements Serializable {

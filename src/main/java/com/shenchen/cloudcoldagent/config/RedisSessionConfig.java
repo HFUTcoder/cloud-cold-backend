@@ -9,9 +9,17 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
 import org.springframework.data.redis.serializer.RedisSerializer;
 
+/**
+ * `RedisSessionConfig` 类型实现。
+ */
 @Configuration
 public class RedisSessionConfig {
 
+    /**
+     * 处理 `spring Session Default Redis Serializer` 对应逻辑。
+     *
+     * @return 返回处理结果。
+     */
     @Bean
     public RedisSerializer<Object> springSessionDefaultRedisSerializer() {
         ObjectMapper objectMapper = new ObjectMapper();

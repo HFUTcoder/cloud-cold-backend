@@ -33,12 +33,24 @@ public class DistributeLockAspect {
 
     private RedissonClient redissonClient;
 
+    /**
+     * 创建 `DistributeLockAspect` 实例。
+     *
+     * @param redissonClient redissonClient 参数。
+     */
     public DistributeLockAspect(RedissonClient redissonClient) {
         this.redissonClient = redissonClient;
     }
 
     private static final Logger LOG = LoggerFactory.getLogger(DistributeLockAspect.class);
 
+    /**
+     * 处理 `process` 对应逻辑。
+     *
+     * @param pjp pjp 参数。
+     * @return 返回处理结果。
+     * @throws Exception 异常信息。
+     */
     @Around("@annotation(com.shenchen.cloudcoldagent.annotation.DistributeLock)")
     public Object process(ProceedingJoinPoint pjp) throws Exception {
         Object response = null;

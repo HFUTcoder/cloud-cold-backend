@@ -4,6 +4,9 @@ import lombok.Data;
 
 import java.io.Serializable;
 
+/**
+ * `KnowledgeWriteRequest` 类型实现。
+ */
 @Data
 public class KnowledgeWriteRequest implements Serializable {
 

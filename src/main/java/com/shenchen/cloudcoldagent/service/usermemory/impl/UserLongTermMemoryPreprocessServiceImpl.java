@@ -12,6 +12,9 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * 长期记忆预处理服务实现，负责在进入 Agent 前召回相关记忆并生成运行时提示词。
+ */
 @Service
 @Slf4j
 public class UserLongTermMemoryPreprocessServiceImpl implements UserLongTermMemoryPreprocessService {
@@ -19,12 +22,25 @@ public class UserLongTermMemoryPreprocessServiceImpl implements UserLongTermMemo
     private final UserLongTermMemoryService userLongTermMemoryService;
     private final LongTermMemoryProperties properties;
 
+    /**
+     * 注入长期记忆预处理所需的依赖服务。
+     *
+     * @param userLongTermMemoryService 长期记忆业务服务。
+     * @param properties 长期记忆配置。
+     */
     public UserLongTermMemoryPreprocessServiceImpl(UserLongTermMemoryService userLongTermMemoryService,
                                                    LongTermMemoryProperties properties) {
         this.userLongTermMemoryService = userLongTermMemoryService;
         this.properties = properties;
     }
 
+    /**
+     * 在进入 Agent 前召回与当前问题相关的长期记忆，并按配置生成 runtime prompt。
+     *
+     * @param userId 当前用户 id。
+     * @param question 用户问题。
+     * @return 长期记忆预处理结果。
+     */
     @Override
     public UserLongTermMemoryPreprocessResult preprocess(Long userId, String question) {
         if (!properties.isEnabled() || userId == null || userId <= 0 || question == null || question.isBlank()) {

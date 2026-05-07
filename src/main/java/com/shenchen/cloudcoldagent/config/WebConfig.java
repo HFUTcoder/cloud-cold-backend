@@ -10,9 +10,18 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 
+/**
+ * `WebConfig` 类型实现。
+ */
 @Configuration
 public class WebConfig {
 
+    /**
+     * 处理 `es Object Mapper` 对应逻辑。
+     *
+     * @param builder builder 参数。
+     * @return 返回处理结果。
+     */
     @Bean
     @Qualifier("esObjectMapper")
     public ObjectMapper esObjectMapper(Jackson2ObjectMapperBuilder builder) {
@@ -21,6 +30,12 @@ public class WebConfig {
         return objectMapper;
     }
 
+    /**
+     * 处理 `jackson Object Mapper` 对应逻辑。
+     *
+     * @param esObjectMapper esObjectMapper 参数。
+     * @return 返回处理结果。
+     */
     @Bean
     @Primary
     public ObjectMapper jacksonObjectMapper(@Qualifier("esObjectMapper") ObjectMapper esObjectMapper) {

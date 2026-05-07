@@ -10,6 +10,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
+/**
+ * `LoadConversationHistoryNode` 类型实现。
+ */
 @Component
 public class LoadConversationHistoryNode {
 
@@ -17,10 +20,21 @@ public class LoadConversationHistoryNode {
 
     private final ChatMemoryRepository chatMemoryRepository;
 
+    /**
+     * 创建 `LoadConversationHistoryNode` 实例。
+     *
+     * @param chatMemoryRepository chatMemoryRepository 参数。
+     */
     public LoadConversationHistoryNode(ChatMemoryRepository chatMemoryRepository) {
         this.chatMemoryRepository = chatMemoryRepository;
     }
 
+    /**
+     * 处理 `apply` 对应逻辑。
+     *
+     * @param state state 参数。
+     * @return 返回处理结果。
+     */
     public CompletableFuture<Map<String, Object>> apply(OverAllState state) {
         String conversationId = state.value(SkillWorkflowStateKeys.CONVERSATION_ID, String.class).orElse(null);
         if (conversationId == null || conversationId.isBlank()) {

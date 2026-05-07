@@ -176,7 +176,7 @@ create table if not exists hitl_checkpoint
     checkpointMessagesJson longtext                            not null comment '消息快照 JSON',
     contextJson           longtext                             null comment '上下文 JSON',
     feedbacksJson         longtext                             null comment '审批反馈 JSON',
-    status                varchar(32)                          not null comment '状态：PENDING/RESOLVED/CANCELLED',
+    status                varchar(32)                          not null comment '状态：PENDING/RESOLVED/CONSUMED/CANCELLED',
     resolvedTime          datetime                             null comment '处理完成时间',
     createTime            datetime   default CURRENT_TIMESTAMP not null comment '创建时间',
     updateTime            datetime   default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',

@@ -9,6 +9,9 @@ import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * `SkillExecutionHint` 类型实现。
+ */
 @Data
 @Builder
 @NoArgsConstructor

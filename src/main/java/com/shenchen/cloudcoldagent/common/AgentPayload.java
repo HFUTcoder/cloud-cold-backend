@@ -21,6 +21,14 @@ public final class AgentPayload {
     private final Integer count;
     private final Map<String, Object> meta;
 
+    /**
+     * 创建 `AgentPayload` 实例。
+     *
+     * @param type type 参数。
+     * @param content content 参数。
+     * @param count count 参数。
+     * @param meta meta 参数。
+     */
     private AgentPayload(String type, String content, Integer count, Map<String, Object> meta) {
         this.type = type;
         this.content = content;
@@ -28,18 +36,44 @@ public final class AgentPayload {
         this.meta = meta == null ? Map.of() : Map.copyOf(meta);
     }
 
+    /**
+     * 处理 `text` 对应逻辑。
+     *
+     * @param content content 参数。
+     * @return 返回处理结果。
+     */
     public static AgentPayload text(String content) {
         return new AgentPayload(TYPE_TEXT, content, null, Map.of());
     }
 
+    /**
+     * 处理 `final Answer` 对应逻辑。
+     *
+     * @param content content 参数。
+     * @return 返回处理结果。
+     */
     public static AgentPayload finalAnswer(String content) {
         return text(content);
     }
 
+    /**
+     * 处理 `error` 对应逻辑。
+     *
+     * @param message message 参数。
+     * @return 返回处理结果。
+     */
     public static AgentPayload error(String message) {
         return new AgentPayload(TYPE_ERROR, message, null, Map.of());
     }
 
+    /**
+     * 处理 `thinking` 对应逻辑。
+     *
+     * @param stage stage 参数。
+     * @param title title 参数。
+     * @param content content 参数。
+     * @return 返回处理结果。
+     */
     public static AgentPayload thinking(String stage, String title, String content) {
         Map<String, Object> meta = new LinkedHashMap<>();
         meta.put("stage", stage);
@@ -47,26 +81,59 @@ public final class AgentPayload {
         return new AgentPayload(TYPE_THINKING, content, null, meta);
     }
 
+    /**
+     * 处理 `action Required` 对应逻辑。
+     *
+     * @param content content 参数。
+     * @param meta meta 参数。
+     * @return 返回处理结果。
+     */
     public static AgentPayload actionRequired(String content, Map<String, Object> meta) {
         return new AgentPayload(TYPE_ACTION_REQUIRED, content, null, meta);
     }
 
+    /**
+     * 处理 `action Required` 对应逻辑。
+     *
+     * @param meta meta 参数。
+     * @return 返回处理结果。
+     */
     public static AgentPayload actionRequired(Map<String, Object> meta) {
         return actionRequired(null, meta);
     }
 
+    /**
+     * 获取 `get Type` 对应结果。
+     *
+     * @return 返回处理结果。
+     */
     public String getType() {
         return type;
     }
 
+    /**
+     * 获取 `get Content` 对应结果。
+     *
+     * @return 返回处理结果。
+     */
     public String getContent() {
         return content;
     }
 
+    /**
+     * 获取 `get Count` 对应结果。
+     *
+     * @return 返回处理结果。
+     */
     public Integer getCount() {
         return count;
     }
 
+    /**
+     * 获取 `get Meta` 对应结果。
+     *
+     * @return 返回处理结果。
+     */
     public Map<String, Object> getMeta() {
         return meta;
     }

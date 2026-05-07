@@ -5,6 +5,9 @@ import lombok.Data;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/**
+ * `UserLongTermMemoryVO` 类型实现。
+ */
 @Data
 public class UserLongTermMemoryVO {
 

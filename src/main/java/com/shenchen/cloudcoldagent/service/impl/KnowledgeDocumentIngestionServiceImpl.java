@@ -1,6 +1,7 @@
 package com.shenchen.cloudcoldagent.service.impl;
 
 import com.shenchen.cloudcoldagent.config.properties.MinioProperties;
+import com.shenchen.cloudcoldagent.constant.KnowledgeChunkConstant;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.exception.ThrowUtils;
@@ -26,6 +27,9 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * 知识库文档入库服务实现，负责上传原始文件、创建文档记录、解析内容并同步写入索引。
+ */
 @Service
 public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentIngestionService {
 
@@ -36,6 +40,16 @@ public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentI
     private final KnowledgeDocumentImageService knowledgeDocumentImageService;
     private final TransactionTemplate transactionTemplate;
 
+    /**
+     * 注入文档入库链路所需的依赖服务。
+     *
+     * @param knowledgeService 知识库业务服务。
+     * @param documentService 文档业务服务。
+     * @param minioService MinIO 文件服务。
+     * @param minioProperties MinIO 配置。
+     * @param knowledgeDocumentImageService 文档图片业务服务。
+     * @param transactionTemplate 事务模板。
+     */
     public KnowledgeDocumentIngestionServiceImpl(KnowledgeService knowledgeService,
                                                  DocumentService documentService,
                                                  MinioService minioService,
@@ -50,6 +64,14 @@ public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentI
         this.transactionTemplate = transactionTemplate;
     }
 
+    /**
+     * 上传文档并同步执行知识库入库主链路。
+     *
+     * @param userId 当前用户 id。
+     * @param knowledgeId 目标知识库 id。
+     * @param file 上传文件。
+     * @return 入库完成后的文档 VO。
+     */
     @Override
     public DocumentVO uploadDocument(Long userId, Long knowledgeId, MultipartFile file) {
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.NOT_LOGIN_ERROR);
@@ -148,6 +170,12 @@ public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentI
         }
     }
 
+    /**
+     * 解析上传文件的展示名称。
+     *
+     * @param file 上传文件。
+     * @return 解析后的文档名；无法获取时返回默认名称。
+     */
     private String resolveDocumentName(MultipartFile file) {
         String originalFilename = file.getOriginalFilename();
         if (originalFilename == null || originalFilename.isBlank()) {
@@ -156,18 +184,37 @@ public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentI
         return originalFilename.trim();
     }
 
+    /**
+     * 构建上传到对象存储中的对象名称。
+     *
+     * @param knowledgeId 知识库 id。
+     * @param documentName 文档名。
+     * @return MinIO 对象名。
+     */
     private String buildObjectName(Long knowledgeId, String documentName) {
         String safeFileName = documentName
                 .replace("\\", "_")
                 .replace("/", "_")
                 .replaceAll("\\s+", "_");
-        return "knowledge/" + knowledgeId + "/" + System.currentTimeMillis() + "-" + UUID.randomUUID() + "-" + safeFileName;
+        return KnowledgeChunkConstant.OBJECT_PREFIX_KNOWLEDGE + knowledgeId + "/" + System.currentTimeMillis() + "-" + UUID.randomUUID() + "-" + safeFileName;
     }
 
+    /**
+     * 构建写入索引元数据中的文档来源标识。
+     *
+     * @param objectName MinIO 对象名。
+     * @return 统一格式的文档来源字符串。
+     */
     private String buildDocumentSource(String objectName) {
         return "minio://" + minioProperties.getBucketName() + "/" + objectName;
     }
 
+    /**
+     * 从文件名中提取文件扩展名。
+     *
+     * @param documentName 文档名。
+     * @return 文件类型；无法识别时返回 unknown。
+     */
     private String extractFileType(String documentName) {
         int dotIndex = documentName.lastIndexOf('.');
         if (dotIndex < 0 || dotIndex == documentName.length() - 1) {
@@ -176,6 +223,14 @@ public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentI
         return documentName.substring(dotIndex + 1).toLowerCase();
     }
 
+    /**
+     * 将上传文件落到本地临时文件，供解析器读取。
+     *
+     * @param multipartFile 上传文件。
+     * @param documentName 文档名。
+     * @return 本地临时文件。
+     * @throws IOException 创建或写入临时文件失败时抛出。
+     */
     private File createTempFile(MultipartFile multipartFile, String documentName) throws IOException {
         String suffix = ".tmp";
         int dotIndex = documentName.lastIndexOf('.');
@@ -187,6 +242,11 @@ public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentI
         return tempFile;
     }
 
+    /**
+     * 删除入库过程中创建的本地临时文件。
+     *
+     * @param tempFile 临时文件。
+     */
     private void deleteTempFile(File tempFile) {
         if (tempFile == null) {
             return;
@@ -197,6 +257,11 @@ public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentI
         }
     }
 
+    /**
+     * 尝试删除已经上传到对象存储的原始文件，忽略清理阶段的异常。
+     *
+     * @param objectName MinIO 对象名。
+     */
     private void safeDeleteObject(String objectName) {
         try {
             minioService.deleteFile(objectName);
@@ -204,6 +269,15 @@ public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentI
         }
     }
 
+    /**
+     * 以事务方式保存解析阶段抽取出的文档图片记录。
+     *
+     * @param userId 当前用户 id。
+     * @param knowledgeId 知识库 id。
+     * @param documentId 文档 id。
+     * @param images 解析阶段抽取出的图片记录。
+     * @return 持久化后的图片列表。
+     */
     private List<KnowledgeDocumentImage> persistPreparedImages(Long userId,
                                                                Long knowledgeId,
                                                                Long documentId,
@@ -213,6 +287,12 @@ public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentI
         );
     }
 
+    /**
+     * 清理入库失败时已经上传或保存的图片资源。
+     *
+     * @param documentId 文档 id。
+     * @param uploadedImages 已上传的图片列表。
+     */
     private void cleanupPreparedImages(Long documentId, List<KnowledgeDocumentImage> uploadedImages) {
         if (uploadedImages != null) {
             for (KnowledgeDocumentImage uploadedImage : uploadedImages) {
@@ -233,6 +313,12 @@ public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentI
         }
     }
 
+    /**
+     * 统一提取异常中可用于返回给前端的错误信息。
+     *
+     * @param exception 原始异常。
+     * @return 可读的错误文本。
+     */
     private String resolveErrorMessage(Exception exception) {
         if (exception == null || exception.getMessage() == null || exception.getMessage().isBlank()) {
             return "未知错误";
@@ -240,6 +326,13 @@ public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentI
         return exception.getMessage();
     }
 
+    /**
+     * 合并正文 chunk 和图片描述 chunk，形成完整的入库结果。
+     *
+     * @param textChunks 正文 chunk 列表。
+     * @param imageChunks 图片描述 chunk 列表。
+     * @return 合并后的 chunk 列表。
+     */
     private List<com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk> mergeChunks(
             List<com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk> textChunks,
             List<com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk> imageChunks) {

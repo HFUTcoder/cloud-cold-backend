@@ -25,6 +25,9 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * 文档服务实现，负责文档记录管理以及删除时的索引、对象存储和图片资源联动清理。
+ */
 @Service
 @Slf4j
 public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenchen.cloudcoldagent.model.entity.Document>
@@ -34,6 +37,13 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
     private final MinioService minioService;
     private final KnowledgeDocumentImageService knowledgeDocumentImageService;
 
+    /**
+     * 注入文档管理所需的依赖服务。
+     *
+     * @param knowledgeService 知识库业务服务。
+     * @param minioService MinIO 文件服务。
+     * @param knowledgeDocumentImageService 文档图片业务服务。
+     */
     public DocumentServiceImpl(KnowledgeService knowledgeService,
                                MinioService minioService,
                                KnowledgeDocumentImageService knowledgeDocumentImageService) {
@@ -42,6 +52,13 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
         this.knowledgeDocumentImageService = knowledgeDocumentImageService;
     }
 
+    /**
+     * 创建一条属于指定知识库的文档记录。
+     *
+     * @param userId 当前用户 id。
+     * @param request 文档创建请求。
+     * @return 新建文档 id。
+     */
     @Override
     public long addDocument(Long userId, DocumentAddRequest request) {
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.NOT_LOGIN_ERROR);
@@ -67,6 +84,13 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
         return document.getId();
     }
 
+    /**
+     * 更新文档基础信息，并在知识库变更后刷新两侧统计。
+     *
+     * @param userId 当前用户 id。
+     * @param request 文档更新请求。
+     * @return 是否更新成功。
+     */
     @Override
     public boolean updateDocument(Long userId, DocumentUpdateRequest request) {
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.NOT_LOGIN_ERROR);
@@ -98,6 +122,13 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
         return true;
     }
 
+    /**
+     * 删除文档记录，并同步清理 ES 索引、MinIO 原文件和文档图片对象。
+     *
+     * @param userId 当前用户 id。
+     * @param id 文档 id。
+     * @return 是否删除成功。
+     */
     @Override
     public boolean deleteDocument(Long userId, Long id) {
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.NOT_LOGIN_ERROR);
@@ -132,6 +163,13 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
         return true;
     }
 
+    /**
+     * 查询当前用户名下的单个文档实体。
+     *
+     * @param userId 当前用户 id。
+     * @param id 文档 id。
+     * @return 文档实体。
+     */
     @Override
     public com.shenchen.cloudcoldagent.model.entity.Document getDocumentById(Long userId, Long id) {
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.NOT_LOGIN_ERROR);
@@ -145,6 +183,13 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
         return document;
     }
 
+    /**
+     * 查询某个知识库下的全部文档。
+     *
+     * @param userId 当前用户 id。
+     * @param knowledgeId 知识库 id。
+     * @return 文档实体列表。
+     */
     @Override
     public List<com.shenchen.cloudcoldagent.model.entity.Document> listByKnowledgeId(Long userId, Long knowledgeId) {
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.NOT_LOGIN_ERROR);
@@ -158,6 +203,13 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
         );
     }
 
+    /**
+     * 分页查询当前用户的文档列表。
+     *
+     * @param userId 当前用户 id。
+     * @param request 分页查询条件。
+     * @return 文档分页结果。
+     */
     @Override
     public Page<com.shenchen.cloudcoldagent.model.entity.Document> pageByUserId(Long userId, DocumentQueryRequest request) {
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.NOT_LOGIN_ERROR);
@@ -165,6 +217,13 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
         return this.page(Page.of(request.getPageNum(), request.getPageSize()), getQueryWrapper(userId, request));
     }
 
+    /**
+     * 根据查询条件构建文档分页查询包装器。
+     *
+     * @param userId 当前用户 id。
+     * @param request 查询条件。
+     * @return MyBatis-Flex 查询包装器。
+     */
     @Override
     public QueryWrapper getQueryWrapper(Long userId, DocumentQueryRequest request) {
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.NOT_LOGIN_ERROR);
@@ -179,6 +238,12 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
                 .orderBy(request.getSortField(), "ascend".equals(request.getSortOrder()));
     }
 
+    /**
+     * 将文档实体转换成对外返回的 VO。
+     *
+     * @param document 文档实体。
+     * @return 文档 VO。
+     */
     @Override
     public DocumentVO getDocumentVO(com.shenchen.cloudcoldagent.model.entity.Document document) {
         if (document == null) {
@@ -189,6 +254,12 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
         return documentVO;
     }
 
+    /**
+     * 批量将文档实体转换成 VO 列表。
+     *
+     * @param documents 文档实体列表。
+     * @return 文档 VO 列表。
+     */
     @Override
     public List<DocumentVO> getDocumentVOList(List<com.shenchen.cloudcoldagent.model.entity.Document> documents) {
         if (documents == null || documents.isEmpty()) {
@@ -197,6 +268,12 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
         return documents.stream().map(this::getDocumentVO).toList();
     }
 
+    /**
+     * 删除 MinIO 中保存的原始文档对象。
+     *
+     * @param document 文档实体。
+     * @throws Exception 删除对象失败且不可忽略时抛出。
+     */
     private void deleteDocumentObject(com.shenchen.cloudcoldagent.model.entity.Document document) throws Exception {
         if (document == null || document.getObjectName() == null || document.getObjectName().isBlank()) {
             return;
@@ -212,6 +289,12 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
         }
     }
 
+    /**
+     * 删除文档关联的图片对象和图片记录。
+     *
+     * @param documentId 文档 id。
+     * @throws Exception 删除图片对象失败且不可忽略时抛出。
+     */
     private void deleteDocumentImages(Long documentId) throws Exception {
         if (documentId == null || documentId <= 0) {
             return;
@@ -235,6 +318,12 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
         knowledgeDocumentImageService.deleteByDocumentId(documentId);
     }
 
+    /**
+     * 判断某个删除异常是否属于“对象已不存在”这类可忽略场景。
+     *
+     * @param exception 删除时抛出的异常。
+     * @return 可忽略时返回 true。
+     */
     private boolean isIgnorableDeleteException(Exception exception) {
         if (exception instanceof ErrorResponseException errorResponseException) {
             String code = errorResponseException.errorResponse() == null

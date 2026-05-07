@@ -42,6 +42,9 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
+/**
+ * 长期记忆服务实现，负责宠物状态、记忆列表、记忆重建、召回和删除联动。
+ */
 @Service
 @Slf4j
 public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService {
@@ -60,6 +63,19 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
     private final ObjectMapper objectMapper;
     private final RateLimiter rateLimiter;
 
+    /**
+     * 注入长期记忆主链路所需的依赖。
+     *
+     * @param userLongTermMemoryStore 长期记忆存储服务。
+     * @param metadataService 长期记忆元数据服务。
+     * @param userConversationRelationService 用户会话归属服务。
+     * @param chatMemoryHistoryMapper 历史消息 mapper。
+     * @param structuredOutputAgentExecutor 结构化输出执行器。
+     * @param stringRedisTemplate Redis 模板。
+     * @param properties 长期记忆配置。
+     * @param objectMapper 对象映射器。
+     * @param rateLimiter 限流器。
+     */
     public UserLongTermMemoryServiceImpl(UserLongTermMemoryStore userLongTermMemoryStore,
                                          UserLongTermMemoryMetadataService metadataService,
                                          UserConversationRelationService userConversationRelationService,
@@ -80,6 +96,12 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         this.rateLimiter = rateLimiter;
     }
 
+    /**
+     * 生成当前用户的宠物记忆状态摘要。
+     *
+     * @param userId 当前用户 id。
+     * @return 宠物状态 VO。
+     */
     @Override
     public UserPetStateVO getPetState(Long userId) {
         validateUserId(userId);
@@ -111,6 +133,12 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         return vo;
     }
 
+    /**
+     * 列出当前用户的长期记忆条目。
+     *
+     * @param userId 当前用户 id。
+     * @return 长期记忆 VO 列表。
+     */
     @Override
     public List<UserLongTermMemoryVO> listMemories(Long userId) {
         validateUserId(userId);
@@ -127,6 +155,12 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         }
     }
 
+    /**
+     * 手动触发当前用户所有待学习会话的长期记忆重建。
+     *
+     * @param userId 当前用户 id。
+     * @return 是否触发成功。
+     */
     @Override
     public boolean triggerManualRebuild(Long userId) {
         validateUserId(userId);
@@ -149,6 +183,13 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         return true;
     }
 
+    /**
+     * 修改当前用户宠物记忆的显示名称。
+     *
+     * @param userId 当前用户 id。
+     * @param petName 新宠物名。
+     * @return 是否修改成功。
+     */
     @Override
     public boolean renamePet(Long userId, String petName) {
         validateUserId(userId);
@@ -159,6 +200,13 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         return true;
     }
 
+    /**
+     * 删除一条长期记忆，并同步清理向量 / 关键词索引中的对应记录。
+     *
+     * @param userId 当前用户 id。
+     * @param memoryId 记忆 id。
+     * @return 是否删除成功。
+     */
     @Override
     public boolean deleteMemory(Long userId, String memoryId) {
         validateUserId(userId);
@@ -176,6 +224,13 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         }
     }
 
+    /**
+     * 在助手消息落库后更新待学习轮次，必要时异步触发记忆整理。
+     *
+     * @param userId 当前用户 id。
+     * @param conversationId 会话 id。
+     * @param assistantMessageCount 本次新增的助手消息数。
+     */
     @Override
     public void onAssistantMessagePersisted(Long userId, String conversationId, int assistantMessageCount) {
         if (!properties.isEnabled() || StringUtils.isBlank(conversationId) || assistantMessageCount <= 0) {
@@ -196,6 +251,12 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         dispatchPendingConversationsProcessing(userId);
     }
 
+    /**
+     * 在会话删除后同步清理与该会话关联的长期记忆。
+     *
+     * @param userId 当前用户 id。
+     * @param conversationId 会话 id。
+     */
     @Override
     public void onConversationDeleted(Long userId, String conversationId) {
         if (!properties.isEnabled() || StringUtils.isBlank(conversationId)) {
@@ -212,6 +273,12 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         }
     }
 
+    /**
+     * 在聊天历史被删除后清理相关长期记忆，并将该会话标记为待重新处理。
+     *
+     * @param userId 当前用户 id。
+     * @param conversationId 会话 id。
+     */
     @Override
     public void onHistoryDeleted(Long userId, String conversationId) {
         if (!properties.isEnabled() || StringUtils.isBlank(conversationId)) {
@@ -227,6 +294,14 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         metadataService.markConversationUnprocessed(userId, conversationId);
     }
 
+    /**
+     * 按问题语义召回最相关的长期记忆文档。
+     *
+     * @param userId 当前用户 id。
+     * @param question 当前问题。
+     * @param topK 召回数量上限。
+     * @return 命中的长期记忆文档。
+     */
     @Override
     public List<UserLongTermMemoryDoc> retrieveRelevantMemories(Long userId, String question, int topK) {
         if (!properties.isEnabled()) {
@@ -245,6 +320,11 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         }
     }
 
+    /**
+     * 处理当前用户所有待整理的会话，并重建长期记忆。
+     *
+     * @param userId 当前用户 id。
+     */
     @Override
     @DistributeLock(scene = "long_term_memory:user", keyExpression = "#userId")
     public void processPendingConversations(Long userId) {
@@ -258,6 +338,11 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         }
     }
 
+    /**
+     * 异步分发一次长期记忆待处理会话扫描任务。
+     *
+     * @param userId 当前用户 id。
+     */
     private void dispatchPendingConversationsProcessing(Long userId) {
         if (userId == null || userId <= 0) {
             return;
@@ -265,6 +350,12 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         CompletableFuture.runAsync(() -> processPendingConversations(userId));
     }
 
+    /**
+     * 实际执行待处理会话扫描与重建逻辑。
+     *
+     * @param userId 当前用户 id。
+     * @throws Exception 重建过程中发生异常时抛出。
+     */
     private void doProcessPendingConversations(Long userId) throws Exception {
         List<UserLongTermMemoryConversationState> pendingStates = metadataService.listPendingConversationStates(userId);
         if (pendingStates.isEmpty()) {
@@ -280,6 +371,13 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         markLearned(userId);
     }
 
+    /**
+     * 按整段会话历史重新提炼并写入该会话对应的长期记忆。
+     *
+     * @param userId 当前用户 id。
+     * @param conversationId 会话 id。
+     * @throws Exception 提炼或写入长期记忆失败时抛出。
+     */
     private void rebuildConversationMemories(Long userId, String conversationId) throws Exception {
         metadataService.deleteByConversationId(userId, conversationId);
         userLongTermMemoryStore.deleteByConversationId(userId, conversationId);
@@ -331,6 +429,16 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
                 userId, conversationId, transcript.size(), memories.size());
     }
 
+    /**
+     * 调用结构化输出模型，从整段会话历史中提炼长期记忆候选项。
+     *
+     * @param userId 当前用户 id。
+     * @param conversationId 会话 id。
+     * @param transcript 会话转录数据。
+     * @param sourceHistoryIds 可引用的历史消息 id 集合。
+     * @param conversationByHistoryId historyId 到 conversationId 的映射。
+     * @return 提炼出的长期记忆文档列表；模型失败时回退到启发式结果。
+     */
     private List<UserLongTermMemoryDoc> extractConversationMemoriesWithModel(Long userId,
                                                                              String conversationId,
                                                                              List<Map<String, Object>> transcript,
@@ -370,6 +478,16 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         return fallbackMemories(userId, conversationId, transcript, sourceHistoryIds, conversationByHistoryId);
     }
 
+    /**
+     * 当结构化提炼失败时，退化生成一条“近期偏好”类型的长期记忆。
+     *
+     * @param userId 当前用户 id。
+     * @param conversationId 会话 id。
+     * @param transcript 会话转录数据。
+     * @param sourceHistoryIds 可引用的历史消息 id 集合。
+     * @param conversationByHistoryId historyId 到 conversationId 的映射。
+     * @return 退化生成的长期记忆列表。
+     */
     private List<UserLongTermMemoryDoc> fallbackMemories(Long userId,
                                                          String conversationId,
                                                          List<Map<String, Object>> transcript,
@@ -406,6 +524,16 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         return List.of(memory);
     }
 
+    /**
+     * 将模型提炼出的单条结构化结果转换成长期记忆文档。
+     *
+     * @param userId 当前用户 id。
+     * @param conversationId 会话 id。
+     * @param item 模型提炼出的单条记忆项。
+     * @param sourceHistoryIds 可引用的历史消息 id 集合。
+     * @param conversationByHistoryId historyId 到 conversationId 的映射。
+     * @return 长期记忆文档；内容非法时返回 null。
+     */
     private UserLongTermMemoryDoc buildMemoryDoc(Long userId,
                                                  String conversationId,
                                                  UserLongTermMemoryExtractionItem item,
@@ -449,6 +577,13 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
                 .build();
     }
 
+    /**
+     * 将长期记忆实体和来源关系转换成前端使用的 VO。
+     *
+     * @param memory 长期记忆实体。
+     * @param sources 对应来源关系列表。
+     * @return 长期记忆 VO。
+     */
     private UserLongTermMemoryVO toVO(UserLongTermMemory memory,
                                       List<UserLongTermMemorySourceRelation> sources) {
         UserLongTermMemoryVO vo = new UserLongTermMemoryVO();
@@ -468,6 +603,12 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         return vo;
     }
 
+    /**
+     * 从来源关系中整理出去重后的来源会话 id 列表。
+     *
+     * @param sources 来源关系列表。
+     * @return 来源会话 id 列表。
+     */
     private List<String> resolveSourceConversationIds(List<UserLongTermMemorySourceRelation> sources) {
         if (sources == null || sources.isEmpty()) {
             return List.of();
@@ -479,19 +620,42 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
                 .toList();
     }
 
+    /**
+     * 读取当前用户的宠物名称；若未设置则回退到默认值。
+     *
+     * @param userId 当前用户 id。
+     * @return 宠物名称。
+     */
     private String resolvePetName(Long userId) {
         String petName = stringRedisTemplate.opsForValue().get(USER_MEMORY_PET_NAME_KEY + userId);
         return StringUtils.isBlank(petName) ? properties.getDefaultPetName() : petName;
     }
 
+    /**
+     * 统计当前用户还有多少待学习会话。
+     *
+     * @param userId 当前用户 id。
+     * @return 待学习会话数量。
+     */
     private int resolvePendingConversationCount(Long userId) {
         return metadataService.listPendingConversationStates(userId).size();
     }
 
+    /**
+     * 记录最近一次完成长期记忆学习的时间。
+     *
+     * @param userId 当前用户 id。
+     */
     private void markLearned(Long userId) {
         stringRedisTemplate.opsForValue().set(USER_MEMORY_LAST_LEARNED_AT_KEY + userId, LocalDateTime.now().toString());
     }
 
+    /**
+     * 读取当前用户最近一次完成长期记忆学习的时间。
+     *
+     * @param userId 当前用户 id。
+     * @return 最近学习时间；不存在或解析失败时返回 null。
+     */
     private LocalDateTime resolveLastLearnedAt(Long userId) {
         String value = stringRedisTemplate.opsForValue().get(USER_MEMORY_LAST_LEARNED_AT_KEY + userId);
         if (StringUtils.isBlank(value)) {
@@ -504,6 +668,12 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         }
     }
 
+    /**
+     * 根据待学习状态和最近学习时间推导宠物当前情绪。
+     *
+     * @param userId 当前用户 id。
+     * @return `learning`、`updated` 或 `idle`。
+     */
     private String resolvePetMood(Long userId) {
         if (resolvePendingConversationCount(userId) > 0) {
             return "learning";
@@ -515,12 +685,24 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         return "idle";
     }
 
+    /**
+     * 校验 `validate User Id` 对应内容。
+     *
+     * @param userId userId 参数。
+     */
     private void validateUserId(Long userId) {
         if (userId == null || userId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "userId 不合法");
         }
     }
 
+    /**
+     * 规范化模型返回的 historyId 列表，并过滤掉无效 id。
+     *
+     * @param sourceHistoryIds 模型返回的 historyId 列表。
+     * @param allowedHistoryIds 当前会话允许引用的 historyId 集合。
+     * @return 清洗后的 historyId 列表。
+     */
     private List<Long> normalizeSourceHistoryIds(List<Long> sourceHistoryIds, Set<Long> allowedHistoryIds) {
         if (sourceHistoryIds == null || sourceHistoryIds.isEmpty() || allowedHistoryIds == null || allowedHistoryIds.isEmpty()) {
             return List.of();
@@ -533,6 +715,13 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
                 .toList();
     }
 
+    /**
+     * 根据有效 historyId 列表筛出对应的来源会话映射。
+     *
+     * @param historyIds 有效 historyId 列表。
+     * @param conversationByHistoryId historyId 到 conversationId 的映射。
+     * @return 过滤后的映射结果。
+     */
     private Map<Long, String> buildFilteredConversationMap(List<Long> historyIds,
                                                            Map<Long, String> conversationByHistoryId) {
         Map<Long, String> result = new LinkedHashMap<>();
@@ -551,10 +740,22 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         return result;
     }
 
+    /**
+     * 为一条新长期记忆生成唯一 id。
+     *
+     * @param userId 当前用户 id。
+     * @return 长期记忆 id。
+     */
     private String buildMemoryId(Long userId) {
         return userId + "_" + IdUtil.getSnowflakeNextIdStr();
     }
 
+    /**
+     * 归一化模型返回的记忆类型标签。
+     *
+     * @param memoryType 原始类型文本。
+     * @return 归一化后的记忆类型；不支持时返回空字符串。
+     */
     private String normalizeMemoryType(String memoryType) {
         String normalized = Objects.toString(memoryType, "").trim().toUpperCase();
         if ("IDENTITY".equals(normalized) || "USER_INFO".equals(normalized) || "PROFILE".equals(normalized)) {
@@ -569,6 +770,13 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         return SUPPORTED_MEMORY_TYPES.contains(normalized) ? normalized : "";
     }
 
+    /**
+     * 将文本压缩到指定长度，避免长期记忆内容超出配置限制。
+     *
+     * @param value 原始文本。
+     * @param maxChars 最大字符数。
+     * @return 截断后的文本。
+     */
     private String abbreviate(String value, int maxChars) {
         if (value == null) {
             return "";
@@ -580,6 +788,13 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         return normalized.substring(0, Math.max(0, maxChars - 1)) + "…";
     }
 
+    /**
+     * 将模型返回的数值安全转换成 double。
+     *
+     * @param value 原始值。
+     * @param defaultValue 转换失败时的默认值。
+     * @return 转换后的 double 值。
+     */
     private double toDouble(Object value, double defaultValue) {
         if (value instanceof Number number) {
             return number.doubleValue();
