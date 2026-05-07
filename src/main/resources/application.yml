@@ -76,6 +76,9 @@ mybatis-flex:
   configuration:
     map-underscore-to-camel-case: false
 
+skills:
+  user-skills-dir: src/main/resources/user-skills
+
 minio:
   endpoint: http://localhost:9000
   accessKey: minioadmin

@@ -44,7 +44,7 @@ public class UserLongTermMemoryPreprocessServiceImpl implements UserLongTermMemo
     @Override
     public UserLongTermMemoryPreprocessResult preprocess(Long userId, String question) {
         if (!properties.isEnabled() || userId == null || userId <= 0 || question == null || question.isBlank()) {
-            return new UserLongTermMemoryPreprocessResult(List.of(), null, false);
+            return new UserLongTermMemoryPreprocessResult(List.of(), null);
         }
         try {
             List<UserLongTermMemoryDoc> memories = userLongTermMemoryService.retrieveRelevantMemories(
@@ -53,19 +53,16 @@ public class UserLongTermMemoryPreprocessServiceImpl implements UserLongTermMemo
                     properties.getRetrieveTopK()
             );
             if (memories.isEmpty()) {
-                return new UserLongTermMemoryPreprocessResult(List.of(), null, true);
+                return new UserLongTermMemoryPreprocessResult(List.of(), null);
             }
             String runtimePrompt = UserLongTermMemoryPrompts.buildRuntimePrompt(
                     memories,
                     properties.getMaxPromptMemories()
             );
-            if (runtimePrompt == null || runtimePrompt.isBlank()) {
-                return new UserLongTermMemoryPreprocessResult(memories, null, true);
-            }
-            return new UserLongTermMemoryPreprocessResult(memories, runtimePrompt, true);
+            return new UserLongTermMemoryPreprocessResult(memories, runtimePrompt);
         } catch (Exception e) {
             log.warn("长期记忆预处理失败，userId={}, message={}", userId, e.getMessage(), e);
-            return new UserLongTermMemoryPreprocessResult(List.of(), null, true);
+            return new UserLongTermMemoryPreprocessResult(List.of(), null);
         }
     }
 }

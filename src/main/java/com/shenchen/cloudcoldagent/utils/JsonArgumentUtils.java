@@ -98,6 +98,7 @@ public final class JsonArgumentUtils {
             copyIfPresent(template, normalizedArguments, "skillName");
             copyIfPresent(template, normalizedArguments, "scriptPath");
             copyIfPresent(template, normalizedArguments, "argumentSpecs");
+            copyIfPresent(template, normalizedArguments, "skillContent");
             mergeTemplateArgumentsIntoBusiness(template, businessArguments);
             normalizedArguments.put("arguments", businessArguments);
             return normalizedArguments;
@@ -106,6 +107,7 @@ public final class JsonArgumentUtils {
         copyIfPresent(template, normalizedArguments, "skillName");
         copyIfPresent(template, normalizedArguments, "scriptPath");
         copyIfPresent(template, normalizedArguments, "argumentSpecs");
+        copyIfPresent(template, normalizedArguments, "skillContent");
 
         mergeTemplateArguments(template, normalizedArguments);
         return normalizedArguments;

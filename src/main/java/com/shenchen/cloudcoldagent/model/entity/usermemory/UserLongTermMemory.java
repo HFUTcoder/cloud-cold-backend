@@ -50,8 +50,6 @@ public class UserLongTermMemory implements Serializable {
 
     private String status;
 
-    private Integer version;
-
     private LocalDateTime lastRetrievedAt;
 
     private LocalDateTime lastReinforcedAt;

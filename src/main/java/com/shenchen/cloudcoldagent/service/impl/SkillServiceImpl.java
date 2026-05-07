@@ -2,8 +2,8 @@ package com.shenchen.cloudcoldagent.service.impl;
 
 import com.alibaba.cloud.ai.agent.python.tool.PythonTool;
 import com.alibaba.cloud.ai.graph.skills.SkillMetadata;
-import com.alibaba.cloud.ai.graph.skills.registry.SkillRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.shenchen.cloudcoldagent.registry.SkillRegistry;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.model.vo.SkillMetadataVO;
@@ -13,6 +13,7 @@ import com.shenchen.cloudcoldagent.model.vo.SkillScriptExecutionVO;
 import com.shenchen.cloudcoldagent.service.SkillService;
 import com.shenchen.cloudcoldagent.utils.PythonScriptRuntimeUtils;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillArgumentSpec;
+import com.shenchen.cloudcoldagent.workflow.skill.state.SkillArgumentType;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -39,6 +40,12 @@ public class SkillServiceImpl implements SkillService {
     private static final String RESOURCE_TYPE_MAIN = "main";
     private static final String RESOURCE_TYPE_REFERENCE = "reference";
     private static final String RESOURCE_TYPE_SCRIPT = "script";
+    private static final String RESOURCE_DIR_REFERENCE = "references/";
+    private static final String RESOURCE_DIR_SCRIPT = "scripts/";
+    private static final String MD_H3_PREFIX = "### ";
+    private static final String MD_SCRIPT_SECTION = "### Script";
+    private static final String MD_ARGUMENTS_SECTION = "#### arguments";
+    private static final String MD_H4_PREFIX = "#### ";
     private static final Pattern WINDOWS_ABSOLUTE_PATH = Pattern.compile("^[a-zA-Z]:\\\\.*");
     private static final Pattern SCRIPT_PATH_LINE = Pattern.compile("^-\\s*path:\\s*`([^`]+)`\\s*$");
     private static final Pattern ARGUMENT_LINE = Pattern.compile(
@@ -74,6 +81,23 @@ public class SkillServiceImpl implements SkillService {
     @Override
     public List<SkillMetadataVO> listSkillMetadata() {
         return skillRegistry.listAll().stream()
+                .map(this::toSkillMetadataVO)
+                .toList();
+    }
+
+    /**
+     * 查询当前用户可见的全部 skill 元数据（项目技能 + 用户技能）。
+     *
+     * @param userId 当前用户 id。
+     * @return skill 元数据列表。
+     */
+    @Override
+    public List<SkillMetadataVO> listSkillMetadata(Long userId) {
+        List<SkillMetadata> allSkills = new ArrayList<>(skillRegistry.listAll());
+        if (userId != null && userId > 0) {
+            allSkills.addAll(skillRegistry.listUserSkills(userId));
+        }
+        return allSkills.stream()
                 .map(this::toSkillMetadataVO)
                 .toList();
     }
@@ -315,10 +339,10 @@ public class SkillServiceImpl implements SkillService {
         if (resourceRelativePath.startsWith("..")) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "resourcePath 不允许路径穿越");
         }
-        if (RESOURCE_TYPE_REFERENCE.equals(resourceType) && !normalizedPath.startsWith("references/")) {
+        if (RESOURCE_TYPE_REFERENCE.equals(resourceType) && !normalizedPath.startsWith(RESOURCE_DIR_REFERENCE)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "reference 资源必须位于 references 目录下");
         }
-        if (RESOURCE_TYPE_SCRIPT.equals(resourceType) && !normalizedPath.startsWith("scripts/")) {
+        if (RESOURCE_TYPE_SCRIPT.equals(resourceType) && !normalizedPath.startsWith(RESOURCE_DIR_SCRIPT)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "script 资源必须位于 scripts 目录下");
         }
         return normalizedPath;
@@ -359,9 +383,9 @@ public class SkillServiceImpl implements SkillService {
                 continue;
             }
 
-            if (line.startsWith("### ")) {
+            if (line.startsWith(MD_H3_PREFIX)) {
                 inArgumentsSection = false;
-                if (!line.startsWith("### Script")) {
+                if (!line.startsWith(MD_SCRIPT_SECTION)) {
                     targetScriptMatched = false;
                 }
             }
@@ -377,12 +401,12 @@ public class SkillServiceImpl implements SkillService {
                 continue;
             }
 
-            if (line.startsWith("#### arguments")) {
+            if (line.startsWith(MD_ARGUMENTS_SECTION)) {
                 inArgumentsSection = true;
                 continue;
             }
 
-            if (inArgumentsSection && line.startsWith("#### ")) {
+            if (inArgumentsSection && line.startsWith(MD_H4_PREFIX)) {
                 break;
             }
 
@@ -425,19 +449,11 @@ public class SkillServiceImpl implements SkillService {
         if (rawValue == null || rawValue.isBlank()) {
             return null;
         }
-        String normalizedType = type == null ? "" : type.trim().toLowerCase();
-        String value = rawValue.trim();
         try {
-            if ("number".equals(normalizedType) || "integer".equals(normalizedType) || "float".equals(normalizedType)
-                    || "double".equals(normalizedType)) {
-                return value.contains(".") ? Double.parseDouble(value) : Long.parseLong(value);
-            }
-            if ("boolean".equals(normalizedType)) {
-                return Boolean.parseBoolean(value);
-            }
+            return SkillArgumentType.fromTypeName(type).parseValue(rawValue.trim());
         } catch (NumberFormatException ignored) {
+            return rawValue.trim();
         }
-        return value;
     }
 
     /**

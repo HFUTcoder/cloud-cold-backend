@@ -1,6 +1,5 @@
 package com.shenchen.cloudcoldagent.service.impl;
 
-import com.alibaba.cloud.ai.graph.skills.registry.SkillRegistry;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
@@ -10,6 +9,7 @@ import com.shenchen.cloudcoldagent.mapper.ChatMemoryHistoryMapper;
 import com.shenchen.cloudcoldagent.mapper.HitlCheckpointMapper;
 import com.shenchen.cloudcoldagent.model.entity.ChatConversation;
 import com.shenchen.cloudcoldagent.model.entity.HitlCheckpoint;
+import com.shenchen.cloudcoldagent.registry.SkillRegistry;
 import com.shenchen.cloudcoldagent.service.ChatConversationService;
 import com.shenchen.cloudcoldagent.service.ConversationKnowledgeRelationService;
 import com.shenchen.cloudcoldagent.service.ConversationSkillRelationService;

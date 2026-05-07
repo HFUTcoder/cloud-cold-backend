@@ -18,7 +18,7 @@ import com.shenchen.cloudcoldagent.service.DocumentService;
 import com.shenchen.cloudcoldagent.service.KnowledgeDocumentImageService;
 import com.shenchen.cloudcoldagent.service.KnowledgeService;
 import com.shenchen.cloudcoldagent.service.MinioService;
-import io.minio.errors.ErrorResponseException;
+import com.shenchen.cloudcoldagent.utils.DeleteExceptionUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -325,24 +325,6 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
      * @return 可忽略时返回 true。
      */
     private boolean isIgnorableDeleteException(Exception exception) {
-        if (exception instanceof ErrorResponseException errorResponseException) {
-            String code = errorResponseException.errorResponse() == null
-                    ? null
-                    : errorResponseException.errorResponse().code();
-            return "NoSuchKey".equals(code)
-                    || "NoSuchObject".equals(code)
-                    || "NoSuchBucket".equals(code);
-        }
-
-        String message = exception.getMessage();
-        if (message == null || message.isBlank()) {
-            return false;
-        }
-        String normalized = message.toLowerCase();
-        return normalized.contains("no such key")
-                || normalized.contains("no such object")
-                || normalized.contains("no such bucket")
-                || normalized.contains("object does not exist")
-                || normalized.contains("index_not_found_exception");
+        return DeleteExceptionUtils.isIgnorableDeleteException(exception);
     }
 }

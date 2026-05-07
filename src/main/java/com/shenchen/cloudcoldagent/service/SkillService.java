@@ -21,6 +21,11 @@ public interface SkillService {
     List<SkillMetadataVO> listSkillMetadata();
 
     /**
+     * 查询当前用户可见的全部 skill 元数据（项目技能 + 用户技能）。
+     */
+    List<SkillMetadataVO> listSkillMetadata(Long userId);
+
+    /**
      * 查询单个 skill 的轻量元数据。
      */
     SkillMetadataVO getSkillMetadata(String skillName);

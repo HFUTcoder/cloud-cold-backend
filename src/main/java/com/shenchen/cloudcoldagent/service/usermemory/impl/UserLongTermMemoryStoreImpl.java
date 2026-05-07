@@ -261,6 +261,31 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
     }
 
     /**
+     * 批量删除指定 memoryId 的关键词索引和向量索引数据。
+     *
+     * @param userId 当前用户 id。
+     * @param memoryIds 待删除的 memoryId 列表。
+     * @throws Exception 删除索引失败时抛出。
+     */
+    @Override
+    public void deleteByIds(Long userId, List<String> memoryIds) throws Exception {
+        if (userId == null || userId <= 0 || memoryIds == null || memoryIds.isEmpty()) {
+            return;
+        }
+        List<String> validIds = memoryIds.stream()
+                .filter(id -> id != null && !id.isBlank())
+                .distinct()
+                .toList();
+        if (validIds.isEmpty()) {
+            return;
+        }
+        for (String memoryId : validIds) {
+            elasticsearchClient.delete(d -> d.index(properties.getKeywordIndexName()).id(memoryId).refresh(Refresh.True));
+        }
+        vectorStore.delete(validIds);
+    }
+
+    /**
      * 删除某个会话来源对应的长期记忆索引数据。
      *
      * @param userId 当前用户 id。

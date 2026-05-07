@@ -62,6 +62,15 @@ public interface UserLongTermMemoryStore {
     void deleteByUserId(Long userId) throws Exception;
 
     /**
+     * 批量删除指定 memoryId 的关键词索引和向量索引数据。
+     *
+     * @param userId userId 参数。
+     * @param memoryIds memoryId 列表。
+     * @throws Exception 异常信息。
+     */
+    void deleteByIds(Long userId, List<String> memoryIds) throws Exception;
+
+    /**
      * 删除 `delete By Conversation Id` 对应内容。
      *
      * @param userId userId 参数。

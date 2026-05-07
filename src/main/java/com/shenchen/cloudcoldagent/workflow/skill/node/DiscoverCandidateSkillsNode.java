@@ -52,6 +52,7 @@ public class DiscoverCandidateSkillsNode {
     @SuppressWarnings("unchecked")
     public CompletableFuture<Map<String, Object>> apply(OverAllState state) {
         String question = state.value(SkillWorkflowStateKeys.USER_QUESTION, String.class).orElse("");
+        Long userId = state.value(SkillWorkflowStateKeys.USER_ID, Long.class).orElse(null);
         List<Message> conversationHistory =
                 (List<Message>) state.value(SkillWorkflowStateKeys.CONVERSATION_HISTORY).orElse(List.of());
         List<String> boundSkills = (List<String>) state.value(SkillWorkflowStateKeys.BOUND_SKILLS).orElse(List.of());
@@ -61,7 +62,7 @@ public class DiscoverCandidateSkillsNode {
         Set<String> existingSkillNames = new LinkedHashSet<>(boundSkills);
         currentCandidates.stream().map(SkillCandidate::getSkillName).forEach(existingSkillNames::add);
 
-        List<SkillMetadataVO> unboundMetadatas = skillService.listSkillMetadata().stream()
+        List<SkillMetadataVO> unboundMetadatas = skillService.listSkillMetadata(userId).stream()
                 .filter(metadata -> metadata != null && !existingSkillNames.contains(metadata.getName()))
                 .toList();
 

@@ -26,6 +26,7 @@ import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryStore;
 import com.shenchen.cloudcoldagent.workflow.skill.service.StructuredOutputAgentExecutor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -41,6 +42,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 /**
  * 长期记忆服务实现，负责宠物状态、记忆列表、记忆重建、召回和删除联动。
@@ -62,6 +64,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
     private final LongTermMemoryProperties properties;
     private final ObjectMapper objectMapper;
     private final RateLimiter rateLimiter;
+    private final Executor longTermMemoryExecutor;
 
     /**
      * 注入长期记忆主链路所需的依赖。
@@ -75,6 +78,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
      * @param properties 长期记忆配置。
      * @param objectMapper 对象映射器。
      * @param rateLimiter 限流器。
+     * @param longTermMemoryExecutor 长期记忆异步处理线程池。
      */
     public UserLongTermMemoryServiceImpl(UserLongTermMemoryStore userLongTermMemoryStore,
                                          UserLongTermMemoryMetadataService metadataService,
@@ -84,7 +88,8 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
                                          StringRedisTemplate stringRedisTemplate,
                                          LongTermMemoryProperties properties,
                                          ObjectMapper objectMapper,
-                                         RateLimiter rateLimiter) {
+                                         RateLimiter rateLimiter,
+                                         Executor longTermMemoryExecutor) {
         this.userLongTermMemoryStore = userLongTermMemoryStore;
         this.metadataService = metadataService;
         this.userConversationRelationService = userConversationRelationService;
@@ -94,6 +99,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.rateLimiter = rateLimiter;
+        this.longTermMemoryExecutor = longTermMemoryExecutor;
     }
 
     /**
@@ -196,7 +202,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         if (StringUtils.isBlank(petName)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "petName 不能为空");
         }
-        stringRedisTemplate.opsForValue().set(USER_MEMORY_PET_NAME_KEY + userId, petName.trim());
+        stringRedisTemplate.opsForValue().set(USER_MEMORY_PET_NAME_KEY + userId, petName.trim(), 30, java.util.concurrent.TimeUnit.DAYS);
         return true;
     }
 
@@ -236,19 +242,10 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         if (!properties.isEnabled() || StringUtils.isBlank(conversationId) || assistantMessageCount <= 0) {
             return;
         }
-        metadataService.incrementPendingRounds(userId, conversationId, assistantMessageCount);
-        UserLongTermMemoryConversationState state = metadataService.listPendingConversationStates(userId).stream()
-                .filter(item -> conversationId.equals(item.getConversationId()))
-                .findFirst()
-                .orElse(null);
-        if (state == null) {
-            return;
+        int pendingRounds = metadataService.incrementPendingRounds(userId, conversationId, assistantMessageCount);
+        if (pendingRounds >= properties.getTriggerRounds()) {
+            dispatchPendingConversationsProcessing(userId);
         }
-        int pendingRounds = state.getPendingCompletedRounds() == null ? 0 : state.getPendingCompletedRounds();
-        if (pendingRounds < properties.getTriggerRounds()) {
-            return;
-        }
-        dispatchPendingConversationsProcessing(userId);
     }
 
     /**
@@ -259,18 +256,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
      */
     @Override
     public void onConversationDeleted(Long userId, String conversationId) {
-        if (!properties.isEnabled() || StringUtils.isBlank(conversationId)) {
-            return;
-        }
-        try {
-            metadataService.deleteByConversationId(userId, conversationId);
-            userLongTermMemoryStore.deleteByConversationId(userId, conversationId);
-        } catch (Exception e) {
-            log.warn("删除会话长期记忆失败，userId={}, conversationId={}, message={}",
-                    userId, conversationId, e.getMessage(), e);
-        } finally {
-            metadataService.deleteConversationState(userId, conversationId);
-        }
+        cleanConversationMemories(userId, conversationId, false);
     }
 
     /**
@@ -281,17 +267,35 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
      */
     @Override
     public void onHistoryDeleted(Long userId, String conversationId) {
+        cleanConversationMemories(userId, conversationId, true);
+    }
+
+    /**
+     * 统一清理会话关联的长期记忆（MySQL + ES），并按参数决定后续状态。
+     *
+     * @param userId 当前用户 id。
+     * @param conversationId 会话 id。
+     * @param markUnprocessed true 标记为待重新处理，false 删除会话状态记录。
+     */
+    private void cleanConversationMemories(Long userId, String conversationId, boolean markUnprocessed) {
         if (!properties.isEnabled() || StringUtils.isBlank(conversationId)) {
             return;
         }
         try {
+            List<String> memoryIds = metadataService.getMemoryIdsByConversation(userId, conversationId);
             metadataService.deleteByConversationId(userId, conversationId);
-            userLongTermMemoryStore.deleteByConversationId(userId, conversationId);
+            if (!memoryIds.isEmpty()) {
+                userLongTermMemoryStore.deleteByIds(userId, memoryIds);
+            }
         } catch (Exception e) {
-            log.warn("删除聊天记录对应长期记忆失败，userId={}, conversationId={}, message={}",
+            log.warn("清理会话长期记忆失败，userId={}, conversationId={}, message={}",
                     userId, conversationId, e.getMessage(), e);
         }
-        metadataService.markConversationUnprocessed(userId, conversationId);
+        if (markUnprocessed) {
+            metadataService.markConversationUnprocessed(userId, conversationId);
+        } else {
+            metadataService.deleteConversationState(userId, conversationId);
+        }
     }
 
     /**
@@ -347,7 +351,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         if (userId == null || userId <= 0) {
             return;
         }
-        CompletableFuture.runAsync(() -> processPendingConversations(userId));
+        CompletableFuture.runAsync(() -> processPendingConversations(userId), longTermMemoryExecutor);
     }
 
     /**
@@ -379,9 +383,6 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
      * @throws Exception 提炼或写入长期记忆失败时抛出。
      */
     private void rebuildConversationMemories(Long userId, String conversationId) throws Exception {
-        metadataService.deleteByConversationId(userId, conversationId);
-        userLongTermMemoryStore.deleteByConversationId(userId, conversationId);
-
         List<ChatMemoryHistory> histories = chatMemoryHistoryMapper.selectListByQuery(QueryWrapper.create()
                 .eq("conversationId", conversationId)
                 .eq("isDelete", 0)
@@ -422,6 +423,12 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         );
         if (memories.isEmpty()) {
             return;
+        }
+        // 提取成功后再删除旧数据并写入新记忆，避免 LLM 失败导致旧数据已丢失
+        List<String> oldMemoryIds = metadataService.getMemoryIdsByConversation(userId, conversationId);
+        metadataService.deleteByConversationId(userId, conversationId);
+        if (!oldMemoryIds.isEmpty()) {
+            userLongTermMemoryStore.deleteByIds(userId, oldMemoryIds);
         }
         userLongTermMemoryStore.addMemories(userId, memories);
         metadataService.upsertMemories(userId, conversationId, memories);
@@ -479,7 +486,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
     }
 
     /**
-     * 当结构化提炼失败时，退化生成一条“近期偏好”类型的长期记忆。
+     * 当结构化提炼失败时，退化生成一条"近期偏好"类型的长期记忆。
      *
      * @param userId 当前用户 id。
      * @param conversationId 会话 id。
@@ -494,7 +501,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
                                                          Set<Long> sourceHistoryIds,
                                                          Map<Long, String> conversationByHistoryId) {
         List<String> userMessages = transcript.stream()
-                .filter(item -> "USER".equalsIgnoreCase(Objects.toString(item.get("messageType"), "")))
+                .filter(item -> MessageType.USER.name().equalsIgnoreCase(Objects.toString(item.get("messageType"), "")))
                 .map(item -> Objects.toString(item.get("content"), ""))
                 .filter(StringUtils::isNotBlank)
                 .limit(6)
@@ -503,25 +510,16 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
             return List.of();
         }
         String merged = String.join("；", userMessages);
-        LocalDateTime now = LocalDateTime.now();
-        UserLongTermMemoryDoc memory = UserLongTermMemoryDoc.builder()
-                .id(buildMemoryId(userId))
-                .userId(userId)
-                .memoryType("PREFERENCE")
-                .title("近期高频交互偏好")
-                .content(abbreviate(merged, properties.getMaxMemoryChars()))
-                .summary("近期交互高频内容")
-                .embeddingText("[PREFERENCE] " + abbreviate(merged, properties.getMaxMemoryChars()))
-                .confidence(0.45d)
-                .importance(0.5d)
-                .originConversationId(conversationId)
-                .sourceConversationIds(List.of(conversationId))
-                .sourceHistoryIds(new ArrayList<>(sourceHistoryIds))
-                .sourceConversationsByHistoryId(new LinkedHashMap<>(buildFilteredConversationMap(new ArrayList<>(sourceHistoryIds), conversationByHistoryId)))
-                .createdAt(now)
-                .updatedAt(now)
-                .build();
-        return List.of(memory);
+        UserLongTermMemoryExtractionItem item = new UserLongTermMemoryExtractionItem();
+        item.setMemoryType("PREFERENCE");
+        item.setTitle("近期高频交互偏好");
+        item.setContent(merged);
+        item.setSummary("近期交互高频内容");
+        item.setConfidence(0.45d);
+        item.setImportance(0.5d);
+        item.setSourceHistoryIds(new ArrayList<>(sourceHistoryIds));
+        UserLongTermMemoryDoc memory = buildMemoryDoc(userId, conversationId, item, sourceHistoryIds, conversationByHistoryId);
+        return memory == null ? List.of() : List.of(memory);
     }
 
     /**
@@ -628,7 +626,11 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
      */
     private String resolvePetName(Long userId) {
         String petName = stringRedisTemplate.opsForValue().get(USER_MEMORY_PET_NAME_KEY + userId);
-        return StringUtils.isBlank(petName) ? properties.getDefaultPetName() : petName;
+        if (StringUtils.isNotBlank(petName)) {
+            stringRedisTemplate.expire(USER_MEMORY_PET_NAME_KEY + userId, 30, java.util.concurrent.TimeUnit.DAYS);
+            return petName;
+        }
+        return properties.getDefaultPetName();
     }
 
     /**
@@ -647,7 +649,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
      * @param userId 当前用户 id。
      */
     private void markLearned(Long userId) {
-        stringRedisTemplate.opsForValue().set(USER_MEMORY_LAST_LEARNED_AT_KEY + userId, LocalDateTime.now().toString());
+        stringRedisTemplate.opsForValue().set(USER_MEMORY_LAST_LEARNED_AT_KEY + userId, java.time.Instant.now().toString());
     }
 
     /**
@@ -662,7 +664,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
             return null;
         }
         try {
-            return LocalDateTime.parse(value);
+            return java.time.Instant.parse(value).atZone(java.time.ZoneId.of("Asia/Shanghai")).toLocalDateTime();
         } catch (Exception e) {
             return null;
         }
@@ -679,7 +681,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
             return "learning";
         }
         LocalDateTime lastLearnedAt = resolveLastLearnedAt(userId);
-        if (lastLearnedAt != null && lastLearnedAt.isAfter(LocalDateTime.now().minusMinutes(10))) {
+        if (lastLearnedAt != null && lastLearnedAt.isAfter(LocalDateTime.now().minusMinutes(properties.getUpdatedMoodMinutes()))) {
             return "updated";
         }
         return "idle";

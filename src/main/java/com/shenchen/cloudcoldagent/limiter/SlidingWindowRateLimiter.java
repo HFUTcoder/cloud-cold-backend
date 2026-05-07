@@ -13,7 +13,7 @@ public class SlidingWindowRateLimiter implements RateLimiter {
 
     private RedissonClient redissonClient;
 
-    private static final String LIMIT_KEY_PREFIX = "nft:turbo:limit:";
+    private static final String LIMIT_KEY_PREFIX = "cloud_cold:limit:";
 
     /**
      * 创建 `SlidingWindowRateLimiter` 实例。

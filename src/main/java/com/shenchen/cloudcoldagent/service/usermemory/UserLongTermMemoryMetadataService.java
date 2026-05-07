@@ -82,6 +82,15 @@ public interface UserLongTermMemoryMetadataService {
     void softDeleteByUserId(Long userId);
 
     /**
+     * 获取某会话下的活跃记忆 memoryId 列表。
+     *
+     * @param userId userId 参数。
+     * @param conversationId conversationId 参数。
+     * @return memoryId 列表。
+     */
+    List<String> getMemoryIdsByConversation(Long userId, String conversationId);
+
+    /**
      * 删除 `delete By Conversation Id` 对应内容。
      *
      * @param userId userId 参数。
@@ -98,13 +107,14 @@ public interface UserLongTermMemoryMetadataService {
     void ensureConversationState(Long userId, String conversationId);
 
     /**
-     * 处理 `increment Pending Rounds` 对应逻辑。
+     * 累计待学习轮次并返回更新后的值。
      *
      * @param userId userId 参数。
      * @param conversationId conversationId 参数。
      * @param roundCount roundCount 参数。
+     * @return 更新后的 pendingCompletedRounds。
      */
-    void incrementPendingRounds(Long userId, String conversationId, int roundCount);
+    int incrementPendingRounds(Long userId, String conversationId, int roundCount);
 
     /**
      * 处理 `mark Conversation Unprocessed` 对应逻辑。

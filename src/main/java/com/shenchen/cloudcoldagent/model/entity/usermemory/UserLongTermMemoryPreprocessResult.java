@@ -3,18 +3,13 @@ package com.shenchen.cloudcoldagent.model.entity.usermemory;
 import java.util.List;
 
 /**
- * 创建 `UserLongTermMemoryPreprocessResult` 实例。
+ * 长期记忆预处理结果，包含召回的记忆和可注入 agent 上下文的 runtime prompt。
  *
- * @param memories memories 参数。
- * @param runtimePrompt runtimePrompt 参数。
- * @param retrievalTriggered retrievalTriggered 参数。
- */
-/**
- * `UserLongTermMemoryPreprocessResult` 记录对象。
+ * @param memories 召回的长期记忆文档。
+ * @param runtimePrompt 注入 agent 上下文的提示词。
  */
 public record UserLongTermMemoryPreprocessResult(
         List<UserLongTermMemoryDoc> memories,
-        String runtimePrompt,
-        boolean retrievalTriggered
+        String runtimePrompt
 ) {
 }

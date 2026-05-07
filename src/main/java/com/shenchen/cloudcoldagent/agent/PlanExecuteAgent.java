@@ -64,6 +64,9 @@ import reactor.core.scheduler.Schedulers;
 public class PlanExecuteAgent extends BaseAgent {
 
     private static final ObjectMapper PLAN_OBJECT_MAPPER = new ObjectMapper();
+    private static final String JSON_SCHEMA_KEY_TYPE = "type";
+    private static final String JSON_SCHEMA_KEY_ITEMS = "items";
+    private static final String JSON_SCHEMA_TYPE_ARRAY = "array";
 
     // plan-execute 总轮数
     private final int contextCharLimit;
@@ -882,11 +885,11 @@ public class PlanExecuteAgent extends BaseAgent {
             return PLAN_OBJECT_MAPPER.writeValueAsString(root);
         }
         if (root.isObject()) {
-            JsonNode typeNode = root.get("type");
-            JsonNode itemsNode = root.get("items");
+            JsonNode typeNode = root.get(JSON_SCHEMA_KEY_TYPE);
+            JsonNode itemsNode = root.get(JSON_SCHEMA_KEY_ITEMS);
             if (typeNode != null
                     && typeNode.isTextual()
-                    && "array".equalsIgnoreCase(typeNode.asText())
+                    && JSON_SCHEMA_TYPE_ARRAY.equalsIgnoreCase(typeNode.asText())
                     && itemsNode != null) {
                 if (itemsNode.isArray()) {
                     return PLAN_OBJECT_MAPPER.writeValueAsString(itemsNode);
@@ -1665,13 +1668,11 @@ public class PlanExecuteAgent extends BaseAgent {
         if (runtimeSkillContexts == null || runtimeSkillContexts.isEmpty()) {
             return null;
         }
-        List<SkillRuntimeContext> executableContexts = runtimeSkillContexts.stream()
+        List<SkillRuntimeContext> matchedContexts = runtimeSkillContexts.stream()
                 .filter(Objects::nonNull)
-                .filter(context -> Boolean.TRUE.equals(context.getHasExecutableScript()))
-                .filter(context -> StringUtils.isNotBlank(context.getSingleScriptPath()))
                 .toList();
-        if (executableContexts.size() == 1) {
-            return executableContexts.get(0);
+        if (matchedContexts.size() == 1) {
+            return matchedContexts.get(0);
         }
         Map<String, Object> rawArguments = task.arguments() == null ? Map.of() : task.arguments();
         Object nestedArguments = rawArguments.get("arguments");
@@ -1683,7 +1684,7 @@ public class PlanExecuteAgent extends BaseAgent {
             return null;
         }
         String finalCurrentSkillName = currentSkillName;
-        return executableContexts.stream()
+        return matchedContexts.stream()
                 .filter(context -> StringUtils.equals(finalCurrentSkillName, context.getSkillName()))
                 .findFirst()
                 .orElse(null);
@@ -1697,20 +1698,26 @@ public class PlanExecuteAgent extends BaseAgent {
         if (StringUtils.isNotBlank(context.getSkillName())) {
             template.put("skillName", context.getSkillName());
         }
-        if (StringUtils.isNotBlank(context.getSingleScriptPath())) {
-            template.put("scriptPath", context.getSingleScriptPath());
-        }
-        Map<String, Object> defaultArguments = new LinkedHashMap<>();
-        if (context.getScriptArgumentSpecs() != null && !context.getScriptArgumentSpecs().isEmpty()) {
-            template.put("argumentSpecs", context.getScriptArgumentSpecs());
-            for (Map.Entry<String, SkillArgumentSpec> entry : context.getScriptArgumentSpecs().entrySet()) {
-                SkillArgumentSpec spec = entry.getValue();
-                if (spec != null) {
-                    defaultArguments.put(entry.getKey(), spec.getDefaultValue());
+        if (Boolean.TRUE.equals(context.getHasExecutableScript())) {
+            if (StringUtils.isNotBlank(context.getSingleScriptPath())) {
+                template.put("scriptPath", context.getSingleScriptPath());
+            }
+            Map<String, Object> defaultArguments = new LinkedHashMap<>();
+            if (context.getScriptArgumentSpecs() != null && !context.getScriptArgumentSpecs().isEmpty()) {
+                template.put("argumentSpecs", context.getScriptArgumentSpecs());
+                for (Map.Entry<String, SkillArgumentSpec> entry : context.getScriptArgumentSpecs().entrySet()) {
+                    SkillArgumentSpec spec = entry.getValue();
+                    if (spec != null) {
+                        defaultArguments.put(entry.getKey(), spec.getDefaultValue());
+                    }
                 }
             }
+            template.put("arguments", defaultArguments);
+        } else {
+            if (StringUtils.isNotBlank(context.getContent())) {
+                template.put("skillContent", context.getContent());
+            }
         }
-        template.put("arguments", defaultArguments);
         return template;
     }
 
@@ -1774,7 +1781,7 @@ public class PlanExecuteAgent extends BaseAgent {
      * @return 返回处理结果。
      */
     private String enrichHitlArgumentsJson(String toolName, String argumentsJson) {
-        if (!"execute_skill_script".equals(toolName) || StringUtils.isBlank(argumentsJson) || skillService == null) {
+        if (!JsonArgumentUtils.EXECUTE_SKILL_SCRIPT_TOOL.equals(toolName) || StringUtils.isBlank(argumentsJson) || skillService == null) {
             return argumentsJson;
         }
         try {

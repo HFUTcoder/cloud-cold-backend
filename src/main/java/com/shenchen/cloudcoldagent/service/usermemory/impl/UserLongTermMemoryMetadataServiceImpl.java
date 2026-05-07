@@ -79,7 +79,6 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
                     .importance(memory.getImportance())
                     .originConversationId(conversationId)
                     .status(STATUS_ACTIVE)
-                    .version(1)
                     .lastRetrievedAt(null)
                     .lastReinforcedAt(now)
                     .createTime(memory.getCreatedAt() == null ? now : memory.getCreatedAt())
@@ -335,6 +334,29 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
     }
 
     /**
+     * 获取某会话下的活跃记忆 memoryId 列表。
+     *
+     * @param userId userId 参数。
+     * @param conversationId conversationId 参数。
+     * @return memoryId 列表。
+     */
+    @Override
+    public List<String> getMemoryIdsByConversation(Long userId, String conversationId) {
+        if (userId == null || userId <= 0 || StringUtils.isBlank(conversationId)) {
+            return List.of();
+        }
+        return userLongTermMemoryMapper.selectListByQuery(QueryWrapper.create()
+                .eq("userId", userId)
+                .eq("originConversationId", conversationId.trim())
+                .eq("isDelete", 0)
+                .eq("status", STATUS_ACTIVE))
+                .stream()
+                .map(UserLongTermMemory::getMemoryId)
+                .filter(StringUtils::isNotBlank)
+                .toList();
+    }
+
+    /**
      * 删除 `delete By Conversation Id` 对应内容。
      *
      * @param userId userId 参数。
@@ -421,11 +443,12 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
      * @param userId 当前用户 id。
      * @param conversationId 会话 id。
      * @param roundCount 本次新增的完整轮次数量。
+     * @return 更新后的 pendingCompletedRounds。
      */
     @Override
-    public void incrementPendingRounds(Long userId, String conversationId, int roundCount) {
+    public int incrementPendingRounds(Long userId, String conversationId, int roundCount) {
         if (userId == null || userId <= 0 || StringUtils.isBlank(conversationId) || roundCount <= 0) {
-            return;
+            return 0;
         }
         ensureConversationState(userId, conversationId);
         UserLongTermMemoryConversationState existing = conversationStateMapper.selectOneByQuery(QueryWrapper.create()
@@ -433,13 +456,15 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
                 .eq("conversationId", conversationId.trim())
                 .eq("isDelete", 0));
         if (existing == null) {
-            return;
+            return 0;
         }
         int current = existing.getPendingCompletedRounds() == null ? 0 : existing.getPendingCompletedRounds();
-        existing.setPendingCompletedRounds(current + roundCount);
+        int updated = current + roundCount;
+        existing.setPendingCompletedRounds(updated);
         existing.setStatus(CONVERSATION_STATUS_UNPROCESSED);
         existing.setUpdateTime(LocalDateTime.now());
         conversationStateMapper.update(existing);
+        return updated;
     }
 
     /**

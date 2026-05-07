@@ -1,7 +1,7 @@
 package com.shenchen.cloudcoldagent.tools.skill;
 
-import com.alibaba.cloud.ai.graph.skills.registry.SkillRegistry;
 import com.shenchen.cloudcoldagent.model.vo.SkillResourceListVO;
+import com.shenchen.cloudcoldagent.registry.SkillRegistry;
 import com.shenchen.cloudcoldagent.service.SkillService;
 import com.shenchen.cloudcoldagent.tools.BaseTool;
 import org.springframework.ai.tool.annotation.Tool;

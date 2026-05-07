@@ -45,7 +45,12 @@ public class LongTermMemoryProperties {
     /**
      * 宠物默认名称。
      */
-    private String defaultPetName = "小冷";
+    private String defaultPetName = "小云";
+
+    /**
+     * 宠物情绪显示为"刚刚学到"的时间阈值（分钟）。
+     */
+    private int updatedMoodMinutes = 10;
 
     /**
      * 长期记忆关键词索引名。
