@@ -10,6 +10,32 @@
 - 知识库 PDF 入库、混合检索与图片回显
 - 用户长期记忆 / 宠物记忆
 
+## 功能演示
+
+- 思考模式 绑定 skill 执行个税脚本
+
+  <video src="docs/videos/1.mp4" controls width="720"></video>
+
+- 思考模式 不绑定 skill 执行个税脚本
+
+  <video src="docs/videos/2.mp4" controls width="720"></video>
+
+- 快速模式 对话问答 执行个税脚本
+
+  <video src="docs/videos/3.mp4" controls width="720"></video>
+
+- 知识库创建
+
+  <video src="docs/videos/4.mp4" controls width="720"></video>
+
+- 知识库检索 支持图像
+
+  <video src="docs/videos/5.mp4" controls width="720"></video>
+
+- 个人宠物 长期记忆
+
+  <video src="docs/videos/6.mp4" controls width="720"></video>
+
 ## 快速事实
 
 - 默认服务地址：`http://localhost:8081/api`
