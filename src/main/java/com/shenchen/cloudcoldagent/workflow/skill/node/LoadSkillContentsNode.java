@@ -3,6 +3,7 @@ package com.shenchen.cloudcoldagent.workflow.skill.node;
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.shenchen.cloudcoldagent.model.vo.SkillResourceListVO;
 import com.shenchen.cloudcoldagent.service.SkillService;
+import com.shenchen.cloudcoldagent.utils.StateValueUtils;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillWorkflowStateKeys;
 import org.springframework.stereotype.Component;
 
@@ -36,10 +37,9 @@ public class LoadSkillContentsNode {
      * @param state state 参数。
      * @return 返回处理结果。
      */
-    @SuppressWarnings("unchecked")
     public CompletableFuture<Map<String, Object>> apply(OverAllState state) {
         List<String> selectedSkills =
-                (List<String>) state.value(SkillWorkflowStateKeys.SELECTED_SKILLS).orElse(List.of());
+                StateValueUtils.getValue(state, SkillWorkflowStateKeys.SELECTED_SKILLS, List.of());
         Map<String, String> skillContents = new LinkedHashMap<>();
         Map<String, SkillResourceListVO> skillResources = new LinkedHashMap<>();
         for (String skillName : selectedSkills) {

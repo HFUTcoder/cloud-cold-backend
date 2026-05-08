@@ -5,6 +5,7 @@ import com.alibaba.cloud.ai.graph.OverAllState;
 import com.shenchen.cloudcoldagent.model.vo.SkillMetadataVO;
 import com.shenchen.cloudcoldagent.prompts.SkillWorkflowPrompts;
 import com.shenchen.cloudcoldagent.service.SkillService;
+import com.shenchen.cloudcoldagent.utils.StateValueUtils;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillCandidate;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillCandidateListResult;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillWorkflowStateKeys;
@@ -49,15 +50,14 @@ public class DiscoverCandidateSkillsNode {
      * @param state state 参数。
      * @return 返回处理结果。
      */
-    @SuppressWarnings("unchecked")
     public CompletableFuture<Map<String, Object>> apply(OverAllState state) {
         String question = state.value(SkillWorkflowStateKeys.USER_QUESTION, String.class).orElse("");
         Long userId = state.value(SkillWorkflowStateKeys.USER_ID, Long.class).orElse(null);
         List<Message> conversationHistory =
-                (List<Message>) state.value(SkillWorkflowStateKeys.CONVERSATION_HISTORY).orElse(List.of());
-        List<String> boundSkills = (List<String>) state.value(SkillWorkflowStateKeys.BOUND_SKILLS).orElse(List.of());
+                StateValueUtils.getValue(state, SkillWorkflowStateKeys.CONVERSATION_HISTORY, List.of());
+        List<String> boundSkills = StateValueUtils.getValue(state, SkillWorkflowStateKeys.BOUND_SKILLS, List.of());
         List<SkillCandidate> currentCandidates =
-                (List<SkillCandidate>) state.value(SkillWorkflowStateKeys.CANDIDATE_SKILLS).orElse(List.of());
+                StateValueUtils.getValue(state, SkillWorkflowStateKeys.CANDIDATE_SKILLS, List.of());
 
         Set<String> existingSkillNames = new LinkedHashSet<>(boundSkills);
         currentCandidates.stream().map(SkillCandidate::getSkillName).forEach(existingSkillNames::add);

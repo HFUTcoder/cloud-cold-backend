@@ -3,6 +3,7 @@ package com.shenchen.cloudcoldagent.workflow.skill.node;
 import cn.hutool.json.JSONUtil;
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.shenchen.cloudcoldagent.model.vo.SkillMetadataVO;
+import com.shenchen.cloudcoldagent.utils.StateValueUtils;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillCandidate;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillCandidateListResult;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillWorkflowStateKeys;
@@ -46,12 +47,11 @@ public class RecognizeBoundSkillsNode {
      * @param state state 参数。
      * @return 返回处理结果。
      */
-    @SuppressWarnings("unchecked")
     public CompletableFuture<Map<String, Object>> apply(OverAllState state) {
         String question = state.value(SkillWorkflowStateKeys.USER_QUESTION, String.class).orElse("");
         List<Message> conversationHistory =
-                (List<Message>) state.value(SkillWorkflowStateKeys.CONVERSATION_HISTORY).orElse(List.of());
-        List<String> boundSkills = (List<String>) state.value(SkillWorkflowStateKeys.BOUND_SKILLS).orElse(List.of());
+                StateValueUtils.getValue(state, SkillWorkflowStateKeys.CONVERSATION_HISTORY, List.of());
+        List<String> boundSkills = StateValueUtils.getValue(state, SkillWorkflowStateKeys.BOUND_SKILLS, List.of());
         if (boundSkills.isEmpty()) {
             return CompletableFuture.completedFuture(Map.of(SkillWorkflowStateKeys.CANDIDATE_SKILLS, List.of()));
         }

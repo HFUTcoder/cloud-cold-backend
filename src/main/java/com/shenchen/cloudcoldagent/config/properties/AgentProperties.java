@@ -19,6 +19,8 @@ public class AgentProperties {
 
     private Plan plan = new Plan();
 
+    private ThreadPool threadPool = new ThreadPool();
+
     /**
      * `Memory` 类型实现。
      */
@@ -41,6 +43,8 @@ public class AgentProperties {
 
         private int maxRounds = 5;
 
+        private int toolConcurrency = 3;
+
         private String systemPrompt = ReactAgentPrompts.DEFAULT_REACT_SYSTEM_PROMPT;
     }
 
@@ -59,5 +63,27 @@ public class AgentProperties {
         private int contextCharLimit = 5000;
 
         private int toolConcurrency = 3;
+    }
+
+    @Data
+    public static class ThreadPool {
+
+        private Tool tool = new Tool();
+
+        private Ltm ltm = new Ltm();
+
+        @Data
+        public static class Tool {
+            private int corePoolSize = Runtime.getRuntime().availableProcessors();
+            private int maxPoolSize = Runtime.getRuntime().availableProcessors() * 2;
+            private int queueCapacity = 100;
+        }
+
+        @Data
+        public static class Ltm {
+            private int corePoolSize = 1;
+            private int maxPoolSize = 4;
+            private int queueCapacity = 100;
+        }
     }
 }

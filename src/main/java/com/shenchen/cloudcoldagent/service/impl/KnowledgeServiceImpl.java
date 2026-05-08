@@ -12,7 +12,7 @@ import com.shenchen.cloudcoldagent.constant.KnowledgeChunkConstant;
 import com.shenchen.cloudcoldagent.document.transform.splitter.OverlapParagraphTextSplitter;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
-import com.shenchen.cloudcoldagent.exception.ThrowUtils;
+import com.shenchen.cloudcoldagent.utils.ThrowUtils;
 import com.shenchen.cloudcoldagent.mapper.DocumentMapper;
 import com.shenchen.cloudcoldagent.mapper.KnowledgeMapper;
 import com.shenchen.cloudcoldagent.model.dto.knowledge.KnowledgeAddRequest;
@@ -45,8 +45,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
-
-import static org.springframework.ai.vectorstore.SearchRequest.SIMILARITY_THRESHOLD_ACCEPT_ALL;
 
 /**
  * 知识库服务实现，负责知识库管理、文档切分入库、图片描述 chunk 构建以及多路检索融合。

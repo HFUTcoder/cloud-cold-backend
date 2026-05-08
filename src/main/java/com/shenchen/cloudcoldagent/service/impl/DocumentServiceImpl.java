@@ -6,7 +6,7 @@ import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
-import com.shenchen.cloudcoldagent.exception.ThrowUtils;
+import com.shenchen.cloudcoldagent.utils.ThrowUtils;
 import com.shenchen.cloudcoldagent.mapper.DocumentMapper;
 import com.shenchen.cloudcoldagent.model.dto.document.DocumentAddRequest;
 import com.shenchen.cloudcoldagent.model.dto.document.DocumentQueryRequest;

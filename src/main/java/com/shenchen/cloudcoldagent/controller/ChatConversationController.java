@@ -5,7 +5,7 @@ import com.shenchen.cloudcoldagent.common.BaseResponse;
 import com.shenchen.cloudcoldagent.common.ResultUtils;
 import com.shenchen.cloudcoldagent.constant.UserConstant;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
-import com.shenchen.cloudcoldagent.exception.ThrowUtils;
+import com.shenchen.cloudcoldagent.utils.ThrowUtils;
 import com.shenchen.cloudcoldagent.model.dto.chat.ChatConversationDeleteRequest;
 import com.shenchen.cloudcoldagent.model.dto.chat.ChatConversationKnowledgeUpdateRequest;
 import com.shenchen.cloudcoldagent.model.dto.chat.ChatConversationSkillUpdateRequest;
@@ -80,31 +80,37 @@ public class ChatConversationController {
     }
 
     /**
-     * 更新会话绑定的 skills
+     * 更新会话绑定的 skills。若未提供 conversationId 则自动新建会话。
      */
     @PostMapping("/update/skills")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
-    public BaseResponse<Boolean> updateConversationSkills(@RequestBody ChatConversationSkillUpdateRequest request,
+    public BaseResponse<String> updateConversationSkills(@RequestBody ChatConversationSkillUpdateRequest request,
                                                           HttpServletRequest httpServletRequest) {
-        ThrowUtils.throwIf(request == null || request.getConversationId() == null || request.getConversationId().isBlank(),
-                ErrorCode.PARAMS_ERROR);
+        ThrowUtils.throwIf(request == null, ErrorCode.PARAMS_ERROR);
         User loginUser = userService.getLoginUser(httpServletRequest);
-        chatConversationService.updateConversationSkills(loginUser.getId(), request.getConversationId(), request.getSelectedSkills());
-        return ResultUtils.success(true);
+        String conversationId = request.getConversationId();
+        if (conversationId == null || conversationId.isBlank()) {
+            conversationId = chatConversationService.createConversation(loginUser.getId());
+        }
+        chatConversationService.updateConversationSkills(loginUser.getId(), conversationId, request.getSelectedSkills());
+        return ResultUtils.success(conversationId);
     }
 
     /**
-     * 更新会话绑定的知识库
+     * 更新会话绑定的知识库。若未提供 conversationId 则自动新建会话。
      */
     @PostMapping("/update/knowledge")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
-    public BaseResponse<Boolean> updateConversationKnowledge(@RequestBody ChatConversationKnowledgeUpdateRequest request,
+    public BaseResponse<String> updateConversationKnowledge(@RequestBody ChatConversationKnowledgeUpdateRequest request,
                                                              HttpServletRequest httpServletRequest) {
-        ThrowUtils.throwIf(request == null || request.getConversationId() == null || request.getConversationId().isBlank(),
-                ErrorCode.PARAMS_ERROR);
+        ThrowUtils.throwIf(request == null, ErrorCode.PARAMS_ERROR);
         User loginUser = userService.getLoginUser(httpServletRequest);
-        chatConversationService.updateConversationKnowledge(loginUser.getId(), request.getConversationId(), request.getKnowledgeId());
-        return ResultUtils.success(true);
+        String conversationId = request.getConversationId();
+        if (conversationId == null || conversationId.isBlank()) {
+            conversationId = chatConversationService.createConversation(loginUser.getId());
+        }
+        chatConversationService.updateConversationKnowledge(loginUser.getId(), conversationId, request.getKnowledgeId());
+        return ResultUtils.success(conversationId);
     }
 
     /**

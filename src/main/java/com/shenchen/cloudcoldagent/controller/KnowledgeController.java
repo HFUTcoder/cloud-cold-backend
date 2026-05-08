@@ -7,7 +7,7 @@ import com.shenchen.cloudcoldagent.common.DeleteRequest;
 import com.shenchen.cloudcoldagent.common.ResultUtils;
 import com.shenchen.cloudcoldagent.constant.UserConstant;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
-import com.shenchen.cloudcoldagent.exception.ThrowUtils;
+import com.shenchen.cloudcoldagent.utils.ThrowUtils;
 import com.shenchen.cloudcoldagent.model.dto.knowledge.KnowledgeAddRequest;
 import com.shenchen.cloudcoldagent.model.dto.knowledge.KnowledgeHybridSearchRequest;
 import com.shenchen.cloudcoldagent.model.dto.knowledge.KnowledgeMetadataSearchRequest;

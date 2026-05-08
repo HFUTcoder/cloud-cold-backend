@@ -1,9 +1,11 @@
 package com.shenchen.cloudcoldagent.agent;
 
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
@@ -16,6 +18,12 @@ import java.util.List;
  * Agent 基类，统一承载模型、工具、轮次和记忆相关公共能力。
  */
 public abstract class BaseAgent {
+
+    public static final String TOOL_CALL_TYPE_FUNCTION = "function";
+    public static final String TOOL_CALL_ID_PREFIX = "call_";
+    public static final String EXECUTION_PLAN_HEADER = "【Execution Plan】\n";
+    public static final String QUESTION_TAG_START = "<question>";
+    public static final String QUESTION_TAG_END = "</question>";
 
     protected final ChatModel chatModel;
     protected final List<ToolCallback> tools;
@@ -38,6 +46,23 @@ public abstract class BaseAgent {
         this.advisors = advisors == null ? Collections.emptyList() : new ArrayList<>(advisors);
         this.maxRounds = maxRounds;
         this.chatMemory = chatMemory;
+    }
+
+    /**
+     * 根据工具名称查找对应的 ToolCallback。
+     *
+     * @param toolName 工具名称。
+     * @return 找到的 ToolCallback，未找到时返回 null。
+     */
+    protected ToolCallback findTool(String toolName) {
+        if (tools == null || StringUtils.isBlank(toolName)) {
+            return null;
+        }
+        return tools.stream()
+                .filter(tool -> tool != null && tool.getToolDefinition() != null)
+                .filter(tool -> toolName.equals(tool.getToolDefinition().name()))
+                .findFirst()
+                .orElse(null);
     }
 
     /**
@@ -86,5 +111,35 @@ public abstract class BaseAgent {
         if (useMemory(conversationId)) {
             chatMemory.add(conversationId, new AssistantMessage(answer));
         }
+    }
+
+    /**
+     * 将用户问题包装为带 XML 标签的格式。
+     *
+     * @param question 用户问题文本。
+     * @return 包装后的问题文本。
+     */
+    protected String wrapQuestion(String question) {
+        return QUESTION_TAG_START + question + QUESTION_TAG_END;
+    }
+
+    /**
+     * 汇总当前 Agent 可用工具描述，供规划阶段注入到提示词中。
+     *
+     * @return 工具名称和说明拼接成的文本。
+     */
+    protected String renderToolDescriptions() {
+        if (tools == null || tools.isEmpty()) {
+            return "（当前无可用工具）";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (ToolCallback tool : tools) {
+            sb.append("- ")
+                    .append(tool.getToolDefinition().name())
+                    .append(": ")
+                    .append(tool.getToolDefinition().description())
+                    .append("\n");
+        }
+        return sb.toString();
     }
 }

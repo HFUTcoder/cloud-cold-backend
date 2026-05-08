@@ -4,7 +4,7 @@ import com.shenchen.cloudcoldagent.config.properties.MinioProperties;
 import com.shenchen.cloudcoldagent.constant.KnowledgeChunkConstant;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
-import com.shenchen.cloudcoldagent.exception.ThrowUtils;
+import com.shenchen.cloudcoldagent.utils.ThrowUtils;
 import com.shenchen.cloudcoldagent.model.dto.document.DocumentAddRequest;
 import com.shenchen.cloudcoldagent.model.entity.KnowledgeDocumentImage;
 import com.shenchen.cloudcoldagent.model.entity.record.knowledge.DocumentIndexContext;

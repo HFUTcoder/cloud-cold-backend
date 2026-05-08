@@ -48,6 +48,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.Executor;
 
 /**
  * Agent 服务主实现，串联会话、skill、知识库、长期记忆和具体 Agent 执行器。
@@ -88,6 +89,10 @@ public class AgentServiceImpl implements AgentService {
 
     private final ToolCallback[] commonToolCallbacks;
 
+    private final Executor agentToolTaskExecutor;
+
+    private final Executor virtualThreadExecutor;
+
     private List<Advisor> allAdvisors;
 
     private ChatMemory chatMemory;
@@ -115,6 +120,8 @@ public class AgentServiceImpl implements AgentService {
      * @param userConversationRelationService 用户会话归属服务。
      * @param advisorProvider advisor 提供器。
      * @param commonToolCallbacks 主工具池。
+     * @param agentToolTaskExecutor 代理工具调用线程池。
+     * @param virtualThreadExecutor 虚拟线程执行器。
      */
     public AgentServiceImpl(ChatModel openAiChatModel,
                             ChatMemoryRepository chatMemoryRepository,
@@ -131,7 +138,9 @@ public class AgentServiceImpl implements AgentService {
                             SkillService skillService,
                             UserConversationRelationService userConversationRelationService,
                             ObjectProvider<Advisor> advisorProvider,
-                            @Qualifier("commonTools") ToolCallback[] commonToolCallbacks) {
+                            @Qualifier("commonTools") ToolCallback[] commonToolCallbacks,
+                            @Qualifier("agentToolTaskExecutor") Executor agentToolTaskExecutor,
+                            @Qualifier("virtualThreadExecutor") Executor virtualThreadExecutor) {
         this.openAiChatModel = openAiChatModel;
         this.chatMemoryRepository = chatMemoryRepository;
         this.chatConversationService = chatConversationService;
@@ -148,6 +157,8 @@ public class AgentServiceImpl implements AgentService {
         this.userConversationRelationService = userConversationRelationService;
         this.advisorProvider = advisorProvider;
         this.commonToolCallbacks = commonToolCallbacks;
+        this.agentToolTaskExecutor = agentToolTaskExecutor;
+        this.virtualThreadExecutor = virtualThreadExecutor;
     }
 
     /**
@@ -167,6 +178,9 @@ public class AgentServiceImpl implements AgentService {
                 .advisors(allAdvisors)
                 .chatMemory(chatMemory)
                 .maxRounds(agentProperties.getReact().getMaxRounds())
+                .toolConcurrency(agentProperties.getReact().getToolConcurrency())
+                .toolExecutor(agentToolTaskExecutor)
+                .virtualThreadExecutor(virtualThreadExecutor)
                 .systemPrompt(agentProperties.getReact().getSystemPrompt())
                 .build();
         planExecuteAgent = PlanExecuteAgent.builder()
@@ -184,6 +198,8 @@ public class AgentServiceImpl implements AgentService {
                 .hitlResumeService(hitlResumeService)
                 .skillService(skillService)
                 .hitlInterceptToolNames(resolveHitlInterceptToolNames())
+                .toolExecutor(agentToolTaskExecutor)
+                .virtualThreadExecutor(virtualThreadExecutor)
                 .build();
     }
 
@@ -259,10 +275,11 @@ public class AgentServiceImpl implements AgentService {
                 break;
             case THINKING:
             case EXPERT:
-                planExecuteAgent.setRuntimeSkillContexts(
-                        workflowResult == null ? List.of() : workflowResult.getSelectedSkillContexts()
-                );
-                agentFlux = planExecuteAgent.stream(userId, conversationId, effectiveQuestion, runtimeSystemPrompt, question);
+                List<SkillRuntimeContext> skillContexts = workflowResult == null
+                        ? List.of()
+                        : workflowResult.getSelectedSkillContexts();
+                agentFlux = planExecuteAgent.stream(userId, conversationId, effectiveQuestion,
+                        runtimeSystemPrompt, question, skillContexts);
                 break;
             default:
                 agentFlux = reactAgent.stream(userId, conversationId, effectiveQuestion, runtimeSystemPrompt, question);

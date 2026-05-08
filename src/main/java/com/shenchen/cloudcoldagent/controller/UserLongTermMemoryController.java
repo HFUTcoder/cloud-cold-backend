@@ -5,7 +5,7 @@ import com.shenchen.cloudcoldagent.common.BaseResponse;
 import com.shenchen.cloudcoldagent.common.ResultUtils;
 import com.shenchen.cloudcoldagent.constant.UserConstant;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
-import com.shenchen.cloudcoldagent.exception.ThrowUtils;
+import com.shenchen.cloudcoldagent.utils.ThrowUtils;
 import com.shenchen.cloudcoldagent.model.dto.usermemory.UserMemoryRenamePetRequest;
 import com.shenchen.cloudcoldagent.model.entity.User;
 import com.shenchen.cloudcoldagent.model.vo.usermemory.UserLongTermMemoryVO;

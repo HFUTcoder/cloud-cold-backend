@@ -5,7 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
-import com.shenchen.cloudcoldagent.advisors.HITLAdvisor;
+
 import com.shenchen.cloudcoldagent.hitl.HITLState;
 import com.shenchen.cloudcoldagent.model.entity.record.support.ToolCallSnapshot;
 import com.shenchen.cloudcoldagent.model.entity.record.support.ToolResponseSnapshot;
@@ -27,6 +27,8 @@ import java.util.Map;
 public final class HitlSerializationUtils {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
+    static final String HITL_STATE_KEY = "hitl.state";
 
     /**
      * 创建 `HitlSerializationUtils` 实例。
@@ -135,7 +137,7 @@ public final class HitlSerializationUtils {
                 }
                 restored.put(entry.getKey(), value);
             }
-            restored.computeIfAbsent(HITLAdvisor.HITL_STATE_KEY, key -> new HITLState());
+            restored.computeIfAbsent(HITL_STATE_KEY, key -> new HITLState());
             return restored;
         } catch (Exception e) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "HITL checkpoint 上下文反序列化失败");

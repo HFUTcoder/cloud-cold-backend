@@ -24,5 +24,5 @@ public class AgentStreamEvent implements Serializable {
 
     private String interruptId;
 
-    private Object data;
+    private AgentStreamEventData data;
 }

@@ -3,7 +3,7 @@ package com.shenchen.cloudcoldagent.controller;
 import com.shenchen.cloudcoldagent.common.BaseResponse;
 import com.shenchen.cloudcoldagent.common.ResultUtils;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
-import com.shenchen.cloudcoldagent.exception.ThrowUtils;
+import com.shenchen.cloudcoldagent.utils.ThrowUtils;
 import com.shenchen.cloudcoldagent.model.dto.skill.SkillScriptExecuteRequest;
 import com.shenchen.cloudcoldagent.model.vo.SkillContentVO;
 import com.shenchen.cloudcoldagent.model.vo.SkillMetadataVO;

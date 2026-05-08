@@ -6,6 +6,7 @@ import com.shenchen.cloudcoldagent.model.entity.record.support.NormalizationResu
 import com.shenchen.cloudcoldagent.model.vo.AgentStreamEvent;
 import com.shenchen.cloudcoldagent.prompts.ReactAgentPrompts;
 import com.shenchen.cloudcoldagent.utils.JsonArgumentUtils;
+import com.shenchen.cloudcoldagent.utils.JsonUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientResponse;
@@ -22,6 +23,11 @@ import reactor.core.publisher.Sinks;
 import reactor.core.scheduler.Schedulers;
 
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -35,6 +41,9 @@ public class SimpleReactAgent extends BaseAgent {
     private final String REACT_AGENT_SYSTEM_PROMPT = ReactAgentPrompts.STRICT_REACT_SYSTEM_PROMPT;
     private final String name;
     private final String systemPrompt;
+    private final Executor toolExecutor;
+    private final Executor virtualThreadExecutor;
+    private final Semaphore toolSemaphore;
     private ChatClient chatClient;
 
     /**
@@ -47,12 +56,19 @@ public class SimpleReactAgent extends BaseAgent {
      * @param systemPrompt 业务侧补充的 system prompt。
      * @param maxRounds 最大推理轮次。
      * @param chatMemory 会话记忆对象。
+     * @param toolConcurrency 工具并发调用上限。
+     * @param toolExecutor 工具调用线程池。
+     * @param virtualThreadExecutor 虚拟线程执行器，用于流式 chunk 解耦。
      */
     public SimpleReactAgent(String name, ChatModel chatModel, List<ToolCallback> tools, List<Advisor> advisors,
-                            String systemPrompt, int maxRounds, ChatMemory chatMemory) {
+                            String systemPrompt, int maxRounds, ChatMemory chatMemory, int toolConcurrency,
+                            Executor toolExecutor, Executor virtualThreadExecutor) {
         super(chatModel, tools, advisors, maxRounds, chatMemory);
         this.name = name;
         this.systemPrompt = systemPrompt;
+        this.toolSemaphore = new Semaphore(Math.max(1, toolConcurrency));
+        this.toolExecutor = toolExecutor;
+        this.virtualThreadExecutor = virtualThreadExecutor;
 
         initChatClient();
 
@@ -143,7 +159,7 @@ public class SimpleReactAgent extends BaseAgent {
      * @return Agent 最终回答。
      */
     public String callInternal(Long userId, String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
-        List<Message> messages = Collections.synchronizedList(new ArrayList<>());
+        List<Message> messages = new CopyOnWriteArrayList<>();
         boolean useMemory = useMemory(conversationId);
 
         messages.add(new SystemMessage(REACT_AGENT_SYSTEM_PROMPT));
@@ -160,7 +176,7 @@ public class SimpleReactAgent extends BaseAgent {
             }
         }
 
-        messages.add(new UserMessage("<question>" + question + "</question>"));
+        messages.add(new UserMessage(wrapQuestion(question)));
 
         // 添加记忆
         if (useMemory) {
@@ -206,7 +222,19 @@ public class SimpleReactAgent extends BaseAgent {
             );
             messages.add(builder.toolCalls(normalizedToolCalls).build());
 
-            normalizedToolCalls.forEach(toolCall -> {
+            List<CompletableFuture<Void>> futures = new ArrayList<>();
+            for (AssistantMessage.ToolCall toolCall : normalizedToolCalls) {
+                futures.add(CompletableFuture.runAsync(() -> {
+                    boolean acquired = false;
+                    try {
+                        toolSemaphore.acquire();
+                        acquired = true;
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        addErrorToolResponse(messages, toolCall, "工具执行被中断");
+                        return;
+                    }
+                    try {
                         String toolName = toolCall.name();
                         String argsJson = toolCall.arguments();
 
@@ -225,33 +253,35 @@ public class SimpleReactAgent extends BaseAgent {
                         try (AgentRuntimeContext.Scope ignored = AgentRuntimeContext.open(userId, conversationId)) {
                             result = callback.call(normalizationResult.normalizedJson());
                             ToolResponseMessage.ToolResponse tr = new ToolResponseMessage.ToolResponse(toolCall.id(), toolName, result.toString());
-
                             messages.add(ToolResponseMessage.builder().responses(List.of(tr)).build());
-                        } catch (Exception ex) {
-                            addErrorToolResponse(messages, toolCall, "工具执行失败：" + ex.getMessage());
                         }
-                    });
+                    } catch (Exception ex) {
+                        addErrorToolResponse(messages, toolCall, "工具执行失败：" + ex.getMessage());
+                    } finally {
+                        if (acquired) {
+                            toolSemaphore.release();
+                        }
+                    }
+                }, toolExecutor));
+            }
+            try {
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                        .get(60, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                log.warn("并发工具调用等待异常。conversationId={}, message={}", conversationId, e.getMessage());
+            }
         }
     }
 
 
     /**
-     * 运行模式：未知、最终答案、工具调用
-     */
-    private enum RoundMode {
-        UNKNOWN,
-        FINAL_ANSWER,
-        TOOL_CALL
-    }
-
-    /**
      * 每轮执行的状态标记位
      */
     private static class RoundState {
-        RoundMode mode = RoundMode.UNKNOWN;
+        boolean hasToolCalls;
 
         StringBuilder textBuffer = new StringBuilder();
-        List<AssistantMessage.ToolCall> toolCalls = Collections.synchronizedList(new ArrayList<>());
+        List<AssistantMessage.ToolCall> toolCalls = new CopyOnWriteArrayList<>();
     }
 
 
@@ -316,7 +346,7 @@ public class SimpleReactAgent extends BaseAgent {
      * @return 返回处理结果。
      */
     public Flux<AgentStreamEvent> streamInternal(Long userId, String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
-        List<Message> messages = Collections.synchronizedList(new ArrayList<>());
+        List<Message> messages = new CopyOnWriteArrayList<>();
         boolean useMemory = useMemory(conversationId);
         log.info("开始执行快速模式流式回答，conversationId={}, questionLength={}, useMemory={}",
                 conversationId,
@@ -337,7 +367,7 @@ public class SimpleReactAgent extends BaseAgent {
             }
         }
 
-        messages.add(new UserMessage("<question>" + question + "</question>"));
+        messages.add(new UserMessage(wrapQuestion(question)));
 
         // 添加记忆
         if (useMemory) {
@@ -393,7 +423,7 @@ public class SimpleReactAgent extends BaseAgent {
                 .messages(messages)
                 .stream()
                 .chatResponse()
-                .publishOn(Schedulers.boundedElastic())
+                .publishOn(Schedulers.fromExecutor(virtualThreadExecutor))
                 .doOnNext(chunk -> processChunk(chunk, sink, state, conversationId))
                 .doOnComplete(() -> finishRound(messages, sink, state, roundCounter, hasSentFinalResult, finalAnswerBuffer, useMemory, conversationId, userId))
                 .doOnError(err -> {
@@ -424,7 +454,7 @@ public class SimpleReactAgent extends BaseAgent {
 
         // 一旦发现 tool_call，立即进入 TOOL_CALL 模式
         if (tc != null && !tc.isEmpty()) {
-            state.mode = RoundMode.TOOL_CALL;
+            state.hasToolCalls = true;
 
             for (AssistantMessage.ToolCall incoming : tc) {
                 mergeToolCall(state, incoming);
@@ -463,7 +493,7 @@ public class SimpleReactAgent extends BaseAgent {
                 String mergedArgs = Objects.toString(existing.arguments(), "") + Objects.toString(incoming.arguments(), "");
 
                 state.toolCalls.set(i,
-                        new AssistantMessage.ToolCall(existing.id(), "function", existing.name(), mergedArgs)
+                        new AssistantMessage.ToolCall(existing.id(), TOOL_CALL_TYPE_FUNCTION, existing.name(), mergedArgs)
                 );
                 return;
             }
@@ -482,7 +512,7 @@ public class SimpleReactAgent extends BaseAgent {
                              String conversationId, Long userId) {
 
         // 如果整轮都没有 tool_call，才是最终答案
-        if (state.mode != RoundMode.TOOL_CALL) {
+        if (!state.hasToolCalls) {
             String finalText = state.textBuffer.toString();
             finalAnswerBuffer.setLength(0);
             finalAnswerBuffer.append(finalText);
@@ -545,7 +575,7 @@ public class SimpleReactAgent extends BaseAgent {
                 .messages(messages)
                 .stream()
                 .chatResponse()
-                .publishOn(Schedulers.boundedElastic())
+                .publishOn(Schedulers.fromExecutor(virtualThreadExecutor))
                 .doOnNext(chunk -> {
                     if (chunk == null || chunk.getResult() == null || chunk.getResult().getOutput() == null) {
                         return;
@@ -595,39 +625,55 @@ public class SimpleReactAgent extends BaseAgent {
         int totalToolCalls = toolCalls.size();
 
         for (AssistantMessage.ToolCall tc : toolCalls) {
-            Schedulers.boundedElastic().schedule(() -> {
+            toolExecutor.execute(() -> {
                 if (hasSentFinalResult.get()) {
                     completeToolCall(completedCount, totalToolCalls, onComplete);
                     return;
                 }
 
-                String toolName = tc.name();
-                String argsJson = tc.arguments();
-
-                ToolCallback callback = findTool(toolName);
-                if (callback == null) {
-                    addErrorToolResponse(messages, tc, "工具未找到：" + toolName);
-                    completeToolCall(completedCount, totalToolCalls, onComplete);
-                    return;
-                }
-                NormalizationResult normalizationResult = JsonArgumentUtils.normalizeJsonArguments(argsJson);
-                if (!normalizationResult.valid()) {
-                    addErrorToolResponse(messages, tc, "工具参数不是合法 JSON：" + normalizationResult.errorMessage());
+                boolean acquired = false;
+                try {
+                    toolSemaphore.acquire();
+                    acquired = true;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    addErrorToolResponse(messages, tc, "工具执行被中断");
                     completeToolCall(completedCount, totalToolCalls, onComplete);
                     return;
                 }
 
-                try (AgentRuntimeContext.Scope ignored = AgentRuntimeContext.open(userId, conversationId)) {
-                    Object result = callback.call(normalizationResult.normalizedJson());
-                    String resultStr = Objects.toString(result, "");
-                    ToolResponseMessage.ToolResponse tr = new ToolResponseMessage.ToolResponse(
-                            tc.id(), toolName, resultStr);
-                    messages.add(ToolResponseMessage.builder()
-                            .responses(List.of(tr))
-                            .build());
-                } catch (Exception ex) {
-                    addErrorToolResponse(messages, tc, "工具执行失败：" + ex.getMessage());
+                try {
+                    String toolName = tc.name();
+                    String argsJson = tc.arguments();
+
+                    ToolCallback callback = findTool(toolName);
+                    if (callback == null) {
+                        addErrorToolResponse(messages, tc, "工具未找到：" + toolName);
+                        completeToolCall(completedCount, totalToolCalls, onComplete);
+                        return;
+                    }
+                    NormalizationResult normalizationResult = JsonArgumentUtils.normalizeJsonArguments(argsJson);
+                    if (!normalizationResult.valid()) {
+                        addErrorToolResponse(messages, tc, "工具参数不是合法 JSON：" + normalizationResult.errorMessage());
+                        completeToolCall(completedCount, totalToolCalls, onComplete);
+                        return;
+                    }
+
+                    try (AgentRuntimeContext.Scope ignored = AgentRuntimeContext.open(userId, conversationId)) {
+                        Object result = callback.call(normalizationResult.normalizedJson());
+                        String resultStr = Objects.toString(result, "");
+                        ToolResponseMessage.ToolResponse tr = new ToolResponseMessage.ToolResponse(
+                                tc.id(), toolName, resultStr);
+                        messages.add(ToolResponseMessage.builder()
+                                .responses(List.of(tr))
+                                .build());
+                    } catch (Exception ex) {
+                        addErrorToolResponse(messages, tc, "工具执行失败：" + ex.getMessage());
+                    }
                 } finally {
+                    if (acquired) {
+                        toolSemaphore.release();
+                    }
                     completeToolCall(completedCount, totalToolCalls, onComplete);
                 }
             });
@@ -656,10 +702,16 @@ public class SimpleReactAgent extends BaseAgent {
      * @param errMsg errMsg 参数。
      */
     private void addErrorToolResponse(List<Message> messages, AssistantMessage.ToolCall toolCall, String errMsg) {
+        String errorJson;
+        try {
+            errorJson = "{\"error\":" + JsonUtil.objectMapper().writeValueAsString(errMsg) + "}";
+        } catch (Exception ex) {
+            errorJson = "{\"error\":\"tool execution failed\"}";
+        }
         ToolResponseMessage.ToolResponse tr = new ToolResponseMessage.ToolResponse(
                 toolCall.id(),
                 toolCall.name(),
-                "{ \"error\": \"" + errMsg + "\" }"
+                errorJson
         );
 
         messages.add(ToolResponseMessage.builder()
@@ -684,7 +736,7 @@ public class SimpleReactAgent extends BaseAgent {
             }
             normalized.add(new AssistantMessage.ToolCall(
                     toolCall.id(),
-                    "function",
+                    TOOL_CALL_TYPE_FUNCTION,
                     toolCall.name(),
                     normalizeArguments(toolCall)
             ));
@@ -712,24 +764,6 @@ public class SimpleReactAgent extends BaseAgent {
         return result.normalizedJson();
     }
 
-    /**
-     * 查找 `find Tool` 对应结果。
-     *
-     * @param name name 参数。
-     * @return 返回处理结果。
-     */
-    private ToolCallback findTool(String name) {
-        return tools.stream()
-                .filter(t -> t.getToolDefinition().name().equals(name))
-                .findFirst()
-                .orElse(null);
-    }
-
-    /**
-     * 构建 `builder` 对应结果。
-     *
-     * @return 返回处理结果。
-     */
     public static Builder builder() {
         return new Builder();
     }
@@ -747,7 +781,10 @@ public class SimpleReactAgent extends BaseAgent {
         private List<Advisor> advisors = new ArrayList<>();
         private String systemPrompt = "";
         private int maxRounds;
+        private int toolConcurrency = 3;
         private ChatMemory chatMemory;
+        private Executor toolExecutor;
+        private Executor virtualThreadExecutor;
 
         /**
          * 处理 `chat Memory` 对应逻辑。
@@ -848,6 +885,21 @@ public class SimpleReactAgent extends BaseAgent {
             return this;
         }
 
+        public Builder toolConcurrency(int toolConcurrency) {
+            this.toolConcurrency = toolConcurrency;
+            return this;
+        }
+
+        public Builder toolExecutor(Executor toolExecutor) {
+            this.toolExecutor = toolExecutor;
+            return this;
+        }
+
+        public Builder virtualThreadExecutor(Executor virtualThreadExecutor) {
+            this.virtualThreadExecutor = virtualThreadExecutor;
+            return this;
+        }
+
         /**
          * 构建 `build` 对应结果。
          *
@@ -857,7 +909,14 @@ public class SimpleReactAgent extends BaseAgent {
             if (chatModel == null) {
                 throw new IllegalArgumentException("chatModel 不能为空！");
             }
-            return new SimpleReactAgent(name, chatModel, tools, advisors, systemPrompt, maxRounds, chatMemory);
+            if (toolExecutor == null) {
+                throw new IllegalArgumentException("toolExecutor 不能为空！");
+            }
+            if (virtualThreadExecutor == null) {
+                throw new IllegalArgumentException("virtualThreadExecutor 不能为空！");
+            }
+            return new SimpleReactAgent(name, chatModel, tools, advisors, systemPrompt, maxRounds, chatMemory, toolConcurrency,
+                    toolExecutor, virtualThreadExecutor);
         }
     }
 

@@ -4,7 +4,7 @@ import com.shenchen.cloudcoldagent.annotation.AuthCheck;
 import com.shenchen.cloudcoldagent.common.AgentStreamEventFactory;
 import com.shenchen.cloudcoldagent.constant.UserConstant;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
-import com.shenchen.cloudcoldagent.exception.ThrowUtils;
+import com.shenchen.cloudcoldagent.utils.ThrowUtils;
 import com.shenchen.cloudcoldagent.model.dto.agent.AgentCallRequest;
 import com.shenchen.cloudcoldagent.model.dto.agent.AgentResumeRequest;
 import com.shenchen.cloudcoldagent.model.entity.User;
@@ -92,6 +92,7 @@ public class AgentController {
                     sendEvent(emitter, AgentStreamEventFactory.error(
                             conversationId,
                             null,
+                            ErrorCode.SYSTEM_ERROR,
                             throwable == null ? "" : String.valueOf(throwable.getMessage())
                     ));
                     emitter.completeWithError(throwable);
@@ -155,6 +156,7 @@ public class AgentController {
                     sendEvent(emitter, AgentStreamEventFactory.error(
                             null,
                             agentResumeRequest.getInterruptId(),
+                            ErrorCode.SYSTEM_ERROR,
                             throwable == null ? "" : String.valueOf(throwable.getMessage())
                     ));
                     emitter.completeWithError(throwable);

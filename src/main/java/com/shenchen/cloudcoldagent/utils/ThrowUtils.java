@@ -1,4 +1,7 @@
-package com.shenchen.cloudcoldagent.exception;
+package com.shenchen.cloudcoldagent.utils;
+
+import com.shenchen.cloudcoldagent.exception.BusinessException;
+import com.shenchen.cloudcoldagent.exception.ErrorCode;
 
 /**
  * 异常抛出工具类

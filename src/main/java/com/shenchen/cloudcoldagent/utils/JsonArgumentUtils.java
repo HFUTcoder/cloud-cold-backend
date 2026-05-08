@@ -1,5 +1,6 @@
 package com.shenchen.cloudcoldagent.utils;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shenchen.cloudcoldagent.model.entity.record.support.NormalizationResult;
@@ -35,8 +36,15 @@ public final class JsonArgumentUtils {
             JsonNode jsonNode = OBJECT_MAPPER.readTree(rawArguments);
             String normalized = jsonNode == null ? "{}" : OBJECT_MAPPER.writeValueAsString(jsonNode);
             return new NormalizationResult(normalized, true, null);
-        } catch (Exception e) {
-            return new NormalizationResult(rawArguments, false, e.getMessage());
+        } catch (Exception firstEx) {
+            try {
+                String repaired = JsonUtil.fixJson(rawArguments);
+                JsonNode jsonNode = OBJECT_MAPPER.readTree(repaired);
+                String normalized = jsonNode == null ? "{}" : OBJECT_MAPPER.writeValueAsString(jsonNode);
+                return new NormalizationResult(normalized, true, null);
+            } catch (Exception secondEx) {
+                return new NormalizationResult(rawArguments, false, firstEx.getMessage());
+            }
         }
     }
 
@@ -46,7 +54,6 @@ public final class JsonArgumentUtils {
      * @param rawArguments rawArguments 参数。
      * @return 返回处理结果。
      */
-    @SuppressWarnings("unchecked")
     public static Map<String, Object> readObjectMap(String rawArguments) {
         if (rawArguments == null || rawArguments.isBlank()) {
             return new LinkedHashMap<>();
@@ -56,7 +63,7 @@ public final class JsonArgumentUtils {
             if (jsonNode == null || jsonNode.isNull() || !jsonNode.isObject()) {
                 return new LinkedHashMap<>();
             }
-            return OBJECT_MAPPER.convertValue(jsonNode, LinkedHashMap.class);
+            return OBJECT_MAPPER.convertValue(jsonNode, new TypeReference<LinkedHashMap<String, Object>>() {});
         } catch (Exception e) {
             return new LinkedHashMap<>();
         }
@@ -70,7 +77,6 @@ public final class JsonArgumentUtils {
      * @param templateArguments templateArguments 参数。
      * @return 返回处理结果。
      */
-    @SuppressWarnings("unchecked")
     public static Map<String, Object> repairStructuredToolArguments(String toolName,
                                                                     Map<String, Object> rawArguments,
                                                                     Map<String, Object> templateArguments) {
@@ -113,38 +119,46 @@ public final class JsonArgumentUtils {
         return normalizedArguments;
     }
 
-    @SuppressWarnings("unchecked")
     private static void mergeTemplateArguments(Map<String, Object> template, Map<String, Object> target) {
         Object templateArgumentsValue = template.get("arguments");
-        Map<String, Object> templateArgs = templateArgumentsValue instanceof Map<?, ?> m
-                ? new LinkedHashMap<>((Map<String, Object>) m)
-                : new LinkedHashMap<>();
+        Map<String, Object> templateArgs = new LinkedHashMap<>();
+        if (templateArgumentsValue instanceof Map<?, ?> m) {
+            m.forEach((key, value) -> {
+                if (key instanceof String k) {
+                    templateArgs.put(k, value);
+                }
+            });
+        }
 
         Object currentArguments = target.get("arguments");
         if (currentArguments instanceof Map<?, ?> currentMap) {
-            for (Map.Entry<String, Object> entry : templateArgs.entrySet()) {
-                if (!currentMap.containsKey(entry.getKey())) {
-                    ((Map<String, Object>) currentArguments).put(entry.getKey(), entry.getValue());
+            Map<String, Object> merged = new LinkedHashMap<>();
+            currentMap.forEach((key, value) -> {
+                if (key instanceof String k) {
+                    merged.put(k, value);
                 }
+            });
+            for (Map.Entry<String, Object> entry : templateArgs.entrySet()) {
+                merged.putIfAbsent(entry.getKey(), entry.getValue());
             }
+            target.put("arguments", merged);
         } else if (!templateArgs.isEmpty()) {
             target.put("arguments", templateArgs);
-        } else if (!(currentArguments instanceof Map<?, ?>)) {
+        } else {
             target.put("arguments", new LinkedHashMap<>());
         }
     }
 
-    @SuppressWarnings("unchecked")
     private static void mergeTemplateArgumentsIntoBusiness(Map<String, Object> template, Map<String, Object> businessArguments) {
         Object templateArgumentsValue = template.get("arguments");
         if (!(templateArgumentsValue instanceof Map<?, ?> templateMap)) {
             return;
         }
-        for (Map.Entry<String, Object> entry : ((Map<String, Object>) templateMap).entrySet()) {
-            if (!businessArguments.containsKey(entry.getKey())) {
-                businessArguments.put(entry.getKey(), entry.getValue());
+        templateMap.forEach((key, value) -> {
+            if (key instanceof String k && !businessArguments.containsKey(k)) {
+                businessArguments.put(k, value);
             }
-        }
+        });
     }
 
     /**
@@ -154,7 +168,6 @@ public final class JsonArgumentUtils {
      * @param arguments arguments 参数。
      * @return 返回处理结果。
      */
-    @SuppressWarnings("unchecked")
     public static String validateStructuredToolArguments(String toolName, Map<String, Object> arguments) {
         if (!EXECUTE_SKILL_SCRIPT_TOOL.equals(toolName)) {
             return null;

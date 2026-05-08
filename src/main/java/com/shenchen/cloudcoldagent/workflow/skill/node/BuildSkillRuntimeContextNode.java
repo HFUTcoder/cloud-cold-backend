@@ -3,6 +3,7 @@ package com.shenchen.cloudcoldagent.workflow.skill.node;
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.shenchen.cloudcoldagent.model.vo.SkillResourceListVO;
 import com.shenchen.cloudcoldagent.service.SkillService;
+import com.shenchen.cloudcoldagent.utils.StateValueUtils;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillArgumentSpec;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillRuntimeContext;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillWorkflowStateKeys;
@@ -33,14 +34,13 @@ public class BuildSkillRuntimeContextNode {
      * @param state state 参数。
      * @return 返回处理结果。
      */
-    @SuppressWarnings("unchecked")
     public CompletableFuture<Map<String, Object>> apply(OverAllState state) {
         List<String> selectedSkills =
-                (List<String>) state.value(SkillWorkflowStateKeys.SELECTED_SKILLS).orElse(List.of());
+                StateValueUtils.getValue(state, SkillWorkflowStateKeys.SELECTED_SKILLS, List.of());
         Map<String, String> skillContents =
-                (Map<String, String>) state.value(SkillWorkflowStateKeys.SKILL_CONTENTS).orElse(Map.of());
+                StateValueUtils.getValue(state, SkillWorkflowStateKeys.SKILL_CONTENTS, Map.of());
         Map<String, SkillResourceListVO> skillResources =
-                (Map<String, SkillResourceListVO>) state.value(SkillWorkflowStateKeys.SKILL_RESOURCES).orElse(Map.of());
+                StateValueUtils.getValue(state, SkillWorkflowStateKeys.SKILL_RESOURCES, Map.of());
 
         List<SkillRuntimeContext> skillRuntimeContexts = new ArrayList<>();
         for (String skillName : selectedSkills) {

@@ -2,6 +2,7 @@ package com.shenchen.cloudcoldagent.workflow.skill.service;
 
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.shenchen.cloudcoldagent.utils.JsonUtil;
 import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -122,120 +123,15 @@ public class StructuredOutputAgentExecutor {
             try {
                 return objectMapper.readValue(text, outputType);
             } catch (Exception firstEx) {
-                String normalizedJson = normalizeJsonPayload(text);
-                if (normalizedJson == null || normalizedJson.isBlank()) {
-                    throw firstEx;
+                try {
+                    return JsonUtil.fixAndParse(text, outputType);
+                } catch (Exception secondEx) {
+                    throw new RuntimeException("structured output 响应解析失败", firstEx);
                 }
-                return objectMapper.readValue(normalizedJson, outputType);
             }
         } catch (Exception e) {
             throw new RuntimeException("structured output 响应解析失败", e);
         }
-    }
-
-    /**
-     * 处理 `normalize Json Payload` 对应逻辑。
-     *
-     * @param rawText rawText 参数。
-     * @return 返回处理结果。
-     */
-    private String normalizeJsonPayload(String rawText) {
-        if (rawText == null) {
-            return null;
-        }
-        String trimmed = rawText.trim();
-        if (trimmed.isEmpty()) {
-            return null;
-        }
-
-        if (trimmed.startsWith("```")) {
-            int firstLineBreak = trimmed.indexOf('\n');
-            int fenceEnd = trimmed.lastIndexOf("```");
-            if (firstLineBreak >= 0 && fenceEnd > firstLineBreak) {
-                trimmed = trimmed.substring(firstLineBreak + 1, fenceEnd).trim();
-            }
-        }
-
-        int start = findJsonStart(trimmed);
-        if (start < 0) {
-            return trimmed;
-        }
-        String extracted = extractBalancedJson(trimmed, start);
-        return extracted == null || extracted.isBlank() ? trimmed : extracted;
-    }
-
-    /**
-     * 查找 `find Json Start` 对应结果。
-     *
-     * @param text text 参数。
-     * @return 返回处理结果。
-     */
-    private int findJsonStart(String text) {
-        int objectStart = text.indexOf('{');
-        int arrayStart = text.indexOf('[');
-        if (objectStart < 0) {
-            return arrayStart;
-        }
-        if (arrayStart < 0) {
-            return objectStart;
-        }
-        return Math.min(objectStart, arrayStart);
-    }
-
-    /**
-     * 提取 `extract Balanced Json` 对应内容。
-     *
-     * @param text text 参数。
-     * @param startIndex startIndex 参数。
-     * @return 返回处理结果。
-     */
-    private String extractBalancedJson(String text, int startIndex) {
-        if (startIndex < 0 || startIndex >= text.length()) {
-            return null;
-        }
-        char opening = text.charAt(startIndex);
-        char closing = opening == '{' ? '}' : (opening == '[' ? ']' : '\0');
-        if (closing == '\0') {
-            return null;
-        }
-
-        int depth = 0;
-        boolean inString = false;
-        boolean escaped = false;
-        for (int i = startIndex; i < text.length(); i++) {
-            char ch = text.charAt(i);
-
-            if (inString) {
-                if (escaped) {
-                    escaped = false;
-                    continue;
-                }
-                if (ch == '\\') {
-                    escaped = true;
-                    continue;
-                }
-                if (ch == '"') {
-                    inString = false;
-                }
-                continue;
-            }
-
-            if (ch == '"') {
-                inString = true;
-                continue;
-            }
-            if (ch == opening) {
-                depth++;
-                continue;
-            }
-            if (ch == closing) {
-                depth--;
-                if (depth == 0) {
-                    return text.substring(startIndex, i + 1);
-                }
-            }
-        }
-        return null;
     }
 
 }

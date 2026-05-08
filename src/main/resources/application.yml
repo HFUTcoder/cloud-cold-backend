@@ -59,7 +59,7 @@ spring:
   # ---------- MySQL 数据库 ----------
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/cloud_cold
+    url: jdbc:mysql://localhost:3306/cloud_cold?useUnicode=true&characterEncoding=UTF-8&rewriteBatchedStatements=true
     username: root
     # TODO: 替换为你的 MySQL 密码（必填）
     password: your-mysql-password-here

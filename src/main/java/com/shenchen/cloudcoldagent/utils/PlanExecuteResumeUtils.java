@@ -41,7 +41,7 @@ public final class PlanExecuteResumeUtils {
      * @param runtimeSystemPrompt runtimeSystemPrompt 参数。
      * @return 返回处理结果。
      */
-    public static Map<String, Object> buildContext(PlanExecuteAgent.OverAllState state,
+    public static Map<String, Object> buildContext(PlanExecuteAgent.OverallState state,
                                                    List<PlanTask> currentPlan,
                                                    PlanTask currentTask,
                                                    String runtimeSystemPrompt) {
