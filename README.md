@@ -14,27 +14,27 @@
 
 - 思考模式 绑定 skill 执行个税脚本
 
-  https://github.com/HFUTcoder/cloud-cold-backend/blob/main/docs/videos/1.mp4
+  <video src="docs/videos/1.mp4" controls width="720"></video>
 
 - 思考模式 不绑定 skill 执行个税脚本
 
-  https://github.com/HFUTcoder/cloud-cold-backend/blob/main/docs/videos/2.mp4
+  <video src="docs/videos/2.mp4" controls width="720"></video>
 
 - 快速模式 对话问答 执行个税脚本
 
-  https://github.com/HFUTcoder/cloud-cold-backend/blob/main/docs/videos/3.mp4
+  <video src="docs/videos/3.mp4" controls width="720"></video>
 
 - 知识库创建
 
-  https://github.com/HFUTcoder/cloud-cold-backend/blob/main/docs/videos/4.mp4
+  <video src="docs/videos/4.mp4" controls width="720"></video>
 
 - 知识库检索 支持图像
 
-  https://github.com/HFUTcoder/cloud-cold-backend/blob/main/docs/videos/5.mp4
+  <video src="docs/videos/5.mp4" controls width="720"></video>
 
 - 个人宠物 长期记忆
 
-  https://github.com/HFUTcoder/cloud-cold-backend/blob/main/docs/videos/6.mp4
+  <video src="docs/videos/6.mp4" controls width="720"></video>
 
 ## 快速事实
 
