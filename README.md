@@ -13,7 +13,7 @@
 ## 功能演示
 
 - 思考模式 绑定 skill 执行个税脚本
-
+mp4
   <video src="docs/videos/mp4/1.mp4" controls muted></video>
 
 - 思考模式 不绑定 skill 执行个税脚本
