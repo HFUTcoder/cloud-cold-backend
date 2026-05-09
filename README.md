@@ -13,30 +13,33 @@
 ## 功能演示
 
 - 思考模式 绑定 skill 执行个税脚本
-mp4
-  <video src="docs/videos/mp4/1.mp4" controls muted></video>
+
+  ![思考模式 绑定 skill 执行个税脚本](docs/videos/1.webp)
+
 
 - 思考模式 不绑定 skill 执行个税脚本
 
-  <video src="docs/videos/mp4/2.mp4" controls muted></video>
+  ![思考模式 不绑定 skill 执行个税脚本](docs/videos/2.webp)
+
 
 - 快速模式 对话问答 执行个税脚本
 
-  <video src="docs/videos/mp4/3.mp4" controls muted></video>
+  ![快速模式 对话问答 执行个税脚本](docs/videos/3.webp)
+
 
 - 知识库创建
 
-  <video src="docs/videos/mp4/4.mp4" controls muted></video>
+  ![知识库创建](docs/videos/4.webp)
+
 
 - 知识库检索 支持图像
 
-  <video src="docs/videos/mp4/5.mp4" controls muted></video>
+  ![知识库检索 支持图像](docs/videos/5.webp)
+
 
 - 个人宠物 长期记忆
 
-  <video src="docs/videos/mp4/6.mp4" controls muted></video>
-
-> 在 GitHub 上播放视频：需要将 `docs/videos/mp4/` 下的 mp4 文件逐个拖拽到 GitHub 网页版 README 编辑器中，GitHub 会自动生成 `user-attachments` 的播放链接，将返回的 URL 替换到 `<video src="...">` 中即可。`controls` 和 `muted` 属性保证本地和 GitHub 两端都能正常播放。
+  ![个人宠物 长期记忆](docs/videos/6.webp)
 
 ## 快速事实
 
