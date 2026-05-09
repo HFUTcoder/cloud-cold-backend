@@ -8,7 +8,7 @@ import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.limiter.RateLimiter;
 import com.shenchen.cloudcoldagent.annotation.DistributeLock;
-import com.shenchen.cloudcoldagent.mapper.ChatMemoryHistoryMapper;
+import com.shenchen.cloudcoldagent.mapper.chat.ChatMemoryHistoryMapper;
 import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistory;
 import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemory;
 import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemoryConversationState;
@@ -19,7 +19,7 @@ import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemorySou
 import com.shenchen.cloudcoldagent.model.vo.usermemory.UserLongTermMemoryVO;
 import com.shenchen.cloudcoldagent.model.vo.usermemory.UserPetStateVO;
 import com.shenchen.cloudcoldagent.prompts.UserLongTermMemoryPrompts;
-import com.shenchen.cloudcoldagent.service.UserConversationRelationService;
+import com.shenchen.cloudcoldagent.service.chat.UserConversationRelationService;
 import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryMetadataService;
 import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryService;
 import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryStore;

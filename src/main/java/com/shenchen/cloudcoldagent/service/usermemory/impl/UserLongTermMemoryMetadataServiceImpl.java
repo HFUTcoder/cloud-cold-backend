@@ -1,9 +1,9 @@
 package com.shenchen.cloudcoldagent.service.usermemory.impl;
 
 import com.mybatisflex.core.query.QueryWrapper;
-import com.shenchen.cloudcoldagent.mapper.UserLongTermMemoryConversationStateMapper;
-import com.shenchen.cloudcoldagent.mapper.UserLongTermMemoryMapper;
-import com.shenchen.cloudcoldagent.mapper.UserLongTermMemorySourceRelationMapper;
+import com.shenchen.cloudcoldagent.mapper.usermemory.UserLongTermMemoryConversationStateMapper;
+import com.shenchen.cloudcoldagent.mapper.usermemory.UserLongTermMemoryMapper;
+import com.shenchen.cloudcoldagent.mapper.usermemory.UserLongTermMemorySourceRelationMapper;
 import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemory;
 import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemoryConversationState;
 import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemoryDoc;

@@ -4,7 +4,7 @@ import cn.hutool.json.JSONUtil;
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.shenchen.cloudcoldagent.model.vo.SkillMetadataVO;
 import com.shenchen.cloudcoldagent.prompts.SkillWorkflowPrompts;
-import com.shenchen.cloudcoldagent.service.SkillService;
+import com.shenchen.cloudcoldagent.service.skill.SkillService;
 import com.shenchen.cloudcoldagent.utils.StateValueUtils;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillCandidate;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillCandidateListResult;

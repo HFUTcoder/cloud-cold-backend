@@ -5,7 +5,7 @@ import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.model.entity.User;
 import com.shenchen.cloudcoldagent.enums.UserRoleEnum;
-import com.shenchen.cloudcoldagent.service.UserService;
+import com.shenchen.cloudcoldagent.service.user.UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;

@@ -1,13 +1,13 @@
 package com.shenchen.cloudcoldagent.memory.store;
 
 import com.mybatisflex.core.query.QueryWrapper;
-import com.shenchen.cloudcoldagent.mapper.ChatMemoryHistoryImageRelationMapper;
-import com.shenchen.cloudcoldagent.mapper.ChatMemoryHistoryMapper;
+import com.shenchen.cloudcoldagent.mapper.chat.ChatMemoryHistoryImageRelationMapper;
+import com.shenchen.cloudcoldagent.mapper.chat.ChatMemoryHistoryMapper;
 import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistory;
 import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistoryImageRelation;
 import com.shenchen.cloudcoldagent.model.vo.RetrievedKnowledgeImage;
-import com.shenchen.cloudcoldagent.service.ChatMemoryPendingImageBindingService;
-import com.shenchen.cloudcoldagent.service.UserConversationRelationService;
+import com.shenchen.cloudcoldagent.service.chat.ChatMemoryPendingImageBindingService;
+import com.shenchen.cloudcoldagent.service.chat.UserConversationRelationService;
 import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemoryRepository;

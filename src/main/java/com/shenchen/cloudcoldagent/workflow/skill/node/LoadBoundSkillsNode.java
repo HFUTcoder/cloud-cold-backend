@@ -2,7 +2,7 @@ package com.shenchen.cloudcoldagent.workflow.skill.node;
 
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.shenchen.cloudcoldagent.model.entity.ChatConversation;
-import com.shenchen.cloudcoldagent.service.ChatConversationService;
+import com.shenchen.cloudcoldagent.service.chat.ChatConversationService;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillWorkflowStateKeys;
 import org.springframework.stereotype.Component;
 

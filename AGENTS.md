@@ -71,6 +71,14 @@ src/main/java/com/shenchen/cloudcoldagent
 ├── constant/              # DistributeLockConstant、KnowledgeChunkConstant、UserConstant
 ├── context/               # AgentRuntimeContext
 ├── controller/            # REST + SSE 接口（11 个 Controller）
+│   ├── agent/             # AgentController
+│   ├── chat/              # ChatConversationController、ChatMemoryHistoryController
+│   ├── hitl/              # HitlCheckpointController
+│   ├── knowledge/         # KnowledgeController、DocumentController
+│   ├── user/              # UserController
+│   ├── usermemory/        # UserLongTermMemoryController
+│   ├── skill/             # SkillController
+│   └── storage/           # EsController、FileController
 ├── document/              # 文档读取、清洗、切分、索引准备
 │   ├── extract/cleaner/   # DocumentCleaner
 │   ├── extract/reader/    # DocumentReaderStrategy → PdfMultimodalProcessor（当前唯一实现）
@@ -82,7 +90,12 @@ src/main/java/com/shenchen/cloudcoldagent
 ├── hitl/                  # HITLState（ConcurrentHashMap 追踪已消费 toolCallId）
 ├── job/                   # UserLongTermMemoryScheduler（每小时整点扫描）
 ├── limiter/               # RateLimiter 接口、SlidingWindowRateLimiter
-├── mapper/                # MyBatis-Flex Mapper（14 个）
+├── mapper/                # MyBatis-Flex Mapper 接口（14 个）
+│   ├── chat/              # ChatConversationMapper、ChatMemoryHistoryMapper 等（6 个）
+│   ├── hitl/              # HitlCheckpointMapper
+│   ├── knowledge/         # KnowledgeMapper、KnowledgeDocumentImageMapper、DocumentMapper
+│   ├── user/              # UserMapper
+│   └── usermemory/        # UserLongTermMemoryMapper 等（3 个）
 ├── memory/store/          # MysqlChatMemoryRepository（聊天记忆 MySQL 持久化）
 ├── model/
 │   ├── dto/               # 请求 DTO（agent/、chat/、document/、hitl/、knowledge/、skill/、user/、usermemory/）
@@ -90,8 +103,14 @@ src/main/java/com/shenchen/cloudcoldagent
 │   └── vo/                # 视图对象（usermemory/ 含 UserPetStateVO、UserLongTermMemoryVO）
 ├── prompts/               # BaseAgentPrompts、PlanExecutePrompts、ReactAgentPrompts、KnowledgePrompts、SkillWorkflowPrompts、UserLongTermMemoryPrompts
 ├── registry/              # SkillRegistry 接口、CachingSkillRegistry、FileSystemSkillRegistry
-├── service/               # 业务接口（22 个）
-│   ├── impl/              # 业务实现（21 个）
+├── service/               # 业务接口（24 个）
+│   ├── agent/             # AgentService
+│   ├── chat/              # ChatConversationService、ChatMemoryHistoryService 等（7 个）
+│   ├── hitl/              # HitlCheckpointService、HitlExecutionService、HitlResumeService
+│   ├── knowledge/         # KnowledgeService、KnowledgePreprocessService 等（5 个）
+│   ├── user/              # UserService
+│   ├── skill/             # SkillService
+│   ├── storage/           # ElasticSearchService、MinioService
 │   └── usermemory/        # 长期记忆服务接口 + 实现（4 对）
 ├── tools/                 # Agent Tools
 │   ├── common/            # SearchTool

@@ -8,7 +8,7 @@ import com.shenchen.cloudcoldagent.workflow.skill.state.SkillCandidate;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillCandidateListResult;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillWorkflowStateKeys;
 import com.shenchen.cloudcoldagent.prompts.SkillWorkflowPrompts;
-import com.shenchen.cloudcoldagent.service.SkillService;
+import com.shenchen.cloudcoldagent.service.skill.SkillService;
 import com.shenchen.cloudcoldagent.workflow.skill.service.StructuredOutputAgentExecutor;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.Message;

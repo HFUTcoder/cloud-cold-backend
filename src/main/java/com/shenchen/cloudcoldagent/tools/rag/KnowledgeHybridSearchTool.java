@@ -1,7 +1,7 @@
 package com.shenchen.cloudcoldagent.tools.rag;
 
-import com.shenchen.cloudcoldagent.service.KnowledgeService;
-import com.shenchen.cloudcoldagent.service.ChatConversationService;
+import com.shenchen.cloudcoldagent.service.knowledge.KnowledgeService;
+import com.shenchen.cloudcoldagent.service.chat.ChatConversationService;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;

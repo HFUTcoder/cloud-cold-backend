@@ -1,7 +1,7 @@
 package com.shenchen.cloudcoldagent.document.load.store;
 
 import com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk;
-import com.shenchen.cloudcoldagent.service.ElasticSearchService;
+import com.shenchen.cloudcoldagent.service.storage.ElasticSearchService;
 import org.springframework.ai.document.Document;
 import org.springframework.stereotype.Service;
 

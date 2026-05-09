@@ -16,10 +16,10 @@ import com.shenchen.cloudcoldagent.model.entity.record.agent.planexecute.TaskRes
 import com.shenchen.cloudcoldagent.model.vo.HitlCheckpointVO;
 import com.shenchen.cloudcoldagent.model.vo.AgentStreamEvent;
 import com.shenchen.cloudcoldagent.prompts.PlanExecutePrompts;
-import com.shenchen.cloudcoldagent.service.HitlCheckpointService;
-import com.shenchen.cloudcoldagent.service.HitlExecutionService;
-import com.shenchen.cloudcoldagent.service.HitlResumeService;
-import com.shenchen.cloudcoldagent.service.SkillService;
+import com.shenchen.cloudcoldagent.service.hitl.HitlCheckpointService;
+import com.shenchen.cloudcoldagent.service.hitl.HitlExecutionService;
+import com.shenchen.cloudcoldagent.service.hitl.HitlResumeService;
+import com.shenchen.cloudcoldagent.service.skill.SkillService;
 import com.shenchen.cloudcoldagent.utils.PlanExecuteResumeUtils;
 import com.shenchen.cloudcoldagent.utils.JsonArgumentUtils;
 import com.shenchen.cloudcoldagent.utils.JsonUtil;
