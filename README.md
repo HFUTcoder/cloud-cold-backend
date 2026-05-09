@@ -4,7 +4,7 @@
 
 ## 当前能力
 
-- 会话式 Agent 对话，支持 `fast`、`thinking`、`expert` 三种后端模式
+- 会话式 Agent 对话，支持 `fast`、`thinking` 模式
 - Skill 工作流预处理与 Python 脚本执行
 - HITL 人工审批与恢复执行
 - 知识库 PDF 入库、混合检索与图片回显
