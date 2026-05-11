@@ -19,11 +19,16 @@ import org.apache.http.ssl.SSLContexts;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestClientBuilder;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.elasticsearch.ElasticsearchVectorStore;
+import org.springframework.ai.vectorstore.elasticsearch.ElasticsearchVectorStoreOptions;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.context.annotation.Primary;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.io.ClassPathResource;
 
@@ -45,13 +50,16 @@ public class EsConfig {
     private final EsProperties elasticsearchClientProperties;
     private final LongTermMemoryProperties longTermMemoryProperties;
     private final ObjectMapper esObjectMapper;
+    private final EmbeddingModel embeddingModel;
 
     public EsConfig(EsProperties elasticsearchClientProperties,
                     LongTermMemoryProperties longTermMemoryProperties,
-                    @Qualifier("esObjectMapper") ObjectMapper esObjectMapper) {
+                    @Qualifier("esObjectMapper") ObjectMapper esObjectMapper,
+                    EmbeddingModel embeddingModel) {
         this.elasticsearchClientProperties = elasticsearchClientProperties;
         this.longTermMemoryProperties = longTermMemoryProperties;
         this.esObjectMapper = esObjectMapper;
+        this.embeddingModel = embeddingModel;
     }
 
     /**
@@ -185,5 +193,42 @@ public class EsConfig {
         } catch (Exception e) {
             log.error("Failed to create ES index [{}]: {}", indexName, e.getMessage(), e);
         }
+    }
+
+    @Bean
+    @Lazy
+    @Primary
+    public VectorStore ragVectorStore(RestClient restClient) {
+        ElasticsearchVectorStoreOptions options = new ElasticsearchVectorStoreOptions();
+        options.setIndexName("rag_docs_vector");
+        options.setDimensions(1536);
+        var store = ElasticsearchVectorStore.builder(restClient, embeddingModel)
+                .options(options)
+                .initializeSchema(true)
+                .build();
+        try {
+            store.afterPropertiesSet();
+        } catch (Exception e) {
+            log.warn("Failed to initialize rag vector store: {}", e.getMessage());
+        }
+        return store;
+    }
+
+    @Bean
+    @Lazy
+    public VectorStore longTermMemoryVectorStore(RestClient restClient) {
+        ElasticsearchVectorStoreOptions options = new ElasticsearchVectorStoreOptions();
+        options.setIndexName(longTermMemoryProperties.getVectorIndexName());
+        options.setDimensions(longTermMemoryProperties.getVectorDimensions());
+        var store = ElasticsearchVectorStore.builder(restClient, embeddingModel)
+                .options(options)
+                .initializeSchema(true)
+                .build();
+        try {
+            store.afterPropertiesSet();
+        } catch (Exception e) {
+            log.warn("Failed to initialize long-term memory vector store: {}", e.getMessage());
+        }
+        return store;
     }
 }

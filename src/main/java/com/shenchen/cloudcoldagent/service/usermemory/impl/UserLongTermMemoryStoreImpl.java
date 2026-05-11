@@ -6,19 +6,14 @@ import co.elastic.clients.elasticsearch.core.BulkRequest;
 import co.elastic.clients.elasticsearch.core.DeleteByQueryRequest;
 import co.elastic.clients.elasticsearch.core.SearchRequest;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
-import co.elastic.clients.elasticsearch.indices.CreateIndexRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shenchen.cloudcoldagent.config.properties.LongTermMemoryProperties;
 import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemoryDoc;
 import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryStore;
 import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryMetadataService;
-import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
-import org.elasticsearch.client.RestClient;
 import org.springframework.ai.document.Document;
-import org.springframework.ai.embedding.EmbeddingModel;
-import org.springframework.ai.vectorstore.elasticsearch.ElasticsearchVectorStore;
-import org.springframework.ai.vectorstore.elasticsearch.ElasticsearchVectorStoreOptions;
+import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.stereotype.Service;
 
 import java.io.StringReader;
@@ -37,57 +32,21 @@ import java.util.Objects;
 public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
 
     private final ElasticsearchClient elasticsearchClient;
-    private final RestClient restClient;
-    private final EmbeddingModel embeddingModel;
     private final LongTermMemoryProperties properties;
     private final ObjectMapper objectMapper;
     private final UserLongTermMemoryMetadataService metadataService;
+    private final VectorStore vectorStore;
 
-    private ElasticsearchVectorStore vectorStore;
-
-    /**
-     * 注入长期记忆存储所需的 ES、向量和元数据依赖。
-     *
-     * @param elasticsearchClient ES Java 客户端。
-     * @param restClient ES RestClient。
-     * @param embeddingModel 向量化模型。
-     * @param properties 长期记忆配置。
-     * @param objectMapper 对象映射器。
-     * @param metadataService 长期记忆元数据服务。
-     */
     public UserLongTermMemoryStoreImpl(ElasticsearchClient elasticsearchClient,
-                                       RestClient restClient,
-                                       EmbeddingModel embeddingModel,
                                        LongTermMemoryProperties properties,
                                        ObjectMapper objectMapper,
-                                       UserLongTermMemoryMetadataService metadataService) {
+                                       UserLongTermMemoryMetadataService metadataService,
+                                       @org.springframework.beans.factory.annotation.Qualifier("longTermMemoryVectorStore") VectorStore vectorStore) {
         this.elasticsearchClient = elasticsearchClient;
-        this.restClient = restClient;
-        this.embeddingModel = embeddingModel;
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.metadataService = metadataService;
-    }
-
-    /**
-     * 初始化长期记忆向量存储。
-     */
-    @PostConstruct
-    public void init() {
-        ElasticsearchVectorStoreOptions options = new ElasticsearchVectorStoreOptions();
-        options.setIndexName(properties.getVectorIndexName());
-        options.setDimensions(properties.getVectorDimensions());
-        this.vectorStore = ElasticsearchVectorStore.builder(restClient, embeddingModel)
-                .options(options)
-                .initializeSchema(true)
-                .build();
-        try {
-            if (!vectorStore.indexExists()) {
-                vectorStore.afterPropertiesSet();
-            }
-        } catch (Exception e) {
-            log.warn("初始化长期记忆向量索引失败，message={}", e.getMessage(), e);
-        }
+        this.vectorStore = vectorStore;
     }
 
     /**

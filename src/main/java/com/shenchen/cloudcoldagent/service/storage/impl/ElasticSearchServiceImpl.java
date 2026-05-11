@@ -57,7 +57,8 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
      * @param client Elasticsearch Java 客户端。
      * @param vectorStore 向量存储实现。
      */
-    public ElasticSearchServiceImpl(ElasticsearchClient client, VectorStore vectorStore) {
+    public ElasticSearchServiceImpl(ElasticsearchClient client,
+                                     @org.springframework.beans.factory.annotation.Qualifier("ragVectorStore") VectorStore vectorStore) {
         this.client = client;
         this.vectorStore = vectorStore;
     }
