@@ -109,16 +109,6 @@ public interface KnowledgeService extends IService<com.shenchen.cloudcoldagent.m
     PreparedDocumentIndexResult prepareDocumentIndex(File file, DocumentIndexContext context) throws Exception;
 
     /**
-     * 构建 `build Image Description Chunks` 对应结果。
-     *
-     * @param images images 参数。
-     * @param documentSource documentSource 参数。
-     * @return 返回处理结果。
-     */
-    List<EsDocumentChunk> buildImageDescriptionChunks(List<com.shenchen.cloudcoldagent.model.entity.KnowledgeDocumentImage> images,
-                                                      String documentSource);
-
-    /**
      * 处理 `store Prepared Chunks` 对应逻辑。
      *
      * @param chunks chunks 参数。

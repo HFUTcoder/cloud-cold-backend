@@ -986,6 +986,9 @@ public class PlanExecuteAgent extends BaseAgent {
      * @param state 当前执行状态。
      * @return 清洗后的任务列表。
      */
+    private static final Set<String> NO_TOOL_SENTINELS =
+            Set.of("none", "null", "无", "-", "no_tool", "noop", "nop");
+
     private List<PlanTask> sanitizePlan(List<PlanTask> plan, OverallState state) {
         if (plan == null || plan.isEmpty()) {
             return List.of();
@@ -993,6 +996,7 @@ public class PlanExecuteAgent extends BaseAgent {
         return plan.stream()
                 .filter(Objects::nonNull)
                 .filter(task -> StringUtils.isNotBlank(task.id()) && StringUtils.isNotBlank(task.toolName()))
+                .filter(task -> !NO_TOOL_SENTINELS.contains(task.toolName().strip().toLowerCase()))
                 .map(task -> repairStructuredToolTask(task, state))
                 .toList();
     }

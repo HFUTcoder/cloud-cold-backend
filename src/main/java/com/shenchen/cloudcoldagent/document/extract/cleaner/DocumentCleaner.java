@@ -18,7 +18,6 @@ import java.util.stream.Collectors;
  */
 public class DocumentCleaner {
 
-    private static final Pattern IMAGE_TAG_PATTERN = Pattern.compile("<image\\b[^>]*?>.*?</image>", Pattern.DOTALL);
     private static final Pattern INLINE_SPACE_PATTERN = Pattern.compile("[ \\t\\x0B\\f]+");
 
     /**
@@ -49,8 +48,6 @@ public class DocumentCleaner {
         }
 
         String text = normalizeNewlines(doc.getText());
-        List<String> protectedImageTags = new ArrayList<>();
-        text = protectImageTags(text, protectedImageTags);
 
         String[] lines = text.split("\n", -1);
         List<String> cleanedLines = new ArrayList<>();
@@ -71,7 +68,7 @@ public class DocumentCleaner {
         }
 
         List<String> deduplicatedLines = deduplicateLines(cleanedLines);
-        String cleanedText = restoreImageTags(String.join("\n", deduplicatedLines), protectedImageTags).trim();
+        String cleanedText = String.join("\n", deduplicatedLines).trim();
         Map<String, Object> metadata = doc.getMetadata() == null ? new LinkedHashMap<>() : new LinkedHashMap<>(doc.getMetadata());
 
         return doc.mutate()
@@ -88,26 +85,6 @@ public class DocumentCleaner {
      */
     private static String normalizeNewlines(String text) {
         return text.replace("\r\n", "\n").replace('\r', '\n');
-    }
-
-    /**
-     * 处理 `protect Image Tags` 对应逻辑。
-     *
-     * @param text text 参数。
-     * @param protectedImageTags protectedImageTags 参数。
-     * @return 返回处理结果。
-     */
-    private static String protectImageTags(String text, List<String> protectedImageTags) {
-        Matcher matcher = IMAGE_TAG_PATTERN.matcher(text);
-        StringBuffer buffer = new StringBuffer();
-        int index = 0;
-        while (matcher.find()) {
-            String placeholder = "__IMAGE_TAG_" + index++ + "__";
-            protectedImageTags.add(matcher.group());
-            matcher.appendReplacement(buffer, Matcher.quoteReplacement(placeholder));
-        }
-        matcher.appendTail(buffer);
-        return buffer.toString();
     }
 
     /**
@@ -166,18 +143,4 @@ public class DocumentCleaner {
         return deduplicated;
     }
 
-    /**
-     * 处理 `restore Image Tags` 对应逻辑。
-     *
-     * @param text text 参数。
-     * @param protectedImageTags protectedImageTags 参数。
-     * @return 返回处理结果。
-     */
-    private static String restoreImageTags(String text, List<String> protectedImageTags) {
-        String restored = text;
-        for (int i = 0; i < protectedImageTags.size(); i++) {
-            restored = restored.replace("__IMAGE_TAG_" + i + "__", protectedImageTags.get(i));
-        }
-        return restored;
-    }
 }

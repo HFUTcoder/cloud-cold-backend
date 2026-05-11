@@ -51,8 +51,8 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
+
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * 知识库服务实现，负责知识库管理、文档切分入库、图片描述 chunk 构建以及多路检索融合。
@@ -316,12 +316,6 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
      * @param documentSource 文档来源标识。
      * @return 图片描述 chunk 列表。
      */
-    @Override
-    @Deprecated
-    public List<EsDocumentChunk> buildImageDescriptionChunks(List<KnowledgeDocumentImage> images, String documentSource) {
-        return List.of();
-    }
-
     /**
      * 将准备好的 chunk 同步写入关键词索引和向量索引。
      *
@@ -769,33 +763,6 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
      * @param defaultChunkType 默认 chunk 类型。
      * @return 切分后的 chunk 列表。
      */
-    private List<EsDocumentChunk> buildChunks(List<Document> documents, DocumentIndexContext context, String defaultChunkType) {
-        List<Document> workingDocuments = DocumentCleaner.cleanDocuments(documents);
-        if (context != null) {
-            workingDocuments = enrichDocuments(workingDocuments, context);
-        }
-
-        OverlapParagraphTextSplitter splitter = new OverlapParagraphTextSplitter(DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP);
-        List<Document> splitDocuments = splitter.apply(workingDocuments);
-
-        List<EsDocumentChunk> chunks = new ArrayList<>(splitDocuments.size());
-        for (Document document : splitDocuments) {
-            EsDocumentChunk chunk = new EsDocumentChunk();
-            chunk.setId(document.getId());
-            chunk.setContent(document.getText());
-            Map<String, Object> metadata = document.getMetadata() == null
-                    ? new LinkedHashMap<>()
-                    : new LinkedHashMap<>(document.getMetadata());
-            metadata.putIfAbsent(KnowledgeChunkConstant.META_CHUNK_ID, document.getId());
-            if (defaultChunkType != null && !defaultChunkType.isBlank()) {
-                metadata.putIfAbsent(KnowledgeChunkConstant.META_CHUNK_TYPE, defaultChunkType);
-            }
-            chunk.setMetadata(metadata);
-            chunks.add(chunk);
-        }
-        return chunks;
-    }
-
     private record TwoLevelChunkResult(List<EsDocumentChunk> parents, List<EsDocumentChunk> children) {}
 
     private record ParentChunkInfo(
@@ -805,7 +772,10 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
             List<Long> imageIds
     ) {}
 
-    private static final Pattern IMAGE_ID_PATTERN = Pattern.compile("<image\\s+id=\"(\\d+)\"");
+    private static final Pattern IMAGE_ID_PATTERN = Pattern.compile("<cloudcoldagent-image\\s+id=\"(\\d+)\"");
+
+    private static final Pattern IMAGE_TAG_STRIP_PATTERN =
+            Pattern.compile("<cloudcoldagent-image\\s+id=\"\\d+\">(.*?)</cloudcoldagent-image>", Pattern.DOTALL);
 
     private Map<Integer, Long> buildImageIndexToMysqlIdMap(List<KnowledgeDocumentImage> images) {
         Map<Integer, Long> map = new LinkedHashMap<>();
@@ -857,7 +827,9 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
                         .distinct()
                         .toList();
 
-                parentInfos.add(new ParentChunkInfo(parentChunkId, paragraphText, i, mysqlImageIds));
+                String strippedText = IMAGE_TAG_STRIP_PATTERN.matcher(paragraphText).replaceAll("$1");
+
+                parentInfos.add(new ParentChunkInfo(parentChunkId, strippedText, i, mysqlImageIds));
             }
 
             List<List<Long>> propagatedImageIds = propagateImageIds(parentInfos);
@@ -901,6 +873,7 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         }
         return indices;
     }
+
 
     private List<List<Long>> propagateImageIds(List<ParentChunkInfo> parentInfos) {
         List<List<Long>> result = new ArrayList<>(parentInfos.size());
@@ -1096,20 +1069,6 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
      * @param source 规范化后的 source。
      * @return 过滤表达式。
      */
-    private String buildSourceFilterExpression(String source) {
-        return "source == '" + source.replace("\\", "\\\\").replace("'", "\\'") + "'";
-    }
-
-    /**
-     * 构建针对数值字段的向量检索过滤表达式。
-     *
-     * @param field 字段名。
-     * @param value 字段值。
-     * @return 过滤表达式。
-     */
-    private String buildNumericFilterExpression(String field, Number value) {
-        return field + " == " + value;
-    }
 
     /**
      * 根据元数据条件收集关键词索引中的 chunk id。

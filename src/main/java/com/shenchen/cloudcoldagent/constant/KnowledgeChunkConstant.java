@@ -13,10 +13,6 @@ public final class KnowledgeChunkConstant {
 
     public static final String CHUNK_TYPE_TEXT = "TEXT";
     public static final String CHUNK_TYPE_PARENT = "PARENT";
-    @Deprecated
-    public static final String CHUNK_TYPE_IMAGE_DESCRIPTION = "IMAGE_DESCRIPTION";
-    @Deprecated
-    public static final String PARENT_TYPE_DOCUMENT_IMAGE = "document_image";
     public static final String OBJECT_PREFIX_KNOWLEDGE = "knowledge/";
 
     public static final String META_USER_ID = "userId";

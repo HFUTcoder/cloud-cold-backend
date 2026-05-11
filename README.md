@@ -124,14 +124,17 @@ Agent 运行时仅暴露 `commonTools`（`@Qualifier("commonTools")`），包含
 
 ```
 PDF 上传 → MinIO 存储 → 临时落盘 → PdfMultimodalProcessor 读取
-  → 提取正文文本 → TEXT chunk
-  → 抽取 PDF 图片 → 多模态模型（qwen3-vl-plus）生成描述 → IMAGE_DESCRIPTION chunk
-→ ES 关键词索引（rag_docs）+ 向量索引（rag_docs_vector，1536 维，cosine 相似度）
+  → 提取正文文本 + 抽取 PDF 图片 → 多模态模型（qwen3-vl-plus）生成描述
+  → 图像描述注入文本原位 → 段落切分父块（PARENT）→ 子块切分（TEXT，200 字符）
+→ ES 关键词索引（rag_docs，父块+子块）+ 向量索引（rag_docs_vector，仅 TEXT 子块，1536 维，cosine 相似度）
 ```
 
+- 两级分块：父块（`PARENT`）含完整段落 + `metadata.imageIds`；子块（`TEXT`）含 `parentChunkId` 指向父块
+- 标量检索查父块，向量检索查子块，向量结果在 RRF 融合前 resolve 回父块
+- 图像描述通过 `<cloudcoldagent-image>` 标签注入文本原位，分块后剥离标签保留描述文字
 - 入库同步完成，返回时已是 `INDEXED` 或 `FAILED`
 - 当前仅支持 PDF，`PdfMultimodalProcessor` 是 `DocumentReaderStrategy` 的唯一实现
-- 预检索链路：会话绑定 `selectedKnowledgeId` → `KnowledgeService.hybridSearch()`（最多 8 个片段、4000 字符）→ 图片 chunk 解析 MinIO presigned URL → SSE `knowledge_retrieval` 事件
+- 预检索链路：会话绑定 `selectedKnowledgeId` → `KnowledgeService.hybridSearch()`（最多 8 个片段、4000 字符）→ 父块 `imageIds` 查 MySQL 获取 MinIO presigned URL → SSE `knowledge_retrieval` 事件
 
 ### 长期记忆 / 宠物记忆
 
@@ -179,7 +182,7 @@ PDF 上传 → MinIO 存储 → 临时落盘 → PdfMultimodalProcessor 读取
 ### 1. 初始化数据库
 
 ```bash
-mysql -uroot -p < src/main/java/com/shenchen/cloudcoldagent/sql/init.sql
+mysql -uroot -p < src/main/java/com/shenchen/cloudcoldagent/database/init.sql
 ```
 
 ### 2. 配置密钥
@@ -337,6 +340,7 @@ src/main/java/com/shenchen/cloudcoldagent
 ├── constant/              # DistributeLockConstant、KnowledgeChunkConstant、UserConstant
 ├── context/               # AgentRuntimeContext
 ├── controller/            # REST + SSE 接口（11 个 Controller）
+├── database/              # init.sql + ES mapping JSON 文件
 │   ├── agent/             # AgentController
 │   ├── chat/              # ChatConversationController、ChatMemoryHistoryController
 │   ├── hitl/              # HitlCheckpointController
@@ -388,7 +392,6 @@ src/main/java/com/shenchen/cloudcoldagent
 │   ├── node/              # 6 个 Node 实现
 │   ├── state/             # SkillRuntimeContext、SkillExecutionPlan 等状态对象
 │   └── service/           # SkillWorkflowService + StructuredOutputAgentExecutor
-└── sql/                   # 数据库初始化脚本
 ```
 
 ## 🏛 架构特点

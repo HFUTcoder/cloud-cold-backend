@@ -71,6 +71,7 @@ src/main/java/com/shenchen/cloudcoldagent
 ├── constant/              # DistributeLockConstant、KnowledgeChunkConstant、UserConstant
 ├── context/               # AgentRuntimeContext
 ├── controller/            # REST + SSE 接口（11 个 Controller）
+├── database/              # init.sql + ES mapping JSON 文件
 │   ├── agent/             # AgentController
 │   ├── chat/              # ChatConversationController、ChatMemoryHistoryController
 │   ├── hitl/              # HitlCheckpointController
@@ -123,7 +124,6 @@ src/main/java/com/shenchen/cloudcoldagent
 │   ├── service/           # SkillWorkflowService + StructuredOutputAgentExecutor
 │   │   └── impl/          # SkillWorkflowServiceImpl
 │   └── state/             # SkillRuntimeContext、SkillExecutionPlan 等状态对象
-└── sql/                   # 数据库初始化脚本
 ```
 
 ### 4.1 Agent 编排
@@ -192,12 +192,27 @@ Skill 来源：
 
 ### 4.5 知识库与文档
 
+**两级分块模型**：
+
+PDF 文本中图像描述按原位注入后，先按段落切分父块（`PARENT`），再按 200 字符 / 50 字符重叠切分子块（`TEXT`）。
+
+- **父块**：`chunkType=PARENT`，完整段落文本，含 `metadata.imageIds`（关联 MySQL 图像 ID）
+- **子块**：`chunkType=TEXT`，~200 字符，含 `metadata.parentChunkId` 指向父块
+- 父块写入关键词索引，子块写入关键词索引 + 向量索引（仅有 `TEXT` 子块向量化）
+- 检索：标量检索查 `PARENT` 父块，向量检索查 `TEXT` 子块，向量结果在 RRF 融合前 resolve 回父块
+
+**图像描述处理**：
+
+PDF 解析时将图像描述以 `<cloudcoldagent-image id="N">描述文字</cloudcoldagent-image>` 标签注入文本原位，在分块阶段提取 imageIndex 映射为 MySQL 图像 ID 存入父块 metadata，然后剥离 XML 标签只保留描述文字。图像 ID 会传播到相邻段落，确保图像与其上下文段落关联。
+
+**关键词检索**：使用 `content.ngram` 子字段（`edge_ngram` token filter，min_gram=1，max_gram=20）+ `match` 查询，中文/英文/数字均适用。
+
 **预检索链路**（Agent 入口前执行）：
 
 1. `KnowledgePreprocessServiceImpl.preprocess()` 检查会话是否绑定了 `selectedKnowledgeId`
-2. `KnowledgeService.hybridSearch()` 混合检索（关键词 + 向量，最多 8 个片段、4000 字符）
-3. 命中 `IMAGE_DESCRIPTION` chunk → 解析 MinIO presigned URL → `knowledge_retrieval` SSE 事件
-4. 文本 chunk → `KnowledgePrompts` 组装增强问题
+2. `KnowledgeService.hybridSearch()` 混合检索：标量检索查父块 + 向量检索查子块 → resolve 到父块 → RRF 融合（最多 8 个片段、4000 字符）
+3. 从父块 `metadata.imageIds` 提取关联图像 → 查 MySQL 获取 MinIO presigned URL → `knowledge_retrieval` SSE 事件
+4. 父块文本 → `KnowledgePrompts` 组装增强问题
 5. 图片暂存 `ChatMemoryPendingImageBindingService`，助手消息落库时回绑
 
 **PDF 入库链路**（同步）：
@@ -205,8 +220,8 @@ Skill 来源：
 1. 校验知识库归属 → 原始 PDF 上传 MinIO → 写入 `knowledge_document`（`PENDING` → `INDEXING`）
 2. 临时落盘 → `PdfMultimodalProcessor` 读取
 3. 提取正文文本 → 抽取 PDF 图片 → 多模态模型（`qwen3-vl-plus`）生成描述
-4. 正文 → `TEXT` chunk；图片描述 → `IMAGE_DESCRIPTION` chunk
-5. 写入关键词索引 `rag_docs` + 向量索引 `rag_docs_vector`（1536 维，cosine 相似度）
+4. 图像描述注入文本原位 → 段落切分父块 → 子块切分
+5. 父块 + 子块写入关键词索引 `rag_docs`，TEXT 子块写入向量索引 `rag_docs_vector`（1536 维，cosine 相似度）
 6. 成功 → `INDEXED`；失败 → 清理索引与图片记录 → `FAILED`
 
 **当前仅支持 PDF**。`PdfMultimodalProcessor` 是 `DocumentReaderStrategy` 的唯一实现。
@@ -388,7 +403,11 @@ Skill 来源：
 - **知识库检索**：主链路是进入 Agent 前的服务层预检索（`KnowledgePreprocessServiceImpl.preprocess()`），不是 Agent 运行时调用 rag tool。
 - **文档上传**：`POST /document/upload` 是同步入库，返回时已经是 `INDEXED` 或 `FAILED`。
 - **文档格式**：当前只支持 PDF。`PdfMultimodalProcessor` 是 `DocumentReaderStrategy` 的唯一实现。扩展格式需同步注册 `DocumentReaderStrategy`、前端上传限制和文档。
-- **PDF 入库**：同时处理正文文本（`TEXT` chunk）和图片描述（`IMAGE_DESCRIPTION` chunk），涉及 MinIO、`knowledge_document_image`、关键词索引和向量索引。
+- **PDF 入库**：使用两级分块（父块 `PARENT` + 子块 `TEXT`）。图像描述通过 `<cloudcoldagent-image>` 标签注入文本原位，分块后剥离标签保留描述文字，图像 ID 存入父块 `metadata.imageIds`。不再使用 `IMAGE_DESCRIPTION` chunk 类型。
+- **ES 检索**：关键词检索使用 `content.ngram` 子字段（`edge_ngram`）+ `match` 查询。标量检索只查 `PARENT` 父块，向量检索查 `TEXT` 子块，向量结果在 RRF 融合前 resolve 回父块。
+- **ES 索引管理**：索引初始化集中在 `EsConfig.initEsIndices()`（`@EventListener(ApplicationReadyEvent.class)`），mapping JSON 文件位于 `src/main/java/com/shenchen/cloudcoldagent/database/`。不要在 ServiceImpl 中创建索引。
+- **VectorStore**：两个命名 Bean — `ragVectorStore`（`@Primary`，索引 `rag_docs_vector`）和 `longTermMemoryVectorStore`（索引名由 `LongTermMemoryProperties.vectorIndexName` 配置）。均通过 `EsConfig` 配置，使用 `ElasticsearchVectorStore.builder().initializeSchema(true)`。
+- **FilterExpression**：向量检索的元数据过滤使用 `Filter.Expression` 对象 API（`new Filter.Expression(ExpressionType.EQ, new Filter.Key(key), new Filter.Value(value))`），不拼字符串再走 `FilterExpressionTextParser`，避免大数值溢出。
 - **`Long` / `long` 序列化**：`WebConfig` 中 `ToStringSerializer` 统一序列化成 JSON 字符串，修改属于前后端契约级改动。
 - **聊天记忆**：不持久化实时思考过程，只持久化用户消息、助手最终回答和已回绑知识库图片（`ChatMemoryHistoryImageRelation`）。
 - **长期记忆**：已接入主链路（`AgentServiceImpl` 中调用 `UserLongTermMemoryPreprocessService`），修改提取 Prompt、ES 索引 mapping、memory type 枚举时需同步前后端。

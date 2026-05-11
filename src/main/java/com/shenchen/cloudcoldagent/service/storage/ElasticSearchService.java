@@ -163,14 +163,6 @@ public interface ElasticSearchService {
     void vectorDeleteByIds(List<String> ids) throws Exception;
 
     /**
-     * 处理 `vector Delete By Filter` 对应逻辑。
-     *
-     * @param filterExpression filterExpression 参数。
-     * @throws Exception 异常信息。
-     */
-    void vectorDeleteByFilter(String filterExpression) throws Exception;
-
-    /**
      * 处理 `vector Index Exists` 对应逻辑。
      *
      * @return 返回处理结果。

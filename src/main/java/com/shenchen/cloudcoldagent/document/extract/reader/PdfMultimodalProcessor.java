@@ -169,22 +169,22 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
             String text = finalText.toString().trim();
             for (ExtractedDocumentImage img : extractedImages) {
                 String desc = img.description();
-                if (desc != null) {
-                    desc = desc.replace("\r\n", " ").replace("\n", " ").replace("\r", " ");
+                if (desc == null || desc.isBlank()) {
+                    text = text.replace("[IMAGE_" + img.imageIndex() + "]", "");
                 } else {
-                    desc = "[无法识别图片内容]";
+                    desc = desc.replace("\r\n", " ").replace("\n", " ").replace("\r", " ");
+                    text = text.replace(
+                            "[IMAGE_" + img.imageIndex() + "]",
+                            "<cloudcoldagent-image id=\"" + img.imageIndex() + "\">" + escapeXml(desc) + "</cloudcoldagent-image>"
+                    );
                 }
-                text = text.replace(
-                        "[IMAGE_" + img.imageIndex() + "]",
-                        "<image id=\"" + img.imageIndex() + "\">" + escapeXml(desc) + "</image>"
-                );
             }
             return new PdfProcessingResult(text, extractedImages);
         }
     }
 
     /**
-     * 处理单张图片：上传 MinIO + AI 识别 + 返回 <image> 标签
+     * 处理单张图片：上传 MinIO + AI 识别 + 返回 cloudcoldagent-image 标签
      */
     private ExtractedDocumentImage processImage(PDImageXObject image, int pageNumber, int imageIndex) {
         try {
@@ -194,7 +194,7 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
             byte[] imageBytes = baos.toByteArray();
             String base64Image = Base64.getEncoder().encodeToString(imageBytes);
             String description = image2Text(base64Image);
-            description = (description == null || description.trim().isEmpty()) ? "[无法识别图片内容]" : description.trim();
+            description = (description == null || description.trim().isEmpty()) ? "" : description.trim();
             return new ExtractedDocumentImage(
                     imageIndex,
                     pageNumber,
@@ -209,7 +209,7 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
                     pageNumber,
                     new byte[0],
                     MimeTypeUtils.IMAGE_PNG_VALUE,
-                    "[图片处理错误]"
+                    ""
             );
         }
     }

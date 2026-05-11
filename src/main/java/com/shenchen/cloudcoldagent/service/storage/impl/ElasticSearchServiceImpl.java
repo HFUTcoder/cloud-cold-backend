@@ -5,24 +5,17 @@ import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.Refresh;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch.core.*;
-import co.elastic.clients.elasticsearch.indices.CreateIndexRequest;
-import co.elastic.clients.elasticsearch.indices.ExistsRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk;
 import com.shenchen.cloudcoldagent.service.storage.ElasticSearchService;
-import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.elasticsearch.ElasticsearchVectorStore;
 import org.springframework.ai.vectorstore.filter.Filter;
-import org.springframework.ai.vectorstore.filter.FilterExpressionTextParser;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
-import java.io.IOException;
 import java.io.StringReader;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -44,8 +37,6 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
     private final VectorStore vectorStore;
 
     private final ObjectMapper mapper = new ObjectMapper();
-
-    private final FilterExpressionTextParser filterExpressionTextParser = new FilterExpressionTextParser();
 
     private static final String INDEX_NAME = "rag_docs";
 
@@ -427,8 +418,25 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
             return similaritySearch(query, topK, similarityThreshold, (String) null);
         }
 
-        String filterExpression = buildFilterExpression(metadataFilters);
+        Filter.Expression filterExpression = buildFilterExpression(metadataFilters);
         return similaritySearch(query, topK, similarityThreshold, filterExpression);
+    }
+
+    private List<Document> similaritySearch(String query, int topK, double similarityThreshold,
+                                            Filter.Expression filterExpression) throws Exception {
+        org.springframework.ai.vectorstore.SearchRequest.Builder builder = org.springframework.ai.vectorstore.SearchRequest.builder()
+                .query(query)
+                .topK(topK);
+
+        if (similarityThreshold != org.springframework.ai.vectorstore.SearchRequest.SIMILARITY_THRESHOLD_ACCEPT_ALL) {
+            builder.similarityThreshold(similarityThreshold);
+        }
+
+        if (filterExpression != null) {
+            builder.filterExpression(filterExpression);
+        }
+
+        return vectorStore.similaritySearch(builder.build());
     }
 
     /**
@@ -445,20 +453,6 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         vectorStore.delete(ids);
     }
 
-    /**
-     * 按过滤表达式删除向量索引中的文档。
-     *
-     * @param filterExpression 过滤表达式。
-     * @throws Exception 删除失败时抛出。
-     */
-    @Override
-    public void vectorDeleteByFilter(String filterExpression) throws Exception {
-        if (filterExpression == null || filterExpression.isBlank()) {
-            return;
-        }
-        Filter.Expression expression = filterExpressionTextParser.parse(filterExpression);
-        vectorStore.delete(expression);
-    }
 
     /**
      * 判断向量索引是否已就绪。
@@ -533,40 +527,29 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         return FieldValue.of(value.toString());
     }
 
-    /**
-     * 将元数据过滤条件转换成向量存储过滤表达式。
-     *
-     * @param metadataFilters 元数据过滤条件。
-     * @return 过滤表达式文本。
-     */
-    private String buildFilterExpression(Map<String, Object> metadataFilters) {
+    private Filter.Expression buildFilterExpression(Map<String, Object> metadataFilters) {
         if (metadataFilters == null || metadataFilters.isEmpty()) {
             return null;
         }
 
-        return metadataFilters.entrySet().stream()
+        List<Filter.Expression> exprs = metadataFilters.entrySet().stream()
                 .filter(entry -> entry.getKey() != null && !entry.getKey().isBlank() && entry.getValue() != null)
-                .map(entry -> entry.getKey() + " == " + formatFilterValue(entry.getValue()))
-                .reduce((left, right) -> left + " && " + right)
-                .orElse(null);
-    }
+                .map(entry -> new Filter.Expression(Filter.ExpressionType.EQ,
+                        new Filter.Key(entry.getKey()), new Filter.Value(entry.getValue())))
+                .toList();
 
-
-    /**
-     * 将过滤值格式化成向量存储过滤表达式中的文本片段。
-     *
-     * @param value 原始值。
-     * @return 格式化后的表达式值。
-     */
-    private String formatFilterValue(Object value) {
-        if (value instanceof Number || value instanceof Boolean) {
-            return value.toString();
+        if (exprs.isEmpty()) {
+            return null;
+        }
+        if (exprs.size() == 1) {
+            return exprs.get(0);
         }
 
-        String text = value.toString()
-                .replace("\\", "\\\\")
-                .replace("'", "\\'");
-        return "'" + text + "'";
+        Filter.Expression result = exprs.get(0);
+        for (int i = 1; i < exprs.size(); i++) {
+            result = new Filter.Expression(Filter.ExpressionType.AND, result, exprs.get(i));
+        }
+        return result;
     }
 
     @Override
