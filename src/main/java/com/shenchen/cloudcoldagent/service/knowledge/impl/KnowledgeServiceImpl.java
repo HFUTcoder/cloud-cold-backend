@@ -758,9 +758,6 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
     /**
      * 将 Spring AI Document 列表切分并转换成 ES chunk 实体。
      *
-     * @param documents 原始文档列表。
-     * @param context 文档索引上下文。
-     * @param defaultChunkType 默认 chunk 类型。
      * @return 切分后的 chunk 列表。
      */
     private record TwoLevelChunkResult(List<EsDocumentChunk> parents, List<EsDocumentChunk> children) {}
