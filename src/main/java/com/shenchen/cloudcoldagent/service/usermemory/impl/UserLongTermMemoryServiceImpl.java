@@ -29,7 +29,8 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import org.redisson.api.RedissonClient;
+import org.redisson.client.codec.StringCodec;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -60,7 +61,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
     private final UserConversationRelationService userConversationRelationService;
     private final ChatMemoryHistoryMapper chatMemoryHistoryMapper;
     private final StructuredOutputAgentExecutor structuredOutputAgentExecutor;
-    private final StringRedisTemplate stringRedisTemplate;
+    private final RedissonClient redissonClient;
     private final LongTermMemoryProperties properties;
     private final ObjectMapper objectMapper;
     private final RateLimiter rateLimiter;
@@ -74,7 +75,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
      * @param userConversationRelationService 用户会话归属服务。
      * @param chatMemoryHistoryMapper 历史消息 mapper。
      * @param structuredOutputAgentExecutor 结构化输出执行器。
-     * @param stringRedisTemplate Redis 模板。
+     * @param redissonClient Redisson 客户端。
      * @param properties 长期记忆配置。
      * @param objectMapper 对象映射器。
      * @param rateLimiter 限流器。
@@ -85,7 +86,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
                                          UserConversationRelationService userConversationRelationService,
                                          ChatMemoryHistoryMapper chatMemoryHistoryMapper,
                                          StructuredOutputAgentExecutor structuredOutputAgentExecutor,
-                                         StringRedisTemplate stringRedisTemplate,
+                                         RedissonClient redissonClient,
                                          LongTermMemoryProperties properties,
                                          ObjectMapper objectMapper,
                                          RateLimiter rateLimiter,
@@ -95,7 +96,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         this.userConversationRelationService = userConversationRelationService;
         this.chatMemoryHistoryMapper = chatMemoryHistoryMapper;
         this.structuredOutputAgentExecutor = structuredOutputAgentExecutor;
-        this.stringRedisTemplate = stringRedisTemplate;
+        this.redissonClient = redissonClient;
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.rateLimiter = rateLimiter;
@@ -185,7 +186,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
             metadataService.ensureConversationState(userId, conversationId);
         }
         metadataService.markAllUserConversationsUnprocessed(userId);
-        dispatchPendingConversationsProcessing(userId);
+        dispatchPendingConversationsProcessing(userId, true);
         return true;
     }
 
@@ -202,7 +203,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         if (StringUtils.isBlank(petName)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "petName 不能为空");
         }
-        stringRedisTemplate.opsForValue().set(USER_MEMORY_PET_NAME_KEY + userId, petName.trim(), 30, java.util.concurrent.TimeUnit.DAYS);
+        redissonClient.getBucket(USER_MEMORY_PET_NAME_KEY + userId, StringCodec.INSTANCE).set(petName.trim(), 30, java.util.concurrent.TimeUnit.DAYS);
         return true;
     }
 
@@ -332,11 +333,15 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
     @Override
     @DistributeLock(scene = "long_term_memory:user", keyExpression = "#userId")
     public void processPendingConversations(Long userId) {
+        processPendingConversations(userId, false);
+    }
+
+    private void processPendingConversations(Long userId, boolean rebuildAll) {
         if (!properties.isEnabled() || userId == null || userId <= 0) {
             return;
         }
         try {
-            doProcessPendingConversations(userId);
+            doProcessPendingConversations(userId, rebuildAll);
         } catch (Exception e) {
             log.warn("处理长期记忆待处理会话失败，userId={}, message={}", userId, e.getMessage(), e);
         }
@@ -348,19 +353,30 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
      * @param userId 当前用户 id。
      */
     private void dispatchPendingConversationsProcessing(Long userId) {
+        dispatchPendingConversationsProcessing(userId, false);
+    }
+
+    /**
+     * 异步分发一次长期记忆待处理会话扫描任务。
+     *
+     * @param userId 当前用户 id。
+     * @param rebuildAll 为 true 时强制重建所有待处理会话。
+     */
+    private void dispatchPendingConversationsProcessing(Long userId, boolean rebuildAll) {
         if (userId == null || userId <= 0) {
             return;
         }
-        CompletableFuture.runAsync(() -> processPendingConversations(userId), longTermMemoryExecutor);
+        CompletableFuture.runAsync(() -> processPendingConversations(userId, rebuildAll), longTermMemoryExecutor);
     }
 
     /**
      * 实际执行待处理会话扫描与重建逻辑。
      *
      * @param userId 当前用户 id。
+     * @param rebuildAll 为 true 时强制重建所有待处理会话（手动触发），为 false 时仅处理≥触发阈值的会话。
      * @throws Exception 重建过程中发生异常时抛出。
      */
-    private void doProcessPendingConversations(Long userId) throws Exception {
+    private void doProcessPendingConversations(Long userId, boolean rebuildAll) throws Exception {
         List<UserLongTermMemoryConversationState> pendingStates = metadataService.listPendingConversationStates(userId);
         if (pendingStates.isEmpty()) {
             return;
@@ -369,8 +385,13 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
             if (state == null || StringUtils.isBlank(state.getConversationId())) {
                 continue;
             }
+            int pendingRounds = state.getPendingCompletedRounds() == null ? 0 : state.getPendingCompletedRounds();
+            if (!rebuildAll && pendingRounds < properties.getTriggerRounds()) {
+                continue;
+            }
             rebuildConversationMemories(userId, state.getConversationId());
-            metadataService.markConversationProcessed(userId, state.getConversationId());
+            metadataService.deductPendingRounds(userId, state.getConversationId(),
+                    rebuildAll ? Math.max(pendingRounds, 1) : properties.getTriggerRounds());
         }
         markLearned(userId);
     }
@@ -625,9 +646,9 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
      * @return 宠物名称。
      */
     private String resolvePetName(Long userId) {
-        String petName = stringRedisTemplate.opsForValue().get(USER_MEMORY_PET_NAME_KEY + userId);
+        String petName = (String) redissonClient.getBucket(USER_MEMORY_PET_NAME_KEY + userId, StringCodec.INSTANCE).get();
         if (StringUtils.isNotBlank(petName)) {
-            stringRedisTemplate.expire(USER_MEMORY_PET_NAME_KEY + userId, 30, java.util.concurrent.TimeUnit.DAYS);
+            redissonClient.getBucket(USER_MEMORY_PET_NAME_KEY + userId, StringCodec.INSTANCE).expire(30, java.util.concurrent.TimeUnit.DAYS);
             return petName;
         }
         return properties.getDefaultPetName();
@@ -649,7 +670,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
      * @param userId 当前用户 id。
      */
     private void markLearned(Long userId) {
-        stringRedisTemplate.opsForValue().set(USER_MEMORY_LAST_LEARNED_AT_KEY + userId, java.time.Instant.now().toString());
+        redissonClient.getBucket(USER_MEMORY_LAST_LEARNED_AT_KEY + userId, StringCodec.INSTANCE).set(java.time.Instant.now().toString());
     }
 
     /**
@@ -659,7 +680,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
      * @return 最近学习时间；不存在或解析失败时返回 null。
      */
     private LocalDateTime resolveLastLearnedAt(Long userId) {
-        String value = stringRedisTemplate.opsForValue().get(USER_MEMORY_LAST_LEARNED_AT_KEY + userId);
+        String value = (String) redissonClient.getBucket(USER_MEMORY_LAST_LEARNED_AT_KEY + userId, StringCodec.INSTANCE).get();
         if (StringUtils.isBlank(value)) {
             return null;
         }

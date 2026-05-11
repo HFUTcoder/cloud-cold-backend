@@ -161,4 +161,13 @@ public interface UserLongTermMemoryMetadataService {
      * @param conversationId conversationId 参数。
      */
     void markConversationProcessed(Long userId, String conversationId);
+
+    /**
+     * 从 pendingCompletedRounds 中减去已处理的轮次数，根据余额重新计算状态。
+     *
+     * @param userId 当前用户 id。
+     * @param conversationId 会话 id。
+     * @param processedRounds 本次已处理的轮次数。
+     */
+    void deductPendingRounds(Long userId, String conversationId, int processedRounds);
 }

@@ -602,4 +602,34 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
                         .eq("isDelete", 0)
         );
     }
+
+    @Override
+    public void deductPendingRounds(Long userId, String conversationId, int processedRounds) {
+        if (userId == null || userId <= 0 || StringUtils.isBlank(conversationId) || processedRounds <= 0) {
+            return;
+        }
+        ensureConversationState(userId, conversationId);
+        UserLongTermMemoryConversationState current = conversationStateMapper.selectOneByQuery(QueryWrapper.create()
+                .eq("userId", userId)
+                .eq("conversationId", conversationId.trim())
+                .eq("isDelete", 0));
+        if (current == null) {
+            return;
+        }
+        int oldValue = current.getPendingCompletedRounds() == null ? 0 : current.getPendingCompletedRounds();
+        int remaining = Math.max(0, oldValue - processedRounds);
+        LocalDateTime now = LocalDateTime.now();
+        conversationStateMapper.updateByQuery(
+                UserLongTermMemoryConversationState.builder()
+                        .status(remaining > 0 ? CONVERSATION_STATUS_UNPROCESSED : CONVERSATION_STATUS_PROCESSED)
+                        .pendingCompletedRounds(remaining)
+                        .lastBuiltAt(now)
+                        .updateTime(now)
+                        .build(),
+                QueryWrapper.create()
+                        .eq("userId", userId)
+                        .eq("conversationId", conversationId.trim())
+                        .eq("isDelete", 0)
+        );
+    }
 }

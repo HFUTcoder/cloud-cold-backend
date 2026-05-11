@@ -39,6 +39,7 @@
 | `server.port` | `8081` | 服务端口 |
 | `server.servlet.context-path` | `/api` | 接口前缀 |
 | `cloudcold.agent.react.max-rounds` | `5` | ReactAgent 最大轮次 |
+| `cloudcold.agent.react.tool-concurrency` | `3` | ReactAgent 工具并行度 |
 | `cloudcold.agent.plan.max-rounds` | `5` | PlanExecuteAgent 最大轮次 |
 | `cloudcold.agent.plan.max-tool-retries` | `5` | 工具调用最大重试 |
 | `cloudcold.agent.plan.context-char-limit` | `5000` | 上下文压缩字符阈值 |
@@ -104,7 +105,7 @@ src/main/java/com/shenchen/cloudcoldagent
 │   └── vo/                # 视图对象（usermemory/ 含 UserPetStateVO、UserLongTermMemoryVO）
 ├── prompts/               # BaseAgentPrompts、PlanExecutePrompts、ReactAgentPrompts、KnowledgePrompts、SkillWorkflowPrompts、UserLongTermMemoryPrompts
 ├── registry/              # SkillRegistry 接口、CachingSkillRegistry、FileSystemSkillRegistry
-├── service/               # 业务接口（24 个）
+├── service/               # 业务接口（23 个）
 │   ├── agent/             # AgentService
 │   ├── chat/              # ChatConversationService、ChatMemoryHistoryService 等（7 个）
 │   ├── hitl/              # HitlCheckpointService、HitlExecutionService、HitlResumeService
@@ -112,7 +113,7 @@ src/main/java/com/shenchen/cloudcoldagent
 │   ├── user/              # UserService
 │   ├── skill/             # SkillService
 │   ├── storage/           # ElasticSearchService、MinioService
-│   └── usermemory/        # 长期记忆服务接口 + 实现（4 对）
+│   └── usermemory/        # 长期记忆服务接口 + 实现（3 对）
 ├── tools/                 # Agent Tools
 │   ├── common/            # SearchTool
 │   ├── rag/               # AbstractKnowledgeSearchTool、KnowledgeHybridSearchTool、KnowledgeScalarSearchTool、KnowledgeVectorSearchTool

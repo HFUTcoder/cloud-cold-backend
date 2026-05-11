@@ -25,7 +25,7 @@
 | `spring.profiles.active` | `local` |
 | `spring.datasource.url` | `jdbc:mysql://localhost:3306/cloud_cold` |
 | `spring.datasource.username` | `root` |
-| `spring.datasource.password` | `1234` |
+| `spring.datasource.password` | `your-mysql-password-here` |
 | `spring.data.redis.host` | `localhost` |
 | `spring.elasticsearch.uris` | `http://localhost:9200` |
 | `minio.endpoint` | `http://localhost:9000` |
@@ -93,7 +93,7 @@ cloudcold:
 初始化脚本：
 
 ```text
-src/main/java/com/shenchen/cloudcoldagent/sql/init.sql
+src/main/java/com/shenchen/cloudcoldagent/database/init.sql
 ```
 
 核心表包括：
@@ -174,6 +174,6 @@ java -jar target/cloud-cold-agent-0.0.1-SNAPSHOT.jar
 - 联网搜索不生效：确认关闭 mock，并配置 Tavily。
 - 文档上传很慢：当前上传接口同步完成 PDF 解析、抽图、索引，不是异步任务队列。
 - 文档上传失败：检查 MinIO、Elasticsearch、Embedding 模型和 PDF 多模态模型。
-- 知识库图片不回显：检查是否命中 `IMAGE_DESCRIPTION` chunk，以及 MinIO 预签名 URL 是否生成成功。
+- 知识库图片不回显：检查父块 `metadata.imageIds` 是否包含有效图片 ID，以及 MinIO 预签名 URL 是否生成成功。
 - 长期记忆没有刷新：确认是否达到 `trigger-rounds=5`，再检查整点调度或手动 `/userMemory/rebuild`。
 - 前端 ID 比较异常：优先确认后端返回的 `Long` 是否为字符串。

@@ -6,6 +6,7 @@ import co.elastic.clients.elasticsearch.core.BulkRequest;
 import co.elastic.clients.elasticsearch.core.DeleteByQueryRequest;
 import co.elastic.clients.elasticsearch.core.SearchRequest;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
+import co.elastic.clients.elasticsearch.core.search.Hit;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shenchen.cloudcoldagent.config.properties.LongTermMemoryProperties;
 import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemoryDoc;
@@ -14,6 +15,7 @@ import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryMetadata
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.filter.Filter;
 import org.springframework.stereotype.Service;
 
 import java.io.StringReader;
@@ -85,9 +87,9 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
                     .metadata(buildMetadata(memory))
                     .build());
         }
-        bulkBuilder.refresh(Refresh.True);
-        elasticsearchClient.bulk(bulkBuilder.build());
         if (!vectorDocuments.isEmpty()) {
+            bulkBuilder.refresh(Refresh.True);
+            elasticsearchClient.bulk(bulkBuilder.build());
             vectorStore.add(vectorDocuments);
         }
     }
@@ -134,18 +136,18 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
         if (userId == null || userId <= 0 || query == null || query.isBlank()) {
             return List.of();
         }
+        Filter.Expression userIdFilter = new Filter.Expression(
+                Filter.ExpressionType.EQ,
+                new Filter.Key("userId"),
+                new Filter.Value(userId));
         org.springframework.ai.vectorstore.SearchRequest request = org.springframework.ai.vectorstore.SearchRequest.builder()
                 .query(query)
                 .topK(topK)
                 .similarityThreshold(properties.getSimilarityThreshold())
+                .filterExpression(userIdFilter)
                 .build();
         List<Document> recalled = vectorStore.similaritySearch(request);
-        List<Document> documents = recalled == null
-                ? List.of()
-                : recalled.stream()
-                .filter(document -> matchesUserId(document, userId))
-                .limit(topK)
-                .toList();
+        List<Document> documents = recalled == null ? List.of() : new ArrayList<>(recalled);
         if (documents == null || documents.isEmpty()) {
             return List.of();
         }
@@ -195,10 +197,7 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
         if (userId == null || userId <= 0) {
             return;
         }
-        List<String> ids = listByUserId(userId, 1000).stream()
-                .map(UserLongTermMemoryDoc::getId)
-                .filter(Objects::nonNull)
-                .toList();
+        List<String> ids = getAllMemoryIdsByQuery(q -> q.term(t -> t.field("userId").value(userId)));
         elasticsearchClient.deleteByQuery(DeleteByQueryRequest.of(b -> b
                 .index(properties.getKeywordIndexName())
                 .refresh(true)
@@ -227,9 +226,12 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
         if (validIds.isEmpty()) {
             return;
         }
+        BulkRequest.Builder bulkBuilder = new BulkRequest.Builder();
         for (String memoryId : validIds) {
-            elasticsearchClient.delete(d -> d.index(properties.getKeywordIndexName()).id(memoryId).refresh(Refresh.True));
+            bulkBuilder.operations(op -> op.delete(d -> d.index(properties.getKeywordIndexName()).id(memoryId)));
         }
+        bulkBuilder.refresh(Refresh.True);
+        elasticsearchClient.bulk(bulkBuilder.build());
         vectorStore.delete(validIds);
     }
 
@@ -245,25 +247,59 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
         if (userId == null || userId <= 0 || conversationId == null || conversationId.isBlank()) {
             return;
         }
-        List<String> ids = listByUserId(userId, 1000).stream()
-                .filter(memory -> conversationId.equals(memory.getOriginConversationId()))
-                .map(UserLongTermMemoryDoc::getId)
-                .filter(Objects::nonNull)
-                .toList();
-        if (ids.isEmpty()) {
-            return;
-        }
+        List<String> ids = getAllMemoryIdsByQuery(q -> q.bool(bool -> bool
+                .must(m -> m.term(t -> t.field("userId").value(userId)))
+                .must(m -> m.term(t -> t.field("originConversationId").value(conversationId)))));
         elasticsearchClient.deleteByQuery(DeleteByQueryRequest.of(b -> b
                 .index(properties.getKeywordIndexName())
                 .refresh(true)
                 .query(q -> q.bool(bool -> bool
                         .must(m -> m.term(t -> t.field("userId").value(userId)))
                         .must(m -> m.term(t -> t.field("originConversationId").value(conversationId)))))));
-        vectorStore.delete(ids);
+        if (!ids.isEmpty()) {
+            vectorStore.delete(ids);
+        }
     }
 
     /**
-     * 判断指定关键词索引是否已经存在。
+     * 使用 search_after 分页拉取关键词索引中符合查询条件的全部 memoryId。
+     *
+     * @param queryFn 查询条件构造器。
+     * @return 命中的全部 memoryId 列表。
+     * @throws Exception 查询索引失败时抛出。
+     */
+    private List<String> getAllMemoryIdsByQuery(java.util.function.Function<co.elastic.clients.elasticsearch._types.query_dsl.Query.Builder,
+            co.elastic.clients.util.ObjectBuilder<co.elastic.clients.elasticsearch._types.query_dsl.Query>> queryFn) throws Exception {
+        List<String> allIds = new ArrayList<>();
+        List<co.elastic.clients.elasticsearch._types.FieldValue> lastSortValues = null;
+        while (true) {
+            SearchRequest.Builder builder = new SearchRequest.Builder()
+                    .index(properties.getKeywordIndexName())
+                    .size(500)
+                    .query(queryFn)
+                    .sort(s -> s.field(f -> f.field("_id").order(co.elastic.clients.elasticsearch._types.SortOrder.Asc)));
+            if (lastSortValues != null) {
+                builder.searchAfter(lastSortValues);
+            }
+            SearchResponse<UserLongTermMemoryDoc> response = elasticsearchClient.search(builder.build(),
+                    UserLongTermMemoryDoc.class);
+            List<Hit<UserLongTermMemoryDoc>> hits = response.hits().hits();
+            if (hits.isEmpty()) {
+                break;
+            }
+            for (Hit<UserLongTermMemoryDoc> hit : hits) {
+                if (hit.id() != null) {
+                    allIds.add(hit.id());
+                }
+                lastSortValues = hit.sort();
+            }
+            if (hits.size() < 500) {
+                break;
+            }
+        }
+        return allIds;
+    }
+
     /**
      * 为长期记忆构建写入向量存储时使用的元数据。
      *
@@ -278,26 +314,5 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
         metadata.put("confidence", memory.getConfidence());
         metadata.put("originConversationId", memory.getOriginConversationId());
         return metadata;
-    }
-
-    /**
-     * 判断向量检索返回的文档是否属于当前用户。
-     *
-     * @param document 向量检索命中的文档。
-     * @param userId 当前用户 id。
-     * @return 命中当前用户时返回 true。
-     */
-    private boolean matchesUserId(Document document, Long userId) {
-        if (document == null || document.getMetadata() == null || document.getMetadata().isEmpty()) {
-            return false;
-        }
-        Object actualUserId = document.getMetadata().get("userId");
-        if (actualUserId == null) {
-            return false;
-        }
-        if (actualUserId instanceof Number number) {
-            return number.longValue() == userId;
-        }
-        return String.valueOf(userId).equals(String.valueOf(actualUserId));
     }
 }

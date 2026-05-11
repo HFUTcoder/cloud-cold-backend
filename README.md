@@ -373,7 +373,7 @@ src/main/java/com/shenchen/cloudcoldagent
 │   └── vo/                # 视图对象（含 UserPetStateVO、UserLongTermMemoryVO）
 ├── prompts/               # System Prompt（BaseAgentPrompts、PlanExecutePrompts、ReactAgentPrompts、KnowledgePrompts、SkillWorkflowPrompts、UserLongTermMemoryPrompts）
 ├── registry/              # SkillRegistry、CachingSkillRegistry、FileSystemSkillRegistry
-├── service/               # 业务接口（24 个）
+├── service/               # 业务接口（23 个）
 │   ├── agent/             # AgentService
 │   ├── chat/              # ChatConversationService、ChatMemoryHistoryService 等（7 个）
 │   ├── hitl/              # HitlCheckpointService、HitlExecutionService、HitlResumeService
@@ -381,7 +381,7 @@ src/main/java/com/shenchen/cloudcoldagent
 │   ├── user/              # UserService
 │   ├── skill/             # SkillService
 │   ├── storage/           # ElasticSearchService、MinioService
-│   └── usermemory/        # 长期记忆服务接口 + 实现（4 对）
+│   └── usermemory/        # 长期记忆服务接口 + 实现（3 对）
 ├── tools/                 # Agent Tools
 │   ├── common/            # SearchTool
 │   ├── rag/               # AbstractKnowledgeSearchTool、KnowledgeHybridSearchTool、KnowledgeScalarSearchTool、KnowledgeVectorSearchTool
@@ -419,6 +419,7 @@ Plan（LLM 生成 List<PlanTask>）→ Execute（同 order 并行执行）→ Cr
 | `spring.ai.openai.base-url` | DashScope 兼容模式 | API 基址 |
 | `spring.session.timeout` | `2592000`（30 天） | Session ttl |
 | `cloudcold.agent.react.max-rounds` | `5` | ReAct 最大轮次 |
+| `cloudcold.agent.react.tool-concurrency` | `3` | ReAct 工具并行度 |
 | `cloudcold.agent.plan.max-rounds` | `5` | PlanExecute 最大轮次 |
 | `cloudcold.agent.plan.max-tool-retries` | `5` | 工具重试次数 |
 | `cloudcold.agent.plan.context-char-limit` | `5000` | 上下文压缩阈值 |

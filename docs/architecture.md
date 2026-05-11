@@ -27,7 +27,7 @@ Controller 层
 - `commonTools` 只包含 `search` 和 `execute_skill_script`。
 - 知识库问答主链路是进入 Agent 前的服务层预检索，不是 Agent 运行时调用 RAG tool。
 - 文档读取策略当前只有 `PdfMultimodalProcessor` 能真正命中，因此只支持 PDF。
-- PDF 入库会同时处理正文文本和 PDF 图片描述，并分别生成 `TEXT` 与 `IMAGE_DESCRIPTION` chunk。
+- PDF 入库会同时处理正文文本和 PDF 图片描述，采用两级分块模型（父块 `PARENT` + 子块 `TEXT`），不再使用 `IMAGE_DESCRIPTION` chunk。
 - `POST /document/upload` 同步完成上传、解析、抽图、索引和状态更新。
 - `WebConfig` 把 `Long` / `long` 统一序列化成 JSON 字符串。
 - 长期记忆在对话前召回、对话后触发整理，并有整点任务兜底。
@@ -63,15 +63,12 @@ Controller 层
 3. `recognizeBoundSkills`
 4. `discoverCandidateSkills`
 5. `loadSkillContents`
-6. `buildSkillExecutionPlans`
-7. `buildEnhancedQuestion`
+6. `buildSkillRuntimeContext`
 
 关键输出包括：
 
 - `selectedSkills`
 - `selectedSkillContexts`
-- `executionPlans`
-- `enhancedQuestion`
 
 `execute_skill_script` 是当前最重要的 Skill 执行入口，也是默认 HITL 拦截工具。
 
@@ -96,10 +93,10 @@ PDF 上传入库链路：
 5. `DocumentReaderFactory` 选择 `PdfMultimodalProcessor`。
 6. 提取正文文本。
 7. 抽取 PDF 图片并调用多模态模型生成描述。
-8. 正文生成 `TEXT` chunk。
-9. 图片描述生成 `IMAGE_DESCRIPTION` chunk。
-10. 写入关键词索引 `rag_docs`。
-11. 写入向量索引 `rag_docs_vector`。
+8. 正文按段落切分父块（`PARENT`），再按 200 字符切分子块（`TEXT`）。
+9. 图像描述注入文本原位后，图像 ID 存入父块 `metadata.imageIds`。
+10. 父块 + 子块写入关键词索引 `rag_docs`。
+11. 子块写入向量索引 `rag_docs_vector`。
 12. 成功置为 `INDEXED`；失败清理索引、图片记录并置为 `FAILED`。
 
 ## HITL
