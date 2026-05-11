@@ -1,0 +1,85 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "analysis": {
+      "filter": {
+        "my_stop_filter": {
+          "type": "stop",
+          "stopwords": "_chinese_"
+        },
+        "edge_ngram_filter": {
+          "type": "edge_ngram",
+          "min_gram": 1,
+          "max_gram": 20
+        }
+      },
+      "analyzer": {
+        "ik_max": {
+          "type": "custom",
+          "tokenizer": "ik_max_word",
+          "filter": ["lowercase", "my_stop_filter"]
+        },
+        "ik_smart": {
+          "type": "custom",
+          "tokenizer": "ik_smart",
+          "filter": ["lowercase", "my_stop_filter"]
+        },
+        "ngram_index_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": ["lowercase", "edge_ngram_filter"]
+        },
+        "ngram_search_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": ["lowercase"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "id": { "type": "keyword" },
+      "content": {
+        "type": "text",
+        "analyzer": "ik_max",
+        "search_analyzer": "ik_smart",
+        "fields": {
+          "smart": {
+            "type": "text",
+            "analyzer": "ik_smart",
+            "search_analyzer": "ik_smart"
+          },
+          "ngram": {
+            "type": "text",
+            "analyzer": "ngram_index_analyzer",
+            "search_analyzer": "ngram_search_analyzer"
+          }
+        }
+      },
+      "metadata": {
+        "type": "object",
+        "properties": {
+          "userId": { "type": "long" },
+          "knowledgeId": { "type": "long" },
+          "documentId": { "type": "long" },
+          "parentId": { "type": "long" },
+          "parentType": { "type": "keyword" },
+          "parentChunkId": { "type": "keyword" },
+          "chunkType": { "type": "keyword" },
+          "pageNumber": { "type": "integer" },
+          "objectName": { "type": "keyword" },
+          "source": { "type": "keyword" },
+          "fileName": { "type": "keyword" },
+          "documentName": { "type": "keyword" },
+          "fileType": { "type": "keyword" },
+          "contentType": { "type": "keyword" },
+          "imageIds": { "type": "long" },
+          "chunk_index": { "type": "integer" },
+          "chunk_total": { "type": "integer" }
+        }
+      }
+    }
+  }
+}

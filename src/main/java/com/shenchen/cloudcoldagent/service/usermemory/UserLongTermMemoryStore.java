@@ -10,11 +10,6 @@ import java.util.List;
 public interface UserLongTermMemoryStore {
 
     /**
-     * 处理 `ensure Indexes` 对应逻辑。
-     */
-    void ensureIndexes();
-
-    /**
      * 处理 `add Memories` 对应逻辑。
      *
      * @param userId userId 参数。

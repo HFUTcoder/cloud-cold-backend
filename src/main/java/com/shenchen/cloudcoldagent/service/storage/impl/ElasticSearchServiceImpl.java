@@ -3,6 +3,7 @@ package com.shenchen.cloudcoldagent.service.storage.impl;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.Refresh;
+import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch.core.*;
 import co.elastic.clients.elasticsearch.indices.CreateIndexRequest;
 import co.elastic.clients.elasticsearch.indices.ExistsRequest;
@@ -16,10 +17,12 @@ import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.elasticsearch.ElasticsearchVectorStore;
 import org.springframework.ai.vectorstore.filter.Filter;
 import org.springframework.ai.vectorstore.filter.FilterExpressionTextParser;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.io.StringReader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -57,126 +60,6 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
     public ElasticSearchServiceImpl(ElasticsearchClient client, VectorStore vectorStore) {
         this.client = client;
         this.vectorStore = vectorStore;
-    }
-
-    /**
-     * 在服务启动时确保关键词索引存在。
-     */
-    @PostConstruct
-    public void init() {
-        try {
-            if (!indexExists(INDEX_NAME)) {
-                createIndex();
-                log.info("ES index [{}] created with IK analyzer!", INDEX_NAME);
-            } else {
-                log.info("ES index [{}] already exists, skip creation.", INDEX_NAME);
-            }
-        } catch (Exception e) {
-            log.error("Failed to create ES index: {}", e.getMessage(), e);
-        }
-    }
-
-    /**
-     * 创建索引（IK 分词 + 停用词 + lowercase）
-     */
-    @Override
-    public void createIndex() throws Exception {
-        // 1. 设置索引配置（settings）和 mapping
-        String settingsAndMappingJson = """
-                {
-                  "settings": {
-                    "number_of_shards": 1,
-                    "number_of_replicas": 0,
-                    "analysis": {
-                      "filter": {
-                        "my_stop_filter": {
-                          "type": "stop",
-                          "stopwords": "_chinese_"
-                        },
-                        "edge_ngram_filter": {
-                          "type": "edge_ngram",
-                          "min_gram": 1,
-                          "max_gram": 20
-                        }
-                      },
-                      "analyzer": {
-                        "ik_max": {
-                          "type": "custom",
-                          "tokenizer": "ik_max_word",
-                          "filter": ["lowercase", "my_stop_filter"]
-                        },
-                        "ik_smart": {
-                          "type": "custom",
-                          "tokenizer": "ik_smart",
-                          "filter": ["lowercase", "my_stop_filter"]
-                        },
-                        "ngram_index_analyzer": {
-                          "type": "custom",
-                          "tokenizer": "standard",
-                          "filter": ["lowercase", "edge_ngram_filter"]
-                        },
-                        "ngram_search_analyzer": {
-                          "type": "custom",
-                          "tokenizer": "standard",
-                          "filter": ["lowercase"]
-                        }
-                      }
-                    }
-                  },
-                  "mappings": {
-                    "properties": {
-                      "id": { "type": "keyword" },
-                      "content": {
-                        "type": "text",
-                        "analyzer": "ik_max",
-                        "search_analyzer": "ik_smart",
-                        "fields": {
-                          "smart": {
-                            "type": "text",
-                            "analyzer": "ik_smart",
-                            "search_analyzer": "ik_smart"
-                          },
-                          "ngram": {
-                            "type": "text",
-                            "analyzer": "ngram_index_analyzer",
-                            "search_analyzer": "ngram_search_analyzer"
-                          }
-                        }
-                      },
-                          "metadata": {
-                        "type": "object",
-                        "properties": {
-                          "userId": { "type": "long" },
-                          "knowledgeId": { "type": "long" },
-                          "documentId": { "type": "long" },
-                          "parentId": { "type": "long" },
-                          "parentType": { "type": "keyword" },
-                          "parentChunkId": { "type": "keyword" },
-                          "chunkType": { "type": "keyword" },
-                          "pageNumber": { "type": "integer" },
-                          "objectName": { "type": "keyword" },
-                          "source": { "type": "keyword" },
-                          "fileName": { "type": "keyword" },
-                          "documentName": { "type": "keyword" },
-                          "fileType": { "type": "keyword" },
-                          "contentType": { "type": "keyword" },
-                          "imageIds": { "type": "long" },
-                          "chunk_index": { "type": "integer" },
-                          "chunk_total": { "type": "integer" }
-                        }
-                      }
-                    }
-                  }
-                }
-                """;
-
-        CreateIndexRequest request = CreateIndexRequest.of(b -> b
-                .index(INDEX_NAME)
-                .withJson(new StringReader(settingsAndMappingJson))
-        );
-
-        // 3. 创建索引
-        client.indices().create(request);
     }
 
     /**
@@ -323,19 +206,6 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
     }
 
     /**
-     * 判断指定关键词索引是否存在。
-     *
-     * @param indexName 索引名。
-     * @return 存在时返回 true。
-     * @throws IOException 查询索引状态失败时抛出。
-     */
-    @Override
-    public boolean indexExists(String indexName) throws IOException {
-        ExistsRequest request = ExistsRequest.of(b -> b.index(indexName));
-        return client.indices().exists(request).value();
-    }
-
-    /**
      * 中文检索 - ik_max_word 建库 + ik_smart 检索
      */
     @Override
@@ -364,7 +234,7 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
     @Override
     public List<EsDocumentChunk> searchByKeyword(String keyword, int size, boolean useSmartAnalyzer,
                                                  Map<String, Object> metadataFilters) throws Exception {
-        List<co.elastic.clients.elasticsearch._types.query_dsl.Query> filters = buildMetadataFilterQueries(metadataFilters);
+        List<Query> filters = buildMetadataFilterQueries(metadataFilters);
 
         SearchRequest request = SearchRequest.of(b -> b
                 .index(INDEX_NAME)
@@ -424,7 +294,7 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
      */
     @Override
     public List<EsDocumentChunk> searchByMetadata(Map<String, Object> metadataFilters, int size) throws Exception {
-        List<co.elastic.clients.elasticsearch._types.query_dsl.Query> filters = buildMetadataFilterQueries(metadataFilters);
+        List<Query> filters = buildMetadataFilterQueries(metadataFilters);
         if (filters.isEmpty()) {
             return Collections.emptyList();
         }
@@ -635,7 +505,7 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
 
         return metadataFilters.entrySet().stream()
                 .filter(entry -> entry.getKey() != null && !entry.getKey().isBlank() && entry.getValue() != null)
-                .map(entry -> co.elastic.clients.elasticsearch._types.query_dsl.Query.of(q -> q
+                .map(entry -> Query.of(q -> q
                         .term(t -> t
                                 .field("metadata." + entry.getKey())
                                 .value(toFieldValue(entry.getValue()))

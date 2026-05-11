@@ -1,11 +1,14 @@
 package com.shenchen.cloudcoldagent.config;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch.indices.CreateIndexRequest;
+import co.elastic.clients.elasticsearch.indices.ExistsRequest;
 import co.elastic.clients.json.jackson.JacksonJsonpMapper;
 import co.elastic.clients.transport.ElasticsearchTransport;
 import co.elastic.clients.transport.rest_client.RestClientTransport;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shenchen.cloudcoldagent.config.properties.EsProperties;
+import com.shenchen.cloudcoldagent.config.properties.LongTermMemoryProperties;
 import org.apache.http.HttpHost;
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.UsernamePasswordCredentials;
@@ -15,35 +18,39 @@ import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.apache.http.ssl.SSLContexts;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestClientBuilder;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.context.event.EventListener;
+import org.springframework.core.io.ClassPathResource;
 
 import javax.net.ssl.SSLContext;
+import java.io.StringReader;
+import java.nio.charset.StandardCharsets;
 
 /**
  * `EsConfig` 类型实现。
  */
 @Configuration
+@Slf4j
 public class EsConfig {
 
-    private static final Logger logger = LoggerFactory.getLogger(EsConfig.class);
+    private static final String RAG_DOCS_INDEX = "rag_docs";
+    private static final String RAG_DOCS_MAPPING = "com/shenchen/cloudcoldagent/database/es_rag_docs_mapping.json";
+    private static final String LONG_TERM_MEMORY_MAPPING = "com/shenchen/cloudcoldagent/database/user_long_term_memory_mapping.json";
 
     private final EsProperties elasticsearchClientProperties;
+    private final LongTermMemoryProperties longTermMemoryProperties;
     private final ObjectMapper esObjectMapper;
 
-    /**
-     * 创建 `EsConfig` 实例。
-     *
-     * @param elasticsearchClientProperties elasticsearchClientProperties 参数。
-     * @param esObjectMapper esObjectMapper 参数。
-     */
     public EsConfig(EsProperties elasticsearchClientProperties,
+                    LongTermMemoryProperties longTermMemoryProperties,
                     @Qualifier("esObjectMapper") ObjectMapper esObjectMapper) {
         this.elasticsearchClientProperties = elasticsearchClientProperties;
+        this.longTermMemoryProperties = longTermMemoryProperties;
         this.esObjectMapper = esObjectMapper;
     }
 
@@ -105,7 +112,7 @@ public class EsConfig {
 
             return builder.build();
         } catch (Exception e) {
-            logger.warn("Failed to create Elasticsearch client: {}. ES functionality will be unavailable.", e.getMessage());
+            log.warn("Failed to create Elasticsearch client: {}. ES functionality will be unavailable.", e.getMessage());
             return null;
         }
     }
@@ -127,5 +134,56 @@ public class EsConfig {
                 new JacksonJsonpMapper(esObjectMapper)
         );
         return new ElasticsearchClient(transport);
+    }
+
+    /**
+     * 应用启动后检查并创建所有 ES 关键词索引。
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void initEsIndices() {
+        try {
+            RestClient restClient = elasticsearchRestClient();
+            if (restClient == null) {
+                log.warn("Elasticsearch RestClient is null, skip index creation.");
+                return;
+            }
+            ElasticsearchClient client = elasticsearchClient(restClient);
+            if (client == null) {
+                log.warn("Elasticsearch client is null, skip index creation.");
+                return;
+            }
+
+            createIndexIfNotExists(client, RAG_DOCS_INDEX, RAG_DOCS_MAPPING);
+            createIndexIfNotExists(client, longTermMemoryProperties.getKeywordIndexName(), LONG_TERM_MEMORY_MAPPING);
+        } catch (Exception e) {
+            log.error("Failed to create ES indices: {}", e.getMessage(), e);
+        }
+    }
+
+    private void createIndexIfNotExists(ElasticsearchClient client, String indexName, String resourcePath) {
+        try {
+            boolean exists = client.indices().exists(
+                    ExistsRequest.of(e -> e.index(indexName))
+            ).value();
+
+            if (!exists) {
+                var resource = new ClassPathResource(resourcePath);
+                String json;
+                try (var in = resource.getInputStream()) {
+                    json = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                }
+                client.indices().create(
+                        CreateIndexRequest.of(b -> b
+                                .index(indexName)
+                                .withJson(new StringReader(json))
+                        )
+                );
+                log.info("ES index [{}] created.", indexName);
+            } else {
+                log.info("ES index [{}] already exists, skip creation.", indexName);
+            }
+        } catch (Exception e) {
+            log.error("Failed to create ES index [{}]: {}", indexName, e.getMessage(), e);
+        }
     }
 }

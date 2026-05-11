@@ -70,7 +70,7 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
     }
 
     /**
-     * 初始化长期记忆向量存储并确保索引存在。
+     * 初始化长期记忆向量存储。
      */
     @PostConstruct
     public void init() {
@@ -81,23 +81,12 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
                 .options(options)
                 .initializeSchema(true)
                 .build();
-        ensureIndexes();
-    }
-
-    /**
-     * 确保关键词索引和向量索引都已创建完成。
-     */
-    @Override
-    public void ensureIndexes() {
         try {
-            if (!indexExists(properties.getKeywordIndexName())) {
-                createKeywordIndex();
-            }
             if (!vectorStore.indexExists()) {
                 vectorStore.afterPropertiesSet();
             }
         } catch (Exception e) {
-            log.warn("初始化长期记忆索引失败，message={}", e.getMessage(), e);
+            log.warn("初始化长期记忆向量索引失败，message={}", e.getMessage(), e);
         }
     }
 
@@ -316,64 +305,6 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
 
     /**
      * 判断指定关键词索引是否已经存在。
-     *
-     * @param indexName 索引名。
-     * @return 索引存在时返回 true。
-     */
-    private boolean indexExists(String indexName) {
-        try {
-            return elasticsearchClient.indices().exists(e -> e.index(indexName)).value();
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    /**
-     * 创建长期记忆关键词索引及其字段映射。
-     *
-     * @throws Exception 创建索引失败时抛出。
-     */
-    private void createKeywordIndex() throws Exception {
-        String mapping = """
-                {
-                  "mappings": {
-                    "properties": {
-                      "id": { "type": "keyword" },
-                      "userId": { "type": "long" },
-                      "memoryType": { "type": "keyword" },
-                      "title": {
-                        "type": "text",
-                        "analyzer": "ik_max_word",
-                        "search_analyzer": "ik_smart"
-                      },
-                      "content": {
-                        "type": "text",
-                        "analyzer": "ik_max_word",
-                        "search_analyzer": "ik_smart"
-                      },
-                      "summary": {
-                        "type": "text",
-                        "analyzer": "ik_max_word",
-                        "search_analyzer": "ik_smart"
-                      },
-                      "embeddingText": { "type": "text", "index": false },
-                      "confidence": { "type": "double" },
-                      "importance": { "type": "double" },
-                      "originConversationId": { "type": "keyword" },
-                      "sourceConversationIds": { "type": "keyword" },
-                      "sourceHistoryIds": { "type": "long" },
-                      "createdAt": { "type": "date" },
-                      "updatedAt": { "type": "date" }
-                    }
-                  }
-                }
-                """;
-        CreateIndexRequest request = CreateIndexRequest.of(b -> b
-                .index(properties.getKeywordIndexName())
-                .withJson(new StringReader(mapping)));
-        elasticsearchClient.indices().create(request);
-    }
-
     /**
      * 为长期记忆构建写入向量存储时使用的元数据。
      *

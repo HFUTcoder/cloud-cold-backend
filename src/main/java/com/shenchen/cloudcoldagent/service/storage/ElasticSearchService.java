@@ -13,13 +13,6 @@ import java.util.Map;
 public interface ElasticSearchService {
 
     /**
-     * 创建 `create Index` 对应内容。
-     *
-     * @throws Exception 异常信息。
-     */
-    void createIndex() throws Exception;
-
-    /**
      * 处理 `index Single` 对应逻辑。
      *
      * @param doc doc 参数。
@@ -58,15 +51,6 @@ public interface ElasticSearchService {
      * @throws Exception 异常信息。
      */
     void deleteBySource(String source) throws Exception;
-
-    /**
-     * 处理 `index Exists` 对应逻辑。
-     *
-     * @param indexName indexName 参数。
-     * @return 返回处理结果。
-     * @throws IOException 异常信息。
-     */
-    boolean indexExists(String indexName) throws IOException;
 
     /**
      * 处理 `search By Keyword` 对应逻辑。

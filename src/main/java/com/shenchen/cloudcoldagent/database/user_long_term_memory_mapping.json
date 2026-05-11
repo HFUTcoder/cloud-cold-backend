@@ -1,0 +1,32 @@
+{
+  "mappings": {
+    "properties": {
+      "id": { "type": "keyword" },
+      "userId": { "type": "long" },
+      "memoryType": { "type": "keyword" },
+      "title": {
+        "type": "text",
+        "analyzer": "ik_max_word",
+        "search_analyzer": "ik_smart"
+      },
+      "content": {
+        "type": "text",
+        "analyzer": "ik_max_word",
+        "search_analyzer": "ik_smart"
+      },
+      "summary": {
+        "type": "text",
+        "analyzer": "ik_max_word",
+        "search_analyzer": "ik_smart"
+      },
+      "embeddingText": { "type": "text", "index": false },
+      "confidence": { "type": "double" },
+      "importance": { "type": "double" },
+      "originConversationId": { "type": "keyword" },
+      "sourceConversationIds": { "type": "keyword" },
+      "sourceHistoryIds": { "type": "long" },
+      "createdAt": { "type": "date" },
+      "updatedAt": { "type": "date" }
+    }
+  }
+}
