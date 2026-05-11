@@ -364,4 +364,13 @@ public interface KnowledgeService extends IService<com.shenchen.cloudcoldagent.m
     List<EsDocumentChunk> hybridSearch(Long userId, Long knowledgeId, String query, int keywordSize,
                                        boolean useSmartAnalyzer, int vectorTopK,
                                        double similarityThreshold) throws Exception;
+
+    /**
+     * 按 ES _id 批量获取文档 chunk。
+     *
+     * @param ids 文档 _id 列表。
+     * @return 获取到的文档列表。
+     * @throws Exception ES 异常。
+     */
+    List<EsDocumentChunk> mget(List<String> ids) throws Exception;
 }

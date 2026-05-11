@@ -92,6 +92,11 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
                         "my_stop_filter": {
                           "type": "stop",
                           "stopwords": "_chinese_"
+                        },
+                        "edge_ngram_filter": {
+                          "type": "edge_ngram",
+                          "min_gram": 1,
+                          "max_gram": 20
                         }
                       },
                       "analyzer": {
@@ -104,6 +109,16 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
                           "type": "custom",
                           "tokenizer": "ik_smart",
                           "filter": ["lowercase", "my_stop_filter"]
+                        },
+                        "ngram_index_analyzer": {
+                          "type": "custom",
+                          "tokenizer": "standard",
+                          "filter": ["lowercase", "edge_ngram_filter"]
+                        },
+                        "ngram_search_analyzer": {
+                          "type": "custom",
+                          "tokenizer": "standard",
+                          "filter": ["lowercase"]
                         }
                       }
                     }
@@ -120,6 +135,11 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
                             "type": "text",
                             "analyzer": "ik_smart",
                             "search_analyzer": "ik_smart"
+                          },
+                          "ngram": {
+                            "type": "text",
+                            "analyzer": "ngram_index_analyzer",
+                            "search_analyzer": "ngram_search_analyzer"
                           }
                         }
                       },
@@ -131,6 +151,7 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
                           "documentId": { "type": "long" },
                           "parentId": { "type": "long" },
                           "parentType": { "type": "keyword" },
+                          "parentChunkId": { "type": "keyword" },
                           "chunkType": { "type": "keyword" },
                           "pageNumber": { "type": "integer" },
                           "objectName": { "type": "keyword" },
@@ -139,6 +160,7 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
                           "documentName": { "type": "keyword" },
                           "fileType": { "type": "keyword" },
                           "contentType": { "type": "keyword" },
+                          "imageIds": { "type": "long" },
                           "chunk_index": { "type": "integer" },
                           "chunk_total": { "type": "integer" }
                         }
@@ -342,7 +364,6 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
     @Override
     public List<EsDocumentChunk> searchByKeyword(String keyword, int size, boolean useSmartAnalyzer,
                                                  Map<String, Object> metadataFilters) throws Exception {
-        String field = useSmartAnalyzer ? FIELD_CONTENT + ".smart" : FIELD_CONTENT;
         List<co.elastic.clients.elasticsearch._types.query_dsl.Query> filters = buildMetadataFilterQueries(metadataFilters);
 
         SearchRequest request = SearchRequest.of(b -> b
@@ -351,7 +372,7 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
                         .bool(bool -> bool
                                 .must(must -> must
                                         .match(m -> m
-                                                .field(field)
+                                                .field(FIELD_CONTENT + ".ngram")
                                                 .query(keyword)
                                         )
                                 )
@@ -535,12 +556,8 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
             return similaritySearch(query, topK, similarityThreshold, (String) null);
         }
 
-        int recallTopK = Math.max(topK * 5, 50);
-        List<Document> recalled = similaritySearch(query, recallTopK, similarityThreshold, (String) null);
-        return recalled.stream()
-                .filter(document -> matchesMetadataFilters(document, metadataFilters))
-                .limit(topK)
-                .toList();
+        String filterExpression = buildFilterExpression(metadataFilters);
+        return similaritySearch(query, topK, similarityThreshold, filterExpression);
     }
 
     /**
@@ -663,50 +680,6 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
                 .orElse(null);
     }
 
-    /**
-     * 判断向量检索命中的文档是否满足给定元数据条件。
-     *
-     * @param document 命中的向量文档。
-     * @param metadataFilters 元数据过滤条件。
-     * @return 满足所有条件时返回 true。
-     */
-    private boolean matchesMetadataFilters(Document document, Map<String, Object> metadataFilters) {
-        if (metadataFilters == null || metadataFilters.isEmpty()) {
-            return true;
-        }
-        if (document == null || document.getMetadata() == null || document.getMetadata().isEmpty()) {
-            return false;
-        }
-        for (Map.Entry<String, Object> entry : metadataFilters.entrySet()) {
-            String key = entry.getKey();
-            Object expectedValue = entry.getValue();
-            if (key == null || key.isBlank() || expectedValue == null) {
-                continue;
-            }
-            Object actualValue = document.getMetadata().get(key);
-            if (!metadataValueEquals(actualValue, expectedValue)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /**
-     * 比较元数据中的实际值与期望值是否相等。
-     *
-     * @param actualValue 实际值。
-     * @param expectedValue 期望值。
-     * @return 相等时返回 true。
-     */
-    private boolean metadataValueEquals(Object actualValue, Object expectedValue) {
-        if (actualValue == null || expectedValue == null) {
-            return false;
-        }
-        if (actualValue instanceof Number actualNumber && expectedValue instanceof Number expectedNumber) {
-            return Double.compare(actualNumber.doubleValue(), expectedNumber.doubleValue()) == 0;
-        }
-        return Objects.equals(String.valueOf(actualValue), String.valueOf(expectedValue));
-    }
 
     /**
      * 将过滤值格式化成向量存储过滤表达式中的文本片段。
@@ -723,5 +696,34 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
                 .replace("\\", "\\\\")
                 .replace("'", "\\'");
         return "'" + text + "'";
+    }
+
+    @Override
+    public List<EsDocumentChunk> mget(List<String> ids) throws Exception {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        List<String> cleanIds = ids.stream()
+                .filter(id -> id != null && !id.isBlank())
+                .distinct()
+                .toList();
+        if (cleanIds.isEmpty()) {
+            return List.of();
+        }
+
+        MgetRequest request = MgetRequest.of(b -> b
+                .index(INDEX_NAME)
+                .ids(cleanIds));
+        MgetResponse<EsDocumentChunk> response = client.mget(request, EsDocumentChunk.class);
+        List<EsDocumentChunk> results = new ArrayList<>();
+        for (var item : response.docs()) {
+            if (item.isResult()) {
+                var getResult = item.result();
+                if (getResult.source() != null) {
+                    results.add(getResult.source());
+                }
+            }
+        }
+        return results;
     }
 }

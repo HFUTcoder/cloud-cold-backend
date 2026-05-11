@@ -193,4 +193,13 @@ public interface ElasticSearchService {
      * @throws Exception 异常信息。
      */
     boolean vectorIndexExists() throws Exception;
+
+    /**
+     * 按 _id 批量获取文档。
+     *
+     * @param ids 文档 _id 列表。
+     * @return 获取到的文档列表；缺失的 id 会被跳过。
+     * @throws Exception ES 异常。
+     */
+    List<EsDocumentChunk> mget(List<String> ids) throws Exception;
 }

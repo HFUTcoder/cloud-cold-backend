@@ -21,7 +21,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.Objects;
 
 /**
  * 知识库预处理服务实现，负责在进入 Agent 前执行预检索、拼装增强问题并提取命中图片。
@@ -72,21 +71,21 @@ public class KnowledgePreprocessServiceImpl implements KnowledgePreprocessServic
 
         Long knowledgeId = conversation.getSelectedKnowledgeId();
         try {
-            List<EsDocumentChunk> chunks = knowledgeService.hybridSearch(userId, knowledgeId, safeQuestion);
-            List<RetrievedKnowledgeImage> retrievedImages = extractRetrievedImages(chunks);
-            String effectiveQuestion = buildKnowledgeAugmentedQuestion(safeQuestion, chunks);
+            List<EsDocumentChunk> parentChunks = knowledgeService.hybridSearch(userId, knowledgeId, safeQuestion);
+            List<RetrievedKnowledgeImage> retrievedImages = extractRetrievedImagesFromParents(parentChunks);
+            String effectiveQuestion = buildKnowledgeAugmentedQuestion(safeQuestion, parentChunks);
             log.info("知识库预检索完成，userId={}, conversationId={}, knowledgeId={}, questionLength={}, hitCount={}, imageHitCount={}, effectiveQuestionLength={}",
                     userId,
                     conversation.getConversationId(),
                     knowledgeId,
                     safeQuestion.length(),
-                    chunks == null ? 0 : chunks.size(),
+                    parentChunks == null ? 0 : parentChunks.size(),
                     retrievedImages.size(),
                     effectiveQuestion.length());
-            logRetrievedChunks(conversation.getConversationId(), safeQuestion, chunks);
+            logRetrievedChunks(conversation.getConversationId(), safeQuestion, parentChunks);
             return new KnowledgePreprocessResult(
                     effectiveQuestion,
-                    chunks == null ? List.of() : chunks,
+                    parentChunks == null ? List.of() : parentChunks,
                     retrievedImages,
                     true
             );
@@ -158,21 +157,44 @@ public class KnowledgePreprocessServiceImpl implements KnowledgePreprocessServic
     }
 
     /**
-     * 从命中的图片描述 chunk 中提取可回显到前端的图片信息。
+     * 从父块 metadata 中提取关联的图像信息。
      *
-     * @param chunks 命中的 chunk 列表。
+     * @param parentChunks 解析后的父块列表。
      * @return 命中图片列表。
      */
-    private List<RetrievedKnowledgeImage> extractRetrievedImages(List<EsDocumentChunk> chunks) {
-        if (chunks == null || chunks.isEmpty()) {
+    private List<RetrievedKnowledgeImage> extractRetrievedImagesFromParents(List<EsDocumentChunk> parentChunks) {
+        if (parentChunks == null || parentChunks.isEmpty()) {
             return List.of();
         }
-        List<Long> imageIds = collectImageIds(chunks);
-        if (imageIds.isEmpty()) {
+
+        Set<Long> allImageIds = new LinkedHashSet<>();
+        for (EsDocumentChunk parent : parentChunks) {
+            if (parent == null || parent.getMetadata() == null) {
+                continue;
+            }
+            Object imageIdsObj = parent.getMetadata().get(KnowledgeChunkConstant.META_IMAGE_IDS);
+            if (imageIdsObj instanceof List<?> list) {
+                for (Object item : list) {
+                    Long id = toLong(item);
+                    if (id != null && id > 0) {
+                        allImageIds.add(id);
+                    }
+                }
+            } else if (imageIdsObj != null) {
+                Long id = toLong(imageIdsObj);
+                if (id != null && id > 0) {
+                    allImageIds.add(id);
+                }
+            }
+        }
+
+        if (allImageIds.isEmpty()) {
             return List.of();
         }
-        List<KnowledgeDocumentImage> images = knowledgeDocumentImageService.listByImageIds(imageIds);
-        Map<Long, String> documentNameMap = collectDocumentNamesByImageId(chunks);
+
+        List<KnowledgeDocumentImage> images = knowledgeDocumentImageService.listByImageIds(new ArrayList<>(allImageIds));
+        Map<Long, String> documentNameMap = collectDocumentNamesFromParents(parentChunks);
+
         List<RetrievedKnowledgeImage> results = new ArrayList<>(images.size());
         for (KnowledgeDocumentImage image : images) {
             if (image == null || image.getId() == null || StringUtils.isBlank(image.getObjectName())) {
@@ -216,50 +238,30 @@ public class KnowledgePreprocessServiceImpl implements KnowledgePreprocessServic
     }
 
     /**
-     * 从命中 chunk 的元数据中收集图片 id。
+     * 从父块 metadata 中提取图像所属文档名。
      *
-     * @param chunks 命中的 chunk 列表。
-     * @return 图片 id 列表。
-     */
-    private List<Long> collectImageIds(List<EsDocumentChunk> chunks) {
-        Set<Long> imageIds = new LinkedHashSet<>();
-        for (EsDocumentChunk chunk : chunks) {
-            if (chunk == null || chunk.getMetadata() == null || chunk.getMetadata().isEmpty()) {
-                continue;
-            }
-            if (!isImageDescriptionChunk(chunk)) {
-                continue;
-            }
-            Object parentId = chunk.getMetadata().get(KnowledgeChunkConstant.META_PARENT_ID);
-            Long imageId = toLong(parentId);
-            if (imageId != null && imageId > 0) {
-                imageIds.add(imageId);
-            }
-        }
-        return new ArrayList<>(imageIds);
-    }
-
-    /**
-     * 从命中 chunk 的元数据中提取图片所属文档名。
-     *
-     * @param chunks 命中的 chunk 列表。
+     * @param parentChunks 父块列表。
      * @return imageId 到文档名的映射。
      */
-    private Map<Long, String> collectDocumentNamesByImageId(List<EsDocumentChunk> chunks) {
+    private Map<Long, String> collectDocumentNamesFromParents(List<EsDocumentChunk> parentChunks) {
         Map<Long, String> result = new LinkedHashMap<>();
-        for (EsDocumentChunk chunk : chunks) {
-            if (chunk == null || chunk.getMetadata() == null || chunk.getMetadata().isEmpty()) {
+        for (EsDocumentChunk parent : parentChunks) {
+            if (parent == null || parent.getMetadata() == null) {
                 continue;
             }
-            Long imageId = toLong(chunk.getMetadata().get(KnowledgeChunkConstant.META_PARENT_ID));
-            if (imageId == null || imageId <= 0 || result.containsKey(imageId)) {
-                continue;
+            String docName = defaultObjectText(parent.getMetadata().get(KnowledgeChunkConstant.META_DOCUMENT_NAME));
+            if ("无".equals(docName)) {
+                docName = defaultObjectText(parent.getMetadata().get(KnowledgeChunkConstant.META_FILE_NAME));
             }
-            Object documentName = chunk.getMetadata().get(KnowledgeChunkConstant.META_DOCUMENT_NAME);
-            if (documentName == null || StringUtils.isBlank(String.valueOf(documentName))) {
-                documentName = chunk.getMetadata().get(KnowledgeChunkConstant.META_FILE_NAME);
+            Object imageIdsObj = parent.getMetadata().get(KnowledgeChunkConstant.META_IMAGE_IDS);
+            if (imageIdsObj instanceof List<?> list) {
+                for (Object item : list) {
+                    Long id = toLong(item);
+                    if (id != null && id > 0) {
+                        result.putIfAbsent(id, docName);
+                    }
+                }
             }
-            result.put(imageId, documentName == null ? null : String.valueOf(documentName));
         }
         return result;
     }
@@ -282,20 +284,6 @@ public class KnowledgePreprocessServiceImpl implements KnowledgePreprocessServic
             }
         }
         return null;
-    }
-
-    /**
-     * 判断某个 chunk 是否属于图片描述类型。
-     *
-     * @param chunk 待判断的 chunk。
-     * @return 图片描述 chunk 时返回 true。
-     */
-    private boolean isImageDescriptionChunk(EsDocumentChunk chunk) {
-        if (chunk == null || chunk.getMetadata() == null || chunk.getMetadata().isEmpty()) {
-            return false;
-        }
-        Object chunkType = chunk.getMetadata().get(KnowledgeChunkConstant.META_CHUNK_TYPE);
-        return chunkType != null && Objects.equals(KnowledgeChunkConstant.CHUNK_TYPE_IMAGE_DESCRIPTION, String.valueOf(chunkType));
     }
 
     /**

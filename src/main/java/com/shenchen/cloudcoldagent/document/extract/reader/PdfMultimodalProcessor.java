@@ -156,18 +156,30 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
                     return Integer.compare(e1.getX0(), e2.getX0());
                 });
 
-                // 按照排序后的顺序，将所有内容元素拼接到最终文本中
+                // 按照排序后的顺序，将文字和图片占位符按原位拼接到最终文本中
                 for (ContentElement element : allElements) {
-                    if (element.getType() == ContentType.TEXT) {
-                        finalText.append(element.getContent()).append("\n");
-                    }
+                    finalText.append(element.getContent()).append("\n");
                 }
                 // 每页处理完后添加一个空行分隔
                 finalText.append("\n");
             }
             log.info("PDF处理完成");
-            // 返回去除首尾空白的最终文本
-            return new PdfProcessingResult(finalText.toString().trim(), extractedImages);
+
+            // 将 [IMAGE_N] 占位符替换为实际的 AI 图像描述
+            String text = finalText.toString().trim();
+            for (ExtractedDocumentImage img : extractedImages) {
+                String desc = img.description();
+                if (desc != null) {
+                    desc = desc.replace("\r\n", " ").replace("\n", " ").replace("\r", " ");
+                } else {
+                    desc = "[无法识别图片内容]";
+                }
+                text = text.replace(
+                        "[IMAGE_" + img.imageIndex() + "]",
+                        "<image id=\"" + img.imageIndex() + "\">" + escapeXml(desc) + "</image>"
+                );
+            }
+            return new PdfProcessingResult(text, extractedImages);
         }
     }
 

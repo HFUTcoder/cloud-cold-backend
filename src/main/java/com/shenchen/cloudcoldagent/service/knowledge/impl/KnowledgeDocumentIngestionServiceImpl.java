@@ -140,9 +140,9 @@ public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentI
                     )
             );
             persistedImages = persistPreparedImages(userId, knowledgeId, document.getId(), preparedResult.uploadedImages());
-            List<com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk> imageChunks =
-                    knowledgeService.buildImageDescriptionChunks(persistedImages, documentSource);
-            allChunks = mergeChunks(preparedResult.textChunks(), imageChunks);
+            allChunks = new java.util.ArrayList<>();
+            allChunks.addAll(preparedResult.parentChunks());
+            allChunks.addAll(preparedResult.childChunks());
             knowledgeService.storePreparedChunks(allChunks);
 
             document.setIndexStatus(DocumentIndexStatusEnum.INDEXED.getValue());
@@ -326,23 +326,4 @@ public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentI
         return exception.getMessage();
     }
 
-    /**
-     * 合并正文 chunk 和图片描述 chunk，形成完整的入库结果。
-     *
-     * @param textChunks 正文 chunk 列表。
-     * @param imageChunks 图片描述 chunk 列表。
-     * @return 合并后的 chunk 列表。
-     */
-    private List<com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk> mergeChunks(
-            List<com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk> textChunks,
-            List<com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk> imageChunks) {
-        List<com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk> merged = new java.util.ArrayList<>();
-        if (textChunks != null && !textChunks.isEmpty()) {
-            merged.addAll(textChunks);
-        }
-        if (imageChunks != null && !imageChunks.isEmpty()) {
-            merged.addAll(imageChunks);
-        }
-        return merged;
-    }
 }

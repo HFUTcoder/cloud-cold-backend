@@ -38,11 +38,19 @@ import org.springframework.stereotype.Service;
 import java.io.File;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+import org.apache.commons.lang3.StringUtils;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -290,8 +298,11 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         List<KnowledgeDocumentImage> uploadedImages = List.of();
         try {
             uploadedImages = uploadExtractedImages(context, readResult.extractedImages());
-            List<EsDocumentChunk> textChunks = buildChunks(readResult.documents(), context, KnowledgeChunkConstant.CHUNK_TYPE_TEXT);
-            return new PreparedDocumentIndexResult(textChunks, uploadedImages);
+            Map<Integer, Long> imageIndexToMysqlId = buildImageIndexToMysqlIdMap(uploadedImages);
+            TwoLevelChunkResult twoLevelResult = buildTwoLevelChunks(
+                    readResult.documents(), context, imageIndexToMysqlId);
+            return new PreparedDocumentIndexResult(
+                    twoLevelResult.parents(), twoLevelResult.children(), uploadedImages);
         } catch (Exception e) {
             cleanupUploadedImages(uploadedImages);
             throw e;
@@ -306,35 +317,9 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
      * @return 图片描述 chunk 列表。
      */
     @Override
+    @Deprecated
     public List<EsDocumentChunk> buildImageDescriptionChunks(List<KnowledgeDocumentImage> images, String documentSource) {
-        if (images == null || images.isEmpty()) {
-            return List.of();
-        }
-        List<Document> imageDocuments = new ArrayList<>();
-        for (KnowledgeDocumentImage image : images) {
-            if (image == null || image.getId() == null || image.getDescription() == null || image.getDescription().isBlank()) {
-                continue;
-            }
-            Map<String, Object> metadata = new LinkedHashMap<>();
-            metadata.put(KnowledgeChunkConstant.META_USER_ID, image.getUserId());
-            metadata.put(KnowledgeChunkConstant.META_KNOWLEDGE_ID, image.getKnowledgeId());
-            metadata.put(KnowledgeChunkConstant.META_DOCUMENT_ID, image.getDocumentId());
-            metadata.put(KnowledgeChunkConstant.META_PARENT_ID, image.getId());
-            metadata.put(KnowledgeChunkConstant.META_PARENT_TYPE, KnowledgeChunkConstant.PARENT_TYPE_DOCUMENT_IMAGE);
-            metadata.put(KnowledgeChunkConstant.META_OBJECT_NAME, image.getObjectName());
-            metadata.put(KnowledgeChunkConstant.META_CONTENT_TYPE, image.getContentType());
-            metadata.put(KnowledgeChunkConstant.META_PAGE_NUMBER, image.getPageNumber());
-            metadata.put(KnowledgeChunkConstant.META_CHUNK_TYPE, KnowledgeChunkConstant.CHUNK_TYPE_IMAGE_DESCRIPTION);
-            if (documentSource != null && !documentSource.isBlank()) {
-                metadata.put(KnowledgeChunkConstant.META_SOURCE, documentSource);
-            }
-            imageDocuments.add(Document.builder()
-                    .id("image-" + image.getId())
-                    .text(image.getDescription().trim())
-                    .metadata(metadata)
-                    .build());
-        }
-        return buildChunks(imageDocuments, null, KnowledgeChunkConstant.CHUNK_TYPE_IMAGE_DESCRIPTION);
+        return List.of();
     }
 
     /**
@@ -349,7 +334,16 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
             return;
         }
         elasticSearchService.bulkIndex(chunks);
-        storeService.storeVectorChunks(chunks);
+        List<EsDocumentChunk> vectorChunks = chunks.stream()
+                .filter(c -> {
+                    Object chunkType = c.getMetadata() != null
+                            ? c.getMetadata().get(KnowledgeChunkConstant.META_CHUNK_TYPE) : null;
+                    return KnowledgeChunkConstant.CHUNK_TYPE_TEXT.equals(chunkType);
+                })
+                .toList();
+        if (!vectorChunks.isEmpty()) {
+            storeService.storeVectorChunks(vectorChunks);
+        }
     }
 
     /**
@@ -365,8 +359,11 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         ThrowUtils.throwIf(file == null, ErrorCode.PARAMS_ERROR, "文件不能为空");
         ThrowUtils.throwIf(context == null, ErrorCode.PARAMS_ERROR, "索引上下文不能为空");
         PreparedDocumentIndexResult preparedResult = prepareDocumentIndex(file, context);
-        storePreparedChunks(preparedResult.textChunks());
-        return preparedResult.textChunks();
+        List<EsDocumentChunk> allChunks = new ArrayList<>();
+        allChunks.addAll(preparedResult.parentChunks());
+        allChunks.addAll(preparedResult.childChunks());
+        storePreparedChunks(allChunks);
+        return preparedResult.childChunks();
     }
 
     /**
@@ -379,8 +376,11 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
     @Override
     public List<EsDocumentChunk> add(String filePath) throws Exception {
         PreparedDocumentIndexResult preparedResult = prepareDocumentIndex(new File(filePath).getAbsoluteFile(), null);
-        storePreparedChunks(preparedResult.textChunks());
-        return preparedResult.textChunks();
+        List<EsDocumentChunk> allChunks = new ArrayList<>();
+        allChunks.addAll(preparedResult.parentChunks());
+        allChunks.addAll(preparedResult.childChunks());
+        storePreparedChunks(allChunks);
+        return preparedResult.childChunks();
     }
 
     /**
@@ -407,6 +407,11 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
     public void deleteByIds(List<String> ids) throws Exception {
         elasticSearchService.deleteByIds(ids);
         elasticSearchService.vectorDeleteByIds(ids);
+    }
+
+    @Override
+    public List<EsDocumentChunk> mget(List<String> ids) throws Exception {
+        return elasticSearchService.mget(ids);
     }
 
     /**
@@ -653,7 +658,8 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
                                               double similarityThreshold, String filterExpression) throws Exception {
         List<EsDocumentChunk> scalarResults = scalarSearch(query, keywordSize, useSmartAnalyzer);
         List<Document> vectorDocuments = elasticSearchService.similaritySearch(query, vectorTopK, similarityThreshold, filterExpression);
-        return rrfFusion(vectorDocuments, scalarResults, Math.max(keywordSize, vectorTopK));
+        List<EsDocumentChunk> vectorParents = resolveVectorToParents(vectorDocuments);
+        return rrfFusion(vectorParents, scalarResults, Math.max(keywordSize, vectorTopK));
     }
 
     /**
@@ -689,11 +695,70 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
                                               boolean useSmartAnalyzer, int vectorTopK,
                                               double similarityThreshold) throws Exception {
         Map<String, Object> scopeMetadata = buildKnowledgeScopeMetadata(userId, knowledgeId);
+
+        Map<String, Object> scalarFilters = new LinkedHashMap<>(scopeMetadata);
+        scalarFilters.put(KnowledgeChunkConstant.META_CHUNK_TYPE, KnowledgeChunkConstant.CHUNK_TYPE_PARENT);
         List<EsDocumentChunk> scalarResults = elasticSearchService.searchByKeyword(query, keywordSize, useSmartAnalyzer,
-                scopeMetadata);
+                scalarFilters);
         List<Document> vectorDocuments = elasticSearchService.similaritySearch(query, vectorTopK, similarityThreshold,
                 scopeMetadata);
-        return rrfFusion(vectorDocuments, scalarResults, Math.max(keywordSize, vectorTopK));
+        List<EsDocumentChunk> vectorParents = resolveVectorToParents(vectorDocuments);
+        return rrfFusion(vectorParents, scalarResults, Math.max(keywordSize, vectorTopK));
+    }
+
+    /**
+     * 将向量检索命中的子块解析为对应的父块，按原始排名去重。
+     *
+     * @param vectorDocuments 向量检索命中的子块。
+     * @return 去重排序后的父块列表。
+     */
+    private List<EsDocumentChunk> resolveVectorToParents(List<Document> vectorDocuments) {
+        if (vectorDocuments == null || vectorDocuments.isEmpty()) {
+            return List.of();
+        }
+
+        Map<String, EsDocumentChunk> parentMap = new LinkedHashMap<>();
+        List<String> orderedParentIds = new ArrayList<>();
+
+        for (Document doc : vectorDocuments) {
+            if (doc == null || doc.getMetadata() == null) {
+                continue;
+            }
+            Object parentChunkId = doc.getMetadata().get(KnowledgeChunkConstant.META_PARENT_CHUNK_ID);
+            if (parentChunkId == null) {
+                continue;
+            }
+            String parentId = String.valueOf(parentChunkId);
+            if (!parentMap.containsKey(parentId)) {
+                parentMap.put(parentId, null);
+                orderedParentIds.add(parentId);
+            }
+        }
+
+        if (orderedParentIds.isEmpty()) {
+            return List.of();
+        }
+
+        try {
+            List<EsDocumentChunk> parents = mget(orderedParentIds);
+            for (EsDocumentChunk parent : parents) {
+                if (parent != null) {
+                    parentMap.put(parent.getId(), parent);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to resolve vector children to parents", e);
+            return List.of();
+        }
+
+        List<EsDocumentChunk> result = new ArrayList<>();
+        for (String parentId : orderedParentIds) {
+            EsDocumentChunk parent = parentMap.get(parentId);
+            if (parent != null) {
+                result.add(parent);
+            }
+        }
+        return result;
     }
 
     /**
@@ -729,6 +794,175 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
             chunks.add(chunk);
         }
         return chunks;
+    }
+
+    private record TwoLevelChunkResult(List<EsDocumentChunk> parents, List<EsDocumentChunk> children) {}
+
+    private record ParentChunkInfo(
+            String parentChunkId,
+            String paragraphText,
+            int paragraphIndex,
+            List<Long> imageIds
+    ) {}
+
+    private static final Pattern IMAGE_ID_PATTERN = Pattern.compile("<image\\s+id=\"(\\d+)\"");
+
+    private Map<Integer, Long> buildImageIndexToMysqlIdMap(List<KnowledgeDocumentImage> images) {
+        Map<Integer, Long> map = new LinkedHashMap<>();
+        if (images != null) {
+            for (KnowledgeDocumentImage img : images) {
+                if (img != null && img.getImageIndex() != null && img.getId() != null) {
+                    map.put(img.getImageIndex(), img.getId());
+                }
+            }
+        }
+        return map;
+    }
+
+    private TwoLevelChunkResult buildTwoLevelChunks(
+            List<Document> documents,
+            DocumentIndexContext context,
+            Map<Integer, Long> imageIndexToMysqlId) {
+
+        List<Document> workingDocuments = DocumentCleaner.cleanDocuments(documents);
+        if (context != null) {
+            workingDocuments = enrichDocuments(workingDocuments, context);
+        }
+
+        List<EsDocumentChunk> allParents = new ArrayList<>();
+        List<EsDocumentChunk> allChildren = new ArrayList<>();
+
+        OverlapParagraphTextSplitter childSplitter = new OverlapParagraphTextSplitter(DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP);
+
+        for (Document document : workingDocuments) {
+            String text = document.getText();
+            if (StringUtils.isBlank(text)) {
+                continue;
+            }
+
+            String sourceDocumentId = (String) document.getMetadata()
+                    .get(KnowledgeChunkConstant.META_SOURCE_DOCUMENT_ID);
+
+            List<String> paragraphs = splitParagraphs(text);
+
+            List<ParentChunkInfo> parentInfos = new ArrayList<>();
+            for (int i = 0; i < paragraphs.size(); i++) {
+                String paragraphText = paragraphs.get(i);
+                String parentChunkId = sourceDocumentId + "#parent-" + i;
+
+                List<Integer> imageIndices = extractImageIndices(paragraphText);
+                List<Long> mysqlImageIds = imageIndices.stream()
+                        .map(imageIndexToMysqlId::get)
+                        .filter(Objects::nonNull)
+                        .distinct()
+                        .toList();
+
+                parentInfos.add(new ParentChunkInfo(parentChunkId, paragraphText, i, mysqlImageIds));
+            }
+
+            List<List<Long>> propagatedImageIds = propagateImageIds(parentInfos);
+
+            for (int i = 0; i < parentInfos.size(); i++) {
+                ParentChunkInfo info = parentInfos.get(i);
+                List<Long> imageIds = propagatedImageIds.get(i);
+
+                EsDocumentChunk parent = createParentChunk(document, info.paragraphText(), info.parentChunkId(), imageIds);
+                allParents.add(parent);
+
+                List<EsDocumentChunk> children = createChildChunks(document, info.paragraphText(), info.parentChunkId(), childSplitter);
+                allChildren.addAll(children);
+            }
+        }
+
+        return new TwoLevelChunkResult(allParents, allChildren);
+    }
+
+    private List<String> splitParagraphs(String text) {
+        if (StringUtils.isBlank(text)) {
+            return List.of();
+        }
+        return Arrays.stream(text.split("\\n\\s*\\n"))
+                .map(String::trim)
+                .filter(StringUtils::isNotBlank)
+                .toList();
+    }
+
+    private List<Integer> extractImageIndices(String text) {
+        if (StringUtils.isBlank(text)) {
+            return List.of();
+        }
+        List<Integer> indices = new ArrayList<>();
+        Matcher matcher = IMAGE_ID_PATTERN.matcher(text);
+        while (matcher.find()) {
+            try {
+                indices.add(Integer.parseInt(matcher.group(1)));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return indices;
+    }
+
+    private List<List<Long>> propagateImageIds(List<ParentChunkInfo> parentInfos) {
+        List<List<Long>> result = new ArrayList<>(parentInfos.size());
+        for (int i = 0; i < parentInfos.size(); i++) {
+            Set<Long> merged = new LinkedHashSet<>();
+            merged.addAll(parentInfos.get(i).imageIds());
+            if (i > 0) {
+                merged.addAll(parentInfos.get(i - 1).imageIds());
+            }
+            if (i < parentInfos.size() - 1) {
+                merged.addAll(parentInfos.get(i + 1).imageIds());
+            }
+            result.add(new ArrayList<>(merged));
+        }
+        return result;
+    }
+
+    private EsDocumentChunk createParentChunk(
+            Document sourceDocument, String paragraphText,
+            String parentChunkId, List<Long> imageIds) {
+
+        Map<String, Object> metadata = new LinkedHashMap<>(sourceDocument.getMetadata());
+        metadata.put(KnowledgeChunkConstant.META_CHUNK_ID, parentChunkId);
+        metadata.put(KnowledgeChunkConstant.META_CHUNK_TYPE, KnowledgeChunkConstant.CHUNK_TYPE_PARENT);
+        if (!imageIds.isEmpty()) {
+            metadata.put(KnowledgeChunkConstant.META_IMAGE_IDS, imageIds);
+        }
+
+        EsDocumentChunk chunk = new EsDocumentChunk();
+        chunk.setId(parentChunkId);
+        chunk.setContent(paragraphText);
+        chunk.setMetadata(metadata);
+        return chunk;
+    }
+
+    private List<EsDocumentChunk> createChildChunks(
+            Document sourceDocument, String paragraphText,
+            String parentChunkId, OverlapParagraphTextSplitter childSplitter) {
+
+        Document paragraphDoc = Document.builder()
+                .id(parentChunkId)
+                .text(paragraphText)
+                .metadata(sourceDocument.getMetadata())
+                .build();
+
+        List<Document> splitDocs = childSplitter.apply(List.of(paragraphDoc));
+        List<EsDocumentChunk> children = new ArrayList<>(splitDocs.size());
+
+        for (Document splitDoc : splitDocs) {
+            Map<String, Object> metadata = new LinkedHashMap<>(splitDoc.getMetadata());
+            metadata.put(KnowledgeChunkConstant.META_CHUNK_ID, splitDoc.getId());
+            metadata.putIfAbsent(KnowledgeChunkConstant.META_CHUNK_TYPE,
+                    KnowledgeChunkConstant.CHUNK_TYPE_TEXT);
+            metadata.put(KnowledgeChunkConstant.META_PARENT_CHUNK_ID, parentChunkId);
+
+            EsDocumentChunk child = new EsDocumentChunk();
+            child.setId(splitDoc.getId());
+            child.setContent(splitDoc.getText());
+            child.setMetadata(metadata);
+            children.add(child);
+        }
+        return children;
     }
 
     /**
@@ -1066,14 +1300,14 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
      * RRF 算法融合向量检索和关键词检索结果。
      * 公式：RRF Score = Σ(1/(k + rank_i))，其中 k 为常数（通常取60），rank_i 为文档在第i个检索结果中的排名。
      */
-    private List<EsDocumentChunk> rrfFusion(List<Document> vectorDocs, List<EsDocumentChunk> keywordDocs, int topK) {
+    private List<EsDocumentChunk> rrfFusion(List<EsDocumentChunk> vectorDocs, List<EsDocumentChunk> keywordDocs, int topK) {
         Map<String, Double> rrfScores = new HashMap<>();
         Map<String, String> idToChunkId = new HashMap<>();
         Map<String, Integer> scalarRanks = new HashMap<>();
         Map<String, Integer> vectorRanks = new HashMap<>();
 
         for (int i = 0; i < vectorDocs.size(); i++) {
-            Document doc = vectorDocs.get(i);
+            EsDocumentChunk doc = vectorDocs.get(i);
             String docId = doc.getId();
             if (docId == null || docId.isBlank()) {
                 continue;
@@ -1116,7 +1350,7 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         log.info("RRF融合后top{}结果：{}", topK, scoresLog);
 
         Map<String, EsDocumentChunk> idToChunk = new LinkedHashMap<>();
-        vectorDocs.forEach(doc -> idToChunk.putIfAbsent(doc.getId(), toChunk(doc)));
+        vectorDocs.forEach(doc -> idToChunk.putIfAbsent(doc.getId(), copyChunk(doc)));
         keywordDocs.forEach(doc -> idToChunk.putIfAbsent(doc.getId(), copyChunk(doc)));
 
         return sortedDocIds.stream()
