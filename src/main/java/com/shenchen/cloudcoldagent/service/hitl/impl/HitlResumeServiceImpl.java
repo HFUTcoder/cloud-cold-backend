@@ -12,6 +12,7 @@ import com.shenchen.cloudcoldagent.model.vo.HitlCheckpointVO;
 import com.shenchen.cloudcoldagent.service.hitl.HitlCheckpointService;
 import com.shenchen.cloudcoldagent.service.hitl.HitlResumeService;
 import com.shenchen.cloudcoldagent.utils.JsonArgumentUtils;
+import com.shenchen.cloudcoldagent.utils.JsonUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -120,9 +121,8 @@ public class HitlResumeServiceImpl implements HitlResumeService {
 
             String result;
             if (feedback.result() == PendingToolCall.FeedbackResult.REJECTED) {
-                result = "{\"rejected\":true,\"message\":\"%s\"}".formatted(escapeJson(StringUtils.defaultIfBlank(
-                        feedback.description(), "用户已拒绝执行该工具"
-                )));
+                result = buildJson(Map.of("rejected", true, "message",
+                        StringUtils.defaultIfBlank(feedback.description(), "用户已拒绝执行该工具")));
             } else {
                 String arguments = StringUtils.defaultIfBlank(feedback.arguments(), pendingToolCall.arguments());
                 log.info("HITL resume 合并工具参数，toolName={}, toolId={}, feedbackArgs={}, pendingArgs={}, mergedArgs={}",
@@ -171,20 +171,19 @@ public class HitlResumeServiceImpl implements HitlResumeService {
                                String conversationId) {
         ToolCallback tool = findTool(tools, toolName);
         if (tool == null) {
-            return "{\"error\":\"工具未找到：" + escapeJson(toolName) + "\"}";
+            return buildJson(Map.of("error", "工具未找到：" + toolName));
         }
         NormalizationResult normalizationResult = JsonArgumentUtils.normalizeJsonArguments(rawArguments);
         if (!normalizationResult.valid()) {
-            return "{\"error\":\"工具参数不是合法 JSON：" + escapeJson(StringUtils.defaultIfBlank(
-                    normalizationResult.errorMessage(), "unknown error")) +
-                    "\",\"toolId\":\"" + escapeJson(toolId) + "\"}";
+            return buildJson(Map.of(
+                    "error", "工具参数不是合法 JSON：" + StringUtils.defaultIfBlank(normalizationResult.errorMessage(), "unknown error"),
+                    "toolId", StringUtils.defaultString(toolId)));
         }
         String arguments = normalizationResult.normalizedJson();
         Map<String, Object> structuredArguments = JsonArgumentUtils.readObjectMap(arguments);
         String validationError = JsonArgumentUtils.validateStructuredToolArguments(toolName, structuredArguments);
         if (StringUtils.isNotBlank(validationError)) {
-            return "{\"error\":\"" + escapeJson(validationError) +
-                    "\",\"toolId\":\"" + escapeJson(toolId) + "\"}";
+            return buildJson(Map.of("error", validationError, "toolId", StringUtils.defaultString(toolId)));
         }
         try {
             log.info("HITL resume 执行工具，toolName={}, toolId={}, finalArgs={}", toolName, toolId, arguments);
@@ -192,8 +191,9 @@ public class HitlResumeServiceImpl implements HitlResumeService {
                 return String.valueOf(tool.call(arguments));
             }
         } catch (Exception e) {
-            return "{\"error\":\"工具执行失败：" + escapeJson(StringUtils.defaultIfBlank(e.getMessage(), "unknown error")) +
-                    "\",\"toolId\":\"" + escapeJson(toolId) + "\"}";
+            return buildJson(Map.of(
+                    "error", "工具执行失败：" + StringUtils.defaultIfBlank(e.getMessage(), "unknown error"),
+                    "toolId", StringUtils.defaultString(toolId)));
         }
     }
 
@@ -215,16 +215,11 @@ public class HitlResumeServiceImpl implements HitlResumeService {
                 .orElse(null);
     }
 
-    /**
-     * 处理 `escape Json` 对应逻辑。
-     *
-     * @param text text 参数。
-     * @return 返回处理结果。
-     */
-    private String escapeJson(String text) {
-        if (text == null) {
-            return "";
+    private String buildJson(Map<String, Object> data) {
+        try {
+            return JsonUtil.objectMapper().writeValueAsString(data);
+        } catch (Exception e) {
+            return "{\"error\":\"internal error\"}";
         }
-        return text.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }

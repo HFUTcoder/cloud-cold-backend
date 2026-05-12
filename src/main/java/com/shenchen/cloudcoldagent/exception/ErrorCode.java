@@ -15,7 +15,12 @@ public enum ErrorCode {
     NOT_FOUND_ERROR(40400, "请求数据不存在"),
     FORBIDDEN_ERROR(40300, "禁止访问"),
     SYSTEM_ERROR(50000, "系统内部异常"),
-    OPERATION_ERROR(50001, "操作失败");
+    OPERATION_ERROR(50001, "操作失败"),
+    AGENT_PLAN_ERROR(50010, "执行计划生成失败"),
+    AGENT_TOOL_ERROR(50011, "工具执行失败"),
+    HITL_CHECKPOINT_ERROR(50020, "HITL checkpoint 状态异常"),
+    KNOWLEDGE_SEARCH_ERROR(50030, "知识库检索失败"),
+    LONG_TERM_MEMORY_ERROR(50040, "长期记忆操作失败");
 
     private final int code;
     private final String message;

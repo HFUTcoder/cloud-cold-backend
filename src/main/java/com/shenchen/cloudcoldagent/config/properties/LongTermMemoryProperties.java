@@ -53,6 +53,41 @@ public class LongTermMemoryProperties {
     private int updatedMoodMinutes = 10;
 
     /**
+     * 宠物名称和学习时间 Redis key 的 TTL（天）。
+     */
+    private int petNameTtlDays = 30;
+
+    /**
+     * 记忆列表拉取上限。
+     */
+    private int listLimit = 100;
+
+    /**
+     * 会话历史截断字符数（送入 LLM 提取前）。
+     */
+    private int transcriptTruncateChars = 1200;
+
+    /**
+     * fallback 记忆置信度。
+     */
+    private double fallbackConfidence = 0.45d;
+
+    /**
+     * fallback 记忆重要度。
+     */
+    private double fallbackImportance = 0.5d;
+
+    /**
+     * 记忆标题截断字符数。
+     */
+    private int titleTruncateChars = 40;
+
+    /**
+     * 记忆摘要截断字符数。
+     */
+    private int summaryTruncateChars = 60;
+
+    /**
      * 长期记忆关键词索引名。
      */
     private String keywordIndexName = "user_long_term_memory_docs";

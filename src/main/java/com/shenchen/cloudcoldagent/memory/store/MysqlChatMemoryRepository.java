@@ -14,11 +14,13 @@ import org.springframework.ai.chat.memory.ChatMemoryRepository;
 import org.springframework.context.annotation.Primary;
 import org.springframework.ai.chat.messages.*;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.CollectionUtils;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -66,17 +68,7 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
      */
     @Override
     public List<String> findConversationIds() {
-        QueryWrapper queryWrapper = QueryWrapper.create()
-                .eq("isDelete", 0)
-                .orderBy("createTime", true);
-        List<ChatMemoryHistory> rows = chatMemoryHistoryMapper.selectListByQuery(queryWrapper);
-        Set<String> conversationIds = new LinkedHashSet<>();
-        for (ChatMemoryHistory row : rows) {
-            if (row.getConversationId() != null && !row.getConversationId().isBlank()) {
-                conversationIds.add(row.getConversationId());
-            }
-        }
-        return new ArrayList<>(conversationIds);
+        return chatMemoryHistoryMapper.selectDistinctConversationIds();
     }
 
     /**
@@ -116,6 +108,7 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
      * @param messages messages 参数。
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void saveAll(String conversationId, List<Message> messages) {
         if (conversationId == null || conversationId.isBlank()) {
             return;
@@ -156,7 +149,20 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
             chatMemoryHistoryMapper.insert(row);
             bindPendingImagesIfNeeded(conversationId, message, row, now);
         }
-        notifyLongTermMemory(conversationId, messages, commonPrefixLength);
+
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            final String cid = conversationId;
+            final List<Message> msgs = messages;
+            final int prefixLen = commonPrefixLength;
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    notifyLongTermMemory(cid, msgs, prefixLen);
+                }
+            });
+        } else {
+            notifyLongTermMemory(conversationId, messages, commonPrefixLength);
+        }
     }
 
     /**
@@ -165,6 +171,7 @@ public class MysqlChatMemoryRepository implements ChatMemoryRepository {
      * @param conversationId conversationId 参数。
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void deleteByConversationId(String conversationId) {
         if (conversationId == null || conversationId.isBlank()) {
             return;

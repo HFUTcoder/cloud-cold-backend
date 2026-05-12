@@ -288,8 +288,7 @@ public class HitlCheckpointServiceImpl extends ServiceImpl<HitlCheckpointMapper,
      */
     @Override
     public HitlCheckpointVO resolveCheckpoint(String interruptId, List<PendingToolCall> feedbacks) {
-        HitlCheckpoint checkpoint = getCheckpointEntity(interruptId);
-        return resolveCheckpointEntity(checkpoint, feedbacks);
+        return resolveCheckpointEntity(interruptId, feedbacks);
     }
 
     /**
@@ -304,24 +303,34 @@ public class HitlCheckpointServiceImpl extends ServiceImpl<HitlCheckpointMapper,
     public HitlCheckpointVO resolveCheckpoint(Long userId, String interruptId, List<PendingToolCall> feedbacks) {
         HitlCheckpoint checkpoint = getCheckpointEntity(interruptId);
         validateCheckpointOwner(userId, checkpoint);
-        return resolveCheckpointEntity(checkpoint, feedbacks);
+        return resolveCheckpointEntity(interruptId, feedbacks);
     }
 
     /**
-     * 将 checkpoint 标记为已 resolve，并写入用户反馈。
+     * 以 CAS 方式将 checkpoint 标记为已 resolve，并写入用户反馈。
+     * 通过 WHERE status=PENDING 保证并发安全，防止同一 checkpoint 被重复 resolve。
      *
-     * @param checkpoint checkpoint 实体。
+     * @param interruptId 中断 id。
      * @param feedbacks 用户反馈列表。
      * @return 更新后的 checkpoint 视图。
      */
-    private HitlCheckpointVO resolveCheckpointEntity(HitlCheckpoint checkpoint, List<PendingToolCall> feedbacks) {
-        if (!HitlCheckpointStatusEnum.PENDING.getValue().equals(checkpoint.getStatus())) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "该 HITL checkpoint 已处理");
+    private HitlCheckpointVO resolveCheckpointEntity(String interruptId, List<PendingToolCall> feedbacks) {
+        String feedbacksJson = HitlSerializationUtils.writeJson(feedbacks == null ? List.of() : feedbacks);
+        int updatedRows = this.mapper.updateByQuery(
+                HitlCheckpoint.builder()
+                        .feedbacksJson(feedbacksJson)
+                        .status(HitlCheckpointStatusEnum.RESOLVED.getValue())
+                        .resolvedTime(LocalDateTime.now())
+                        .build(),
+                QueryWrapper.create()
+                        .eq("interruptId", interruptId)
+                        .eq("status", HitlCheckpointStatusEnum.PENDING.getValue())
+                        .eq("isDelete", 0)
+        );
+        if (updatedRows <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "该 HITL checkpoint 已处理或不存在");
         }
-        checkpoint.setFeedbacksJson(HitlSerializationUtils.writeJson(feedbacks == null ? List.of() : feedbacks));
-        checkpoint.setStatus(HitlCheckpointStatusEnum.RESOLVED.getValue());
-        checkpoint.setResolvedTime(LocalDateTime.now());
-        this.updateById(checkpoint);
+        HitlCheckpoint checkpoint = getCheckpointEntity(interruptId);
         log.info("已提交 HITL 处理结果，interruptId={}, conversationId={}, feedbackCount={}",
                 checkpoint.getInterruptId(),
                 checkpoint.getConversationId(),
@@ -394,9 +403,6 @@ public class HitlCheckpointServiceImpl extends ServiceImpl<HitlCheckpointMapper,
     public AgentInterrupted loadInterrupted(String interruptId) {
         HitlCheckpoint checkpoint = getCheckpointEntity(interruptId);
         return new AgentInterrupted(
-                /**
-                 * `` 类型实现。
-                 */
                 HitlSerializationUtils.readJson(checkpoint.getPendingToolCallsJson(), new TypeReference<>() {
                 }),
                 HitlSerializationUtils.readMessages(checkpoint.getCheckpointMessagesJson()),
@@ -524,16 +530,10 @@ public class HitlCheckpointServiceImpl extends ServiceImpl<HitlCheckpointMapper,
             return null;
         }
         List<PendingToolCall> pendingToolCalls = HitlSerializationUtils.readJson(
-                /**
-                 * `` 类型实现。
-                 */
                 checkpoint.getPendingToolCallsJson(), new TypeReference<>() {
                 }
         );
         List<PendingToolCall> feedbacks = HitlSerializationUtils.readJson(
-                /**
-                 * `` 类型实现。
-                 */
                 checkpoint.getFeedbacksJson(), new TypeReference<>() {
                 }
         );
@@ -541,9 +541,6 @@ public class HitlCheckpointServiceImpl extends ServiceImpl<HitlCheckpointMapper,
         // 不能直接用 readContext（它会恢复出 HITLState 对象，导致序列化异常）。
         Map<String, Object> responseContext = HitlSerializationUtils.readJson(
                 checkpoint.getContextJson(),
-                /**
-                 * `` 类型实现。
-                 */
                 new TypeReference<>() {
                 }
         );

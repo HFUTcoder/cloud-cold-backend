@@ -133,7 +133,7 @@ public interface KnowledgeService extends IService<com.shenchen.cloudcoldagent.m
      * @return 返回处理结果。
      * @throws Exception 异常信息。
      */
-    List<EsDocumentChunk> add(String filePath) throws Exception;
+    List<EsDocumentChunk> add(String filePath, Long userId, Long knowledgeId) throws Exception;
 
     /**
      * 更新 `update` 对应内容。
@@ -142,7 +142,7 @@ public interface KnowledgeService extends IService<com.shenchen.cloudcoldagent.m
      * @return 返回处理结果。
      * @throws Exception 异常信息。
      */
-    List<EsDocumentChunk> update(String filePath) throws Exception;
+    List<EsDocumentChunk> update(String filePath, Long userId, Long knowledgeId) throws Exception;
 
     /**
      * 删除 `delete By Ids` 对应内容。

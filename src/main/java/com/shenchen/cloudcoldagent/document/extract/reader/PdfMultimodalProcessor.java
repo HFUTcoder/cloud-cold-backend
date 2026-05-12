@@ -1,5 +1,6 @@
 package com.shenchen.cloudcoldagent.document.extract.reader;
 
+import com.shenchen.cloudcoldagent.constant.KnowledgeChunkConstant;
 import com.shenchen.cloudcoldagent.prompts.KnowledgePrompts;
 import com.shenchen.cloudcoldagent.model.entity.record.knowledge.DocumentReadResult;
 import com.shenchen.cloudcoldagent.model.entity.record.knowledge.ExtractedDocumentImage;
@@ -40,7 +41,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -168,14 +168,15 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
             // 将 [IMAGE_N] 占位符替换为实际的 AI 图像描述
             String text = finalText.toString().trim();
             for (ExtractedDocumentImage img : extractedImages) {
+                String placeholder = KnowledgeChunkConstant.IMAGE_PLACEHOLDER_PREFIX + img.imageIndex() + KnowledgeChunkConstant.IMAGE_PLACEHOLDER_SUFFIX;
                 String desc = img.description();
                 if (desc == null || desc.isBlank()) {
-                    text = text.replace("[IMAGE_" + img.imageIndex() + "]", "");
+                    text = text.replace(placeholder, "");
                 } else {
                     desc = desc.replace("\r\n", " ").replace("\n", " ").replace("\r", " ");
                     text = text.replace(
-                            "[IMAGE_" + img.imageIndex() + "]",
-                            "<cloudcoldagent-image id=\"" + img.imageIndex() + "\">" + escapeXml(desc) + "</cloudcoldagent-image>"
+                            placeholder,
+                            KnowledgeChunkConstant.IMAGE_TAG_PREFIX + img.imageIndex() + KnowledgeChunkConstant.IMAGE_TAG_SUFFIX + escapeXml(desc) + KnowledgeChunkConstant.IMAGE_TAG_CLOSE
                     );
                 }
             }
@@ -192,8 +193,7 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
             BufferedImage bufferedImage = image.getImage();
             ImageIO.write(bufferedImage, "png", baos);
             byte[] imageBytes = baos.toByteArray();
-            String base64Image = Base64.getEncoder().encodeToString(imageBytes);
-            String description = image2Text(base64Image);
+            String description = image2Text(imageBytes);
             description = (description == null || description.trim().isEmpty()) ? "" : description.trim();
             return new ExtractedDocumentImage(
                     imageIndex,
@@ -250,11 +250,10 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
     /**
      * 调用多模态模型将图片内容转换成文本描述。
      *
-     * @param imageBase64 PNG 图片的 base64 文本。
+     * @param imageBytes PNG 图片的原始字节数组。
      * @return 模型输出的图片描述。
      */
-    public String image2Text(String imageBase64) {
-        byte[] imageBytes = Base64.getDecoder().decode(imageBase64);
+    private String image2Text(byte[] imageBytes) {
         ByteArrayResource imageResource = new ByteArrayResource(imageBytes);
         var userMessage = UserMessage.builder()
                 .text(KnowledgePrompts.buildImageDescriptionPrompt())
@@ -543,7 +542,7 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
                     int imageIndex = imageIndexCounter.getAndIncrement();
                     ExtractedDocumentImage processedImage = processImage(image, pageNumber, imageIndex);
                     extractedImages.add(processedImage);
-                    elements.add(new ContentElement(ContentType.IMAGE, "[IMAGE_" + imageIndex + "]", x0, y0, 0, 0));
+                    elements.add(new ContentElement(ContentType.IMAGE, KnowledgeChunkConstant.IMAGE_PLACEHOLDER_PREFIX + imageIndex + KnowledgeChunkConstant.IMAGE_PLACEHOLDER_SUFFIX, x0, y0, 0, 0));
                 }
             } else {
                 // 对于其他操作符，调用父类的默认处理

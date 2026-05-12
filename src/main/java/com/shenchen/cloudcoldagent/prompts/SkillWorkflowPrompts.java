@@ -18,6 +18,15 @@ public final class SkillWorkflowPrompts {
     private SkillWorkflowPrompts() {
     }
 
+    // Skill 运行时 prompt 格式标记
+    public static final String SKILL_HEADER_PREFIX = "=== SKILL: ";
+    public static final String SKILL_HEADER_SUFFIX = " ===\n";
+    public static final String SKILL_RESOURCES_HEADER = "resources:\n";
+    public static final String SKILL_REFERENCES_LABEL = "references: ";
+    public static final String SKILL_SCRIPTS_LABEL = "scripts: ";
+    public static final String SKILL_END_MARKER = "=== END SKILL ===\n\n";
+    public static final String EMPTY_LIST_PLACEHOLDER = "[]";
+
     /**
      * 构建 `build Selected Skill Runtime Header Prompt` 对应结果。
      *

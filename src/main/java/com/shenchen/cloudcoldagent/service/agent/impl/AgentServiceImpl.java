@@ -185,6 +185,8 @@ public class AgentServiceImpl implements AgentService {
                 .build();
         planExecuteAgent = PlanExecuteAgent.builder()
                 .agentType(agentProperties.getPlan().getAgentType())
+                .timezone(agentProperties.getTimezone())
+                .toolBatchTimeoutSeconds(agentProperties.getPlan().getToolBatchTimeoutSeconds())
                 .chatModel(openAiChatModel)
                 .tools(commonToolCallbacks)
                 .advisors(allAdvisors)
@@ -404,18 +406,18 @@ public class AgentServiceImpl implements AgentService {
             if (context == null || StringUtils.isBlank(context.getSkillName()) || StringUtils.isBlank(context.getContent())) {
                 continue;
             }
-            sb.append("=== SKILL: ").append(context.getSkillName().trim()).append(" ===\n");
+            sb.append(SkillWorkflowPrompts.SKILL_HEADER_PREFIX).append(context.getSkillName().trim()).append(SkillWorkflowPrompts.SKILL_HEADER_SUFFIX);
             if (context.getResourceList() != null) {
-                sb.append("resources:\n");
-                sb.append("references: ")
-                        .append(context.getResourceList().getReferences() == null ? "[]" : context.getResourceList().getReferences())
+                sb.append(SkillWorkflowPrompts.SKILL_RESOURCES_HEADER);
+                sb.append(SkillWorkflowPrompts.SKILL_REFERENCES_LABEL)
+                        .append(context.getResourceList().getReferences() == null ? SkillWorkflowPrompts.EMPTY_LIST_PLACEHOLDER : context.getResourceList().getReferences())
                         .append("\n");
-                sb.append("scripts: ")
-                        .append(context.getResourceList().getScripts() == null ? "[]" : context.getResourceList().getScripts())
+                sb.append(SkillWorkflowPrompts.SKILL_SCRIPTS_LABEL)
+                        .append(context.getResourceList().getScripts() == null ? SkillWorkflowPrompts.EMPTY_LIST_PLACEHOLDER : context.getResourceList().getScripts())
                         .append("\n\n");
             }
             sb.append(context.getContent().trim()).append("\n");
-            sb.append("=== END SKILL ===\n\n");
+            sb.append(SkillWorkflowPrompts.SKILL_END_MARKER);
         }
         String prompt = sb.toString().trim();
         return prompt.isEmpty() ? null : prompt;

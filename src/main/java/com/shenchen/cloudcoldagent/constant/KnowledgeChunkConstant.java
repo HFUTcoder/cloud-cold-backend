@@ -33,4 +33,15 @@ public final class KnowledgeChunkConstant {
     public static final String META_PARENT_CHUNK_ID = "parentChunkId";
     public static final String META_IMAGE_IDS = "imageIds";
     public static final String META_PAGE_NUMBER = "pageNumber";
+    public static final String META_CHUNK_INDEX = "chunk_index";
+    public static final String META_CHUNK_TOTAL = "chunk_total";
+    public static final String META_CHUNK_SIZE = "chunk_size";
+    public static final String META_CHUNK_OVERLAP = "chunk_overlap";
+
+    // 图片标签格式常量（PdfMultimodalProcessor 生成端与 KnowledgeServiceImpl 解析端共享）
+    public static final String IMAGE_TAG_PREFIX = "<cloudcoldagent-image id=\"";
+    public static final String IMAGE_TAG_SUFFIX = "\">";
+    public static final String IMAGE_TAG_CLOSE = "</cloudcoldagent-image>";
+    public static final String IMAGE_PLACEHOLDER_PREFIX = "[IMAGE_";
+    public static final String IMAGE_PLACEHOLDER_SUFFIX = "]";
 }

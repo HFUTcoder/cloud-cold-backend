@@ -1,5 +1,6 @@
 package com.shenchen.cloudcoldagent.document.transform.splitter;
 
+import com.shenchen.cloudcoldagent.constant.KnowledgeChunkConstant;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.document.Document;
@@ -156,11 +157,11 @@ public class OverlapParagraphTextSplitter extends TextSplitter {
                 : new LinkedHashMap<>(sourceDocument.getMetadata());
         String sourceDocumentId = sourceDocument.getId();
 
-        metadata.put("source_document_id", sourceDocumentId);
-        metadata.put("chunk_index", chunkIndex);
-        metadata.put("chunk_total", chunkTotal);
-        metadata.put("chunk_size", chunkSize);
-        metadata.put("chunk_overlap", overlap);
+        metadata.put(KnowledgeChunkConstant.META_SOURCE_DOCUMENT_ID, sourceDocumentId);
+        metadata.put(KnowledgeChunkConstant.META_CHUNK_INDEX, chunkIndex);
+        metadata.put(KnowledgeChunkConstant.META_CHUNK_TOTAL, chunkTotal);
+        metadata.put(KnowledgeChunkConstant.META_CHUNK_SIZE, chunkSize);
+        metadata.put(KnowledgeChunkConstant.META_CHUNK_OVERLAP, overlap);
 
         return Document.builder()
                 .id(buildChunkId(sourceDocumentId, chunkIndex))

@@ -143,8 +143,8 @@ public class KnowledgeController {
                                                      HttpServletRequest httpServletRequest) throws Exception {
         ThrowUtils.throwIf(request == null || request.getFilePath() == null || request.getFilePath().isBlank(),
                 ErrorCode.PARAMS_ERROR);
-        userService.getLoginUser(httpServletRequest);
-        return ResultUtils.success(knowledgeService.add(request.getFilePath()));
+        User loginUser = userService.getLoginUser(httpServletRequest);
+        return ResultUtils.success(knowledgeService.add(request.getFilePath(), loginUser.getId(), null));
     }
 
     /**

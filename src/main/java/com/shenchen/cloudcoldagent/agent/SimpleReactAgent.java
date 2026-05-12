@@ -38,7 +38,7 @@ import java.util.concurrent.atomic.AtomicLong;
 @Slf4j
 public class SimpleReactAgent extends BaseAgent {
 
-    private final String REACT_AGENT_SYSTEM_PROMPT = ReactAgentPrompts.STRICT_REACT_SYSTEM_PROMPT;
+    private static final String REACT_AGENT_SYSTEM_PROMPT = ReactAgentPrompts.STRICT_REACT_SYSTEM_PROMPT;
     private final String name;
     private final String systemPrompt;
     private final Executor toolExecutor;
@@ -149,6 +149,38 @@ public class SimpleReactAgent extends BaseAgent {
     }
 
     /**
+     * 准备消息列表：加载 system prompt、历史记忆、用户问题，并写入用户记忆。
+     */
+    private record PreparedMessages(List<Message> messages, boolean useMemory) {}
+
+    private PreparedMessages prepareMessages(String question, String runtimeSystemPrompt,
+                                             String memoryQuestion, String conversationId) {
+        CopyOnWriteArrayList<Message> messages = new CopyOnWriteArrayList<>();
+        boolean useMemory = useMemory(conversationId);
+
+        messages.add(new SystemMessage(REACT_AGENT_SYSTEM_PROMPT));
+        messages.add(new SystemMessage(systemPrompt));
+        if (runtimeSystemPrompt != null && !runtimeSystemPrompt.isBlank()) {
+            messages.add(new SystemMessage(runtimeSystemPrompt));
+        }
+
+        if (useMemory) {
+            List<Message> history = getMemoryMessages(conversationId);
+            if (history != null && !history.isEmpty()) {
+                messages.addAll(history);
+            }
+        }
+
+        messages.add(new UserMessage(wrapQuestion(question)));
+
+        if (useMemory) {
+            addUserMemory(conversationId, memoryQuestion == null ? question : memoryQuestion);
+        }
+
+        return new PreparedMessages(messages, useMemory);
+    }
+
+    /**
      * 快速模式同步执行主循环，负责加载上下文、驱动模型轮询、处理工具调用并在必要时写入记忆。
      *
      * @param userId 当前用户 id。
@@ -159,29 +191,9 @@ public class SimpleReactAgent extends BaseAgent {
      * @return Agent 最终回答。
      */
     public String callInternal(Long userId, String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
-        List<Message> messages = new CopyOnWriteArrayList<>();
-        boolean useMemory = useMemory(conversationId);
-
-        messages.add(new SystemMessage(REACT_AGENT_SYSTEM_PROMPT));
-        messages.add(new SystemMessage(systemPrompt));
-        if (runtimeSystemPrompt != null && !runtimeSystemPrompt.isBlank()) {
-            messages.add(new SystemMessage(runtimeSystemPrompt));
-        }
-
-        // ===== 加载历史记忆 =====
-        if (useMemory) {
-            List<Message> history = getMemoryMessages(conversationId);
-            if (history != null && !history.isEmpty()) {
-                messages.addAll(history);
-            }
-        }
-
-        messages.add(new UserMessage(wrapQuestion(question)));
-
-        // 添加记忆
-        if (useMemory) {
-            addUserMemory(conversationId, memoryQuestion == null ? question : memoryQuestion);
-        }
+        PreparedMessages prepared = prepareMessages(question, runtimeSystemPrompt, memoryQuestion, conversationId);
+        List<Message> messages = prepared.messages();
+        boolean useMemory = prepared.useMemory();
 
         int round = 0;
 
@@ -346,33 +358,13 @@ public class SimpleReactAgent extends BaseAgent {
      * @return 返回处理结果。
      */
     public Flux<AgentStreamEvent> streamInternal(Long userId, String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
-        List<Message> messages = new CopyOnWriteArrayList<>();
-        boolean useMemory = useMemory(conversationId);
-        log.info("开始执行快速模式流式回答，conversationId={}, questionLength={}, useMemory={}",
+        log.info("开始执行快速模式流式回答，conversationId={}, questionLength={}",
                 conversationId,
-                question == null ? 0 : question.length(),
-                useMemory);
+                question == null ? 0 : question.length());
 
-        messages.add(new SystemMessage(REACT_AGENT_SYSTEM_PROMPT));
-        messages.add(new SystemMessage(systemPrompt));
-        if (runtimeSystemPrompt != null && !runtimeSystemPrompt.isBlank()) {
-            messages.add(new SystemMessage(runtimeSystemPrompt));
-        }
-
-        // ===== 加载历史记忆 =====
-        if (useMemory) {
-            List<Message> history = getMemoryMessages(conversationId);
-            if (history != null && !history.isEmpty()) {
-                messages.addAll(history);
-            }
-        }
-
-        messages.add(new UserMessage(wrapQuestion(question)));
-
-        // 添加记忆
-        if (useMemory) {
-            addUserMemory(conversationId, memoryQuestion == null ? question : memoryQuestion);
-        }
+        PreparedMessages prepared = prepareMessages(question, runtimeSystemPrompt, memoryQuestion, conversationId);
+        List<Message> messages = prepared.messages();
+        boolean useMemory = prepared.useMemory();
 
         Sinks.Many<AgentStreamEvent> sink = Sinks.many().unicast().onBackpressureBuffer();
         // 迭代轮次
@@ -525,7 +517,7 @@ public class SimpleReactAgent extends BaseAgent {
             hasSentFinalResult.set(true);
 
             if (useMemory) {
-                addAssistantMemory(conversationId, finalText);
+                virtualThreadExecutor.execute(() -> addAssistantMemory(conversationId, finalText));
             }
             return;
         }
@@ -591,11 +583,12 @@ public class SimpleReactAgent extends BaseAgent {
                     }
                 })
                 .doOnComplete(() -> {
-                    sink.tryEmitNext(AgentStreamEventFactory.finalAnswer(conversationId, stringBuilder.toString()));
+                    String finalText = stringBuilder.toString();
+                    sink.tryEmitNext(AgentStreamEventFactory.finalAnswer(conversationId, finalText));
                     hasSentFinalResult.set(true);
                     sink.tryEmitComplete();
                     if (useMemory) {
-                        addAssistantMemory(conversationId, stringBuilder.toString());
+                        virtualThreadExecutor.execute(() -> addAssistantMemory(conversationId, finalText));
                     }
                 })
                 .doOnError(err -> {
@@ -626,36 +619,26 @@ public class SimpleReactAgent extends BaseAgent {
 
         for (AssistantMessage.ToolCall tc : toolCalls) {
             toolExecutor.execute(() -> {
-                if (hasSentFinalResult.get()) {
-                    completeToolCall(completedCount, totalToolCalls, onComplete);
-                    return;
-                }
-
                 boolean acquired = false;
                 try {
+                    if (hasSentFinalResult.get()) {
+                        return;
+                    }
+
                     toolSemaphore.acquire();
                     acquired = true;
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    addErrorToolResponse(messages, tc, "工具执行被中断");
-                    completeToolCall(completedCount, totalToolCalls, onComplete);
-                    return;
-                }
 
-                try {
                     String toolName = tc.name();
                     String argsJson = tc.arguments();
 
                     ToolCallback callback = findTool(toolName);
                     if (callback == null) {
                         addErrorToolResponse(messages, tc, "工具未找到：" + toolName);
-                        completeToolCall(completedCount, totalToolCalls, onComplete);
                         return;
                     }
                     NormalizationResult normalizationResult = JsonArgumentUtils.normalizeJsonArguments(argsJson);
                     if (!normalizationResult.valid()) {
                         addErrorToolResponse(messages, tc, "工具参数不是合法 JSON：" + normalizationResult.errorMessage());
-                        completeToolCall(completedCount, totalToolCalls, onComplete);
                         return;
                     }
 
@@ -667,14 +650,17 @@ public class SimpleReactAgent extends BaseAgent {
                         messages.add(ToolResponseMessage.builder()
                                 .responses(List.of(tr))
                                 .build());
-                    } catch (Exception ex) {
-                        addErrorToolResponse(messages, tc, "工具执行失败：" + ex.getMessage());
                     }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    addErrorToolResponse(messages, tc, "工具执行被中断");
+                } catch (Exception ex) {
+                    addErrorToolResponse(messages, tc, "工具执行失败：" + ex.getMessage());
                 } finally {
                     if (acquired) {
                         toolSemaphore.release();
                     }
-                    completeToolCall(completedCount, totalToolCalls, onComplete);
+                    completeToolCall(completedCount, totalToolCalls, onComplete, virtualThreadExecutor);
                 }
             });
         }
@@ -687,10 +673,10 @@ public class SimpleReactAgent extends BaseAgent {
      * @param total total 参数。
      * @param onComplete onComplete 参数。
      */
-    private void completeToolCall(AtomicInteger completedCount, int total, Runnable onComplete) {
+    private void completeToolCall(AtomicInteger completedCount, int total, Runnable onComplete, Executor executor) {
         int current = completedCount.incrementAndGet();
         if (current >= total) {
-            onComplete.run();
+            executor.execute(onComplete);
         }
     }
 

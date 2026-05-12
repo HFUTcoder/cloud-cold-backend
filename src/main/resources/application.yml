@@ -2,10 +2,10 @@
 # cloud-cold-agent 应用配置
 # ============================================================
 # 启动前需要修改的配置项（搜索 "TODO"）：
-#   1. spring.ai.openai.api-key        — 百炼 DashScope API Key
+#   1. spring.ai.openai.api-key        —  API Key
 #   2. spring.datasource.password       — MySQL 数据库密码
 #   3. minio.accessKey / secretKey      — MinIO 对象存储凭证
-#   4. （可选）tavilysearch.api-key     — Tavily 联网搜索 Key
+#   4. （可选）tavilysearch.api-key      — Tavily 联网搜索 Key
 # ============================================================
 
 spring:
@@ -23,9 +23,8 @@ spring:
   ai:
     openai:
       base-url: https://dashscope.aliyuncs.com/compatible-mode/
-      # TODO: 替换为你的百炼 API Key（必填）
-      # 获取地址: https://bailian.console.aliyun.com/
-      api-key: your-dashscope-api-key-here
+      # TODO: 替换为你的 API Key（必填）
+      api-key: your-api-key-here
       chat:
         options:
           model: qwen-turbo

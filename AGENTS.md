@@ -19,10 +19,9 @@
 
 服务默认运行在 `http://localhost:8081/api`，API 文档 `http://localhost:8081/api/doc.html`。
 
-## 3. 配置
+配置入口：
 
-全部配置集中在 `src/main/resources/application.yml`，所有可配置项带注释说明。
-
+- 全部配置集中在 `src/main/resources/application.yml`，所有可配置项带注释说明
 - 密钥/密码以 `TODO:` 注释标记（共 4 处：DashScope API Key、MySQL 密码、MinIO 凭证、可选 Tavily Key）
 - 本地覆盖文件：`src/main/resources/application-local.yml`（已 gitignore，不提交），可覆盖 `application.yml` 中的任意配置
 - 默认 Profile：`local`
@@ -59,7 +58,7 @@
 | `minio.bucketName` | `cloud-cold` | MinIO bucket |
 | `skills.user-skills-dir` | `src/main/resources/user-skills` | 用户 Skill 目录 |
 
-## 4. 后端架构
+## 3. 后端架构
 
 ```text
 src/main/java/com/shenchen/cloudcoldagent
@@ -69,7 +68,7 @@ src/main/java/com/shenchen/cloudcoldagent
 ├── common/                # BaseResponse、AgentStreamEventFactory、ResultUtils、分页请求
 ├── config/                # Web、Tool、ES、MinIO、Session、RateLimiter、CORS、线程池、Skill
 │   └── properties/        # Agent、ES、HITL、LongTermMemory、Minio、PdfMultimodal、Search、Upload 配置属性
-├── constant/              # DistributeLockConstant、KnowledgeChunkConstant、UserConstant
+├── constant/              # DistributeLockConstant、KnowledgeChunkConstant、RedisKeyConstant、UserConstant
 ├── context/               # AgentRuntimeContext
 ├── controller/            # REST + SSE 接口（11 个 Controller）
 ├── database/              # init.sql + ES mapping JSON 文件
@@ -127,7 +126,7 @@ src/main/java/com/shenchen/cloudcoldagent
 │   └── state/             # SkillRuntimeContext、SkillExecutionPlan 等状态对象
 ```
 
-### 4.1 Agent 编排
+### 3.1 Agent 编排
 
 路由逻辑（`AgentServiceImpl.init()`）：
 
@@ -152,15 +151,16 @@ src/main/java/com/shenchen/cloudcoldagent
 
 SSE 事件类型：`thinking_step`、`assistant_delta`、`final_answer`、`hitl_interrupt`、`knowledge_retrieval`、`error`
 
-### 4.2 SimpleReactAgent
+### 3.2 SimpleReactAgent
 
-- 使用 `ReActAgentPrompts.STRICT_REACT_SYSTEM_PROMPT` 作为基础 system prompt
+- 使用 `ReActAgentPrompts.STRICT_REACT_SYSTEM_PROMPT` 作为基础 system prompt（`private static final` 常量）
 - `internalToolExecutionEnabled(false)` — 手动控制 tool call 循环
 - `stream()` 方法：通过 `Sinks.Many` 实现 SSE streaming，处理跨 chunk 的 tool call 合并
 - 工具并发由 `Semaphore(toolConcurrency)` 控制（默认 3）
 - 到达 `maxRounds` 时强制输出最终答案
+- `callInternal` 和 `streamInternal` 共用 `prepareMessages` 方法完成消息列表初始化（system prompt + 历史记忆 + 用户问题 + 写入用户记忆）
 
-### 4.3 PlanExecuteAgent
+### 3.3 PlanExecuteAgent
 
 Plan-Execute-Critique-Summarize 周期：
 
@@ -172,7 +172,7 @@ Plan-Execute-Critique-Summarize 周期：
 
 HITL 恢复：`resume()` 方法恢复 `ResumeContext`，应用编辑参数，继续剩余任务。审批结果：`APPROVED` / `REJECTED` / `EDIT`。全部 `REJECTED` 时输出拒绝信息。
 
-### 4.4 Skill 工作流
+### 3.4 Skill 工作流
 
 工作流图定义在 `SkillWorkflowConfig.java`，6 个节点顺序执行：
 
@@ -191,7 +191,7 @@ Skill 来源：
 
 `SkillConfig` 使用 `FileSystemSkillRegistry` 作为委托，通过 `CachingSkillRegistry` 缓存。
 
-### 4.5 知识库与文档
+### 3.5 知识库与文档
 
 **两级分块模型**：
 
@@ -204,7 +204,7 @@ PDF 文本中图像描述按原位注入后，先按段落切分父块（`PARENT
 
 **图像描述处理**：
 
-PDF 解析时将图像描述以 `<cloudcoldagent-image id="N">描述文字</cloudcoldagent-image>` 标签注入文本原位，在分块阶段提取 imageIndex 映射为 MySQL 图像 ID 存入父块 metadata，然后剥离 XML 标签只保留描述文字。图像 ID 会传播到相邻段落，确保图像与其上下文段落关联。
+PDF 解析时将图像描述以 `<cloudcoldagent-image id="N">描述文字</cloudcoldagent-image>` 标签注入文本原位，在分块阶段提取 imageIndex 映射为 MySQL 图像 ID 存入父块 metadata，然后剥离 XML 标签只保留描述文字。图像 ID 会传播到相邻段落，确保图像与其上下文段落关联。标签格式常量（`IMAGE_TAG_PREFIX`、`IMAGE_TAG_SUFFIX`、`IMAGE_TAG_CLOSE`、`IMAGE_PLACEHOLDER_PREFIX`、`IMAGE_PLACEHOLDER_SUFFIX`）和 metadata key 常量（`META_CHUNK_INDEX`、`META_CHUNK_TOTAL`、`META_CHUNK_SIZE`、`META_CHUNK_OVERLAP`）统一定义在 `KnowledgeChunkConstant` 中，`PdfMultimodalProcessor`（生成端）和 `OverlapParagraphTextSplitter` 共用。
 
 **关键词检索**：使用 `content.ngram` 子字段（`edge_ngram` token filter，min_gram=1，max_gram=20）+ `match` 查询，中文/英文/数字均适用。
 
@@ -227,15 +227,16 @@ PDF 解析时将图像描述以 `<cloudcoldagent-image id="N">描述文字</clou
 
 **当前仅支持 PDF**。`PdfMultimodalProcessor` 是 `DocumentReaderStrategy` 的唯一实现。
 
-### 4.6 HITL 人工审批
+### 3.6 HITL 人工审批
 
 - 拦截器触发：`PlanExecuteAgent.executeStructuredToolTask()` 中检查 `hitlInterceptToolNames.contains(toolName)`（默认 `execute_skill_script`）
 - 中断流程：创建 `hitl_checkpoint` → `HITLState` 记录待消费 toolCallId → SSE 推送 `hitl_interrupt`
 - 恢复流程：前端调用 `POST /hitl/checkpoint/resolve` → `POST /agent/resume`
 - `HITLState` 用 `ConcurrentHashMap<String, Set<Long>>` 追踪已消费的 toolCallId，防止恢复后重复执行
+- `resolveCheckpoint` 使用 CAS 模式（`updateByQuery` + `WHERE status=PENDING`），防止并发 resolve 同一 checkpoint；`consumeResolvedCheckpoint` 同样使用 CAS（`WHERE status=RESOLVED`）
 - 默认配置：`cloudcold.hitl.enabled=true`，仅 `execute_skill_script` 被拦截
 
-### 4.7 长期记忆 / 宠物记忆
+### 3.7 长期记忆 / 宠物记忆
 
 **存储**：MySQL（`user_long_term_memory`、`user_long_term_memory_source_relation`、`user_long_term_memory_conversation_state`）+ ES 双索引（关键词索引 `user_long_term_memory_docs` + 向量索引 `user_long_term_memory_vector` 1536 维）+ Redis（宠物名称、最后学习时间）
 
@@ -250,133 +251,52 @@ PDF 解析时将图像描述以 `<cloudcoldagent-image id="N">描述文字</clou
 
 **API**：`/userMemory/pet/state`、`/userMemory/list`、`/userMemory/rebuild`、`/userMemory/rename`、`/userMemory/delete`
 
-### 4.8 聊天记忆
+### 3.8 聊天记忆
 
 - `MysqlChatMemoryRepository` 实现 `ChatMemoryRepository`，持久化到 `chat_memory_history` 表
 - `saveAll()`：比较 common prefix 后追加新消息，助手消息落库时回绑知识库图片
+- `deleteByConversationId()`：软删除聊天历史、图片关联和 pending images，三步操作在同一事务中（`@Transactional(rollbackFor = Exception.class)`）
 - 窗口大小：`maxMessages=20`（`cloudcold.agent.memory.max-messages`）
 - 不持久化实时思考过程，只持久化用户消息、助手最终回答和已回绑知识库图片（`ChatMemoryHistoryImageRelation`）
 
-## 5. Agent 工具池
+### 3.9 Agent 工具池
 
-### commonTools（Agent 运行时可用 — 2 个）
-
-`AgentServiceImpl` 注入 `@Qualifier("commonTools")`：
+**commonTools**（Agent 运行时可用 — 2 个）：`AgentServiceImpl` 注入 `@Qualifier("commonTools")`。
 
 | Tool | `@Tool(name=...)` | 类 | 说明 |
 |------|-------------------|-----|------|
 | `search` | `search` | `SearchTool` | 搜索（Tavily 或 mock） |
 | `execute_skill_script` | `execute_skill_script` | `ExecuteSkillScriptTool` | Python 脚本执行，也是 HITL 默认拦截目标 |
 
-### allTools（全部已注册工具 — 8 个）
-
-按类名排序，包含 `commonTools` 中的 2 个，外加 `tools/rag/` 和 `tools/skill/` 中的其余工具：
-
-`search`、`knowledge_hybrid_search`、`knowledge_scalar_search`、`knowledge_vector_search`、`list_skill_resources`、`read_skill_resource`、`read_skill`、`execute_skill_script`
+**allTools**（全部已注册工具 — 8 个）：包含 `commonTools` 中的 2 个，外加 `tools/rag/` 和 `tools/skill/` 中的其余工具：`search`、`knowledge_hybrid_search`、`knowledge_scalar_search`、`knowledge_vector_search`、`list_skill_resources`、`read_skill_resource`、`read_skill`、`execute_skill_script`。
 
 **关键**：`tools/rag/*` 中的知识库检索工具只存在于 `allTools`，不在 `commonTools`，因此 Agent 运行时无法调用。知识库检索走服务层预处理。
 
-## 6. 接口列表
+### 3.10 接口列表
 
 接口统一前缀 `/api`。标注 `@AuthCheck` 的接口需要登录态。
 
-### 用户
-| 方法 | 路径 | 鉴权 |
-|------|------|------|
-| POST | `/user/register` | 无 |
-| POST | `/user/login` | 无 |
-| GET | `/user/get/login` | 无 |
-| POST | `/user/logout` | 无 |
-| GET | `/user/get/vo` | 无 |
-| POST | `/user/add` | admin |
-| GET | `/user/get` | admin |
-| POST | `/user/delete` | admin |
-| POST | `/user/update` | admin |
-| POST | `/user/list/page/vo` | admin |
+**用户**：`POST /user/register`（无）、`POST /user/login`（无）、`GET /user/get/login`（无）、`POST /user/logout`（无）、`GET /user/get/vo`（无）、`POST /user/add`（admin）、`GET /user/get`（admin）、`POST /user/delete`（admin）、`POST /user/update`（admin）、`POST /user/list/page/vo`（admin）
 
-### 会话
-| 方法 | 路径 | 鉴权 |
-|------|------|------|
-| POST | `/chatConversation/create` | user |
-| GET | `/chatConversation/list/my` | user |
-| GET | `/chatConversation/get` | user |
-| POST | `/chatConversation/update/skills` | user |
-| POST | `/chatConversation/update/knowledge` | user |
-| POST | `/chatConversation/delete` | user |
+**会话**：`POST /chatConversation/create`（user）、`GET /chatConversation/list/my`（user）、`GET /chatConversation/get`（user）、`POST /chatConversation/update/skills`（user）、`POST /chatConversation/update/knowledge`（user）、`POST /chatConversation/delete`（user）
 
-### 聊天历史
-| 方法 | 路径 | 鉴权 |
-|------|------|------|
-| GET | `/chatMemory/history/list/conversation` | user |
-| GET | `/chatMemory/history/list/user` | user |
-| GET | `/chatMemory/history/list/user/conversations` | user |
-| POST | `/chatMemory/history/delete` | user |
+**聊天历史**：`GET /chatMemory/history/list/conversation`（user）、`GET /chatMemory/history/list/user`（user）、`GET /chatMemory/history/list/user/conversations`（user）、`POST /chatMemory/history/delete`（user）
 
-### Agent
-| 方法 | 路径 | 鉴权 |
-|------|------|------|
-| POST | `/agent/call` | user |
-| POST | `/agent/resume` | user |
+**Agent**：`POST /agent/call`（user）、`POST /agent/resume`（user）
 
-### HITL
-| 方法 | 路径 | 鉴权 |
-|------|------|------|
-| GET | `/hitl/checkpoint/get` | user |
-| GET | `/hitl/checkpoint/latest` | user |
-| POST | `/hitl/checkpoint/resolve` | user |
+**HITL**：`GET /hitl/checkpoint/get`（user）、`GET /hitl/checkpoint/latest`（user）、`POST /hitl/checkpoint/resolve`（user）
 
-### Skill（条件注册，`@ConditionalOnBean`）
-| 方法 | 路径 | 鉴权 |
-|------|------|------|
-| GET | `/skill/list` | 无 |
-| GET | `/skill/meta/{skillName}` | 无 |
-| GET | `/skill/{skillName}` | 无 |
-| GET | `/skill/resource` | 无 |
-| POST | `/skill/script/execute` | 无 |
+**Skill**（条件注册，`@ConditionalOnBean`）：`GET /skill/list`（无）、`GET /skill/meta/{skillName}`（无）、`GET /skill/{skillName}`（无）、`GET /skill/resource`（无）、`POST /skill/script/execute`（无）
 
-### 知识库
-| 方法 | 路径 | 鉴权 |
-|------|------|------|
-| POST | `/knowledge/create` | user |
-| GET | `/knowledge/get` | user |
-| POST | `/knowledge/update` | user |
-| POST | `/knowledge/delete` | user |
-| POST | `/knowledge/list/page/my` | user |
-| POST | `/knowledge/write` | user |
-| POST | `/knowledge/scalar-search` | user |
-| POST | `/knowledge/metadata-search` | user |
-| POST | `/knowledge/vector-search` | user |
-| POST | `/knowledge/hybrid-search` | user |
+**知识库**：`POST /knowledge/create`（user）、`GET /knowledge/get`（user）、`POST /knowledge/update`（user）、`POST /knowledge/delete`（user）、`POST /knowledge/list/page/my`（user）、`POST /knowledge/write`（user）、`POST /knowledge/scalar-search`（user）、`POST /knowledge/metadata-search`（user）、`POST /knowledge/vector-search`（user）、`POST /knowledge/hybrid-search`（user）
 
-### 文档
-| 方法 | 路径 | 鉴权 |
-|------|------|------|
-| POST | `/document/create` | user |
-| POST | `/document/upload` | user |
-| GET | `/document/get` | user |
-| GET | `/document/preview-url` | user |
-| POST | `/document/update` | user |
-| POST | `/document/delete` | user |
-| POST | `/document/list/page/my` | user |
-| GET | `/document/list/by/knowledge` | user |
+**文档**：`POST /document/create`（user）、`POST /document/upload`（user）、`GET /document/get`（user）、`GET /document/preview-url`（user）、`POST /document/update`（user）、`POST /document/delete`（user）、`POST /document/list/page/my`（user）、`GET /document/list/by/knowledge`（user）
 
-### 长期记忆
-| 方法 | 路径 | 鉴权 |
-|------|------|------|
-| GET | `/userMemory/pet/state` | user |
-| GET | `/userMemory/list` | user |
-| POST | `/userMemory/rebuild` | user |
-| POST | `/userMemory/rename` | user |
-| POST | `/userMemory/delete` | user |
+**长期记忆**：`GET /userMemory/pet/state`（user）、`GET /userMemory/list`（user）、`POST /userMemory/rebuild`（user）、`POST /userMemory/rename`（user）、`POST /userMemory/delete`（user）
 
-### 文件 / ES（调试）
-| 方法 | 路径 | 鉴权 |
-|------|------|------|
-| POST | `/files/upload` | 无 |
-| GET | `/files/download-url/{objectName}` | 无 |
-| — | `/es/write`、`/es/search` | 无 |
+**文件 / ES（调试）**：`POST /files/upload`（无）、`GET /files/download-url/{objectName}`（无）、`/es/write` + `/es/search`（无）
 
-## 7. 前后端契约
+### 3.11 前后端契约
 
 | 前端术语 | 后端术语 / 字段 |
 |----------|----------------|
@@ -398,11 +318,21 @@ PDF 解析时将图像描述以 `<cloudcoldagent-image id="N">描述文字</clou
 - HITL checkpoint 和 resolve payload
 - `Long → string` 的 JSON 序列化策略
 
-## 8. 关键约定
+## 4. 前端架构
+
+前端项目 `cloud-cold-frontend` 是同级仓库，详见其 `AGENTS.md`。核心要点：
+
+- 技术栈：Vue 3.5、TypeScript 5.8、Vite 6、Vue Router 4、Pinia 3、Ant Design Vue 4
+- 主入口：`src/views/HomeView.vue`（Agent 对话 + 知识库面板 + 宠物 FAB）
+- API 层：普通请求走 `src/api/request.ts`（`credentials: 'include'`），Agent SSE 走 `src/api/agent.ts`（`fetch + getReader + TextDecoder`），宠物记忆走 `src/api/userMemory.ts`
+- 状态管理：主链路状态在组件本地（`HomeView.vue`、`KnowledgeWorkspace.vue`、`PetMemoryWidget.vue`），无全局 Pinia store
+- 默认后端：`http://localhost:8081/api`，Vite 代理 `/api -> http://localhost:8081`
+
+## 5. 关键约定
 
 - **Agent 工具池**：`commonTools`（`AgentServiceImpl` 中注入 `@Qualifier("commonTools")`），仅 `SearchTool` 和 `ExecuteSkillScriptTool`。`tools/rag/*` 中的 3 个知识库检索工具只存在于 `allTools`，不在 `commonTools`，Agent 运行时无法调用。
 - **知识库检索**：主链路是进入 Agent 前的服务层预检索（`KnowledgePreprocessServiceImpl.preprocess()`），不是 Agent 运行时调用 rag tool。
-- **文档上传**：`POST /document/upload` 是同步入库，返回时已经是 `INDEXED` 或 `FAILED`。
+- **文档上传**：`POST /document/upload` 是同步入库，返回时已经是 `INDEXED` 或 `FAILED`。调试接口 `POST /knowledge/write` 需要登录态，会传入 `userId` 构建完整的 `DocumentIndexContext`。
 - **文档格式**：当前只支持 PDF。`PdfMultimodalProcessor` 是 `DocumentReaderStrategy` 的唯一实现。扩展格式需同步注册 `DocumentReaderStrategy`、前端上传限制和文档。
 - **PDF 入库**：使用两级分块（父块 `PARENT` + 子块 `TEXT`）。图像描述通过 `<cloudcoldagent-image>` 标签注入文本原位，分块后剥离标签保留描述文字，图像 ID 存入父块 `metadata.imageIds`。不再使用 `IMAGE_DESCRIPTION` chunk 类型。
 - **ES 检索**：关键词检索使用 `content.ngram` 子字段（`edge_ngram`）+ `match` 查询。标量检索只查 `PARENT` 父块，向量检索查 `TEXT` 子块，向量结果在 RRF 融合前 resolve 回父块。
@@ -412,11 +342,14 @@ PDF 解析时将图像描述以 `<cloudcoldagent-image id="N">描述文字</clou
 - **`Long` / `long` 序列化**：`WebConfig` 中 `ToStringSerializer` 统一序列化成 JSON 字符串，修改属于前后端契约级改动。
 - **聊天记忆**：不持久化实时思考过程，只持久化用户消息、助手最终回答和已回绑知识库图片（`ChatMemoryHistoryImageRelation`）。
 - **长期记忆**：已接入主链路（`AgentServiceImpl` 中调用 `UserLongTermMemoryPreprocessService`），修改提取 Prompt、ES 索引 mapping、memory type 枚举时需同步前后端。
-- **长期记忆清理**：ES 与 MySQL 必须保持一致性。删除 memory 时先查 MySQL 拿到 memoryId 列表，再分别删除 MySQL 和 ES（`deleteByIds`）。`rebuildConversationMemories` 中必须先 LLM 提取成功再删除旧数据。
+- **长期记忆清理**：ES 与 MySQL 必须保持一致性。删除 memory 时先删 ES 再删 MySQL（先删 ES 失败可抛异常阻止 MySQL 删除，避免幽灵数据）。`rebuildConversationMemories` 采用"先写新、再删旧"策略：先写入新 ES 数据和 MySQL 元数据，成功后再删除旧数据，确保 LLM 提取后写入阶段失败不会丢失原有记忆。
 - **数据访问**：MySQL 主链路使用 MyBatis-Flex，不要平行引入 JPA、MyBatis-Plus 或另一套数据访问主框架。
 - **复杂逻辑**：放在 Service / Workflow / Agent 层，不要塞进 Controller。
+- **共享常量**：图片标签格式（`KnowledgeChunkConstant.IMAGE_TAG_*`、`IMAGE_PLACEHOLDER_*`）、metadata key（`META_CHUNK_INDEX` 等）、Redis key 前缀（`RedisKeyConstant`）、Skill prompt 格式标记（`SkillWorkflowPrompts.SKILL_HEADER_PREFIX` 等）统一定义在常量类中，不要在业务代码中硬编码。
+- **HITL 错误响应**：HITL resume 中的 JSON 错误响应使用 `JsonUtil.objectMapper().writeValueAsString()` 序列化 Map 构建，不要手动拼接 JSON 字符串。
+- **事务注解**：涉及多步数据库写操作的方法必须标注 `@Transactional(rollbackFor = Exception.class)`，如 `saveAll()`、`deleteByConversationId()`。
 
-## 9. 本地开发及验证
+## 6. 本地开发及验证流程
 
 1. 改动代码或文档
 2. 编译检查：`./mvnw -q -DskipTests compile`
@@ -447,7 +380,7 @@ curl -b /tmp/cloud-cold-cookie.txt \
   http://localhost:8081/api/userMemory/pet/state
 ```
 
-## 10. 质量检查
+## 7. 质量检查
 
 | 检查项 | 命令 | 说明 |
 |--------|------|------|
@@ -456,7 +389,7 @@ curl -b /tmp/cloud-cold-cookie.txt \
 | 打包 | `./mvnw clean package` | 生成可运行 JAR |
 | 接口文档 | `http://localhost:8081/api/doc.html` | 启动后人工检查 |
 
-## 11. 参考优先级
+## 8. 参考项目约定
 
 1. 当前仓库真实代码和 `application.yml`
 2. `cloud-cold-frontend` 的实际调用方式
@@ -465,7 +398,7 @@ curl -b /tmp/cloud-cold-cookie.txt \
 
 不要用脚手架默认习惯覆盖当前仓库已经形成的主链路约定。
 
-## 12. 文档导航
+## 9. 文档导航
 
 | 文档 | 内容 |
 |------|------|

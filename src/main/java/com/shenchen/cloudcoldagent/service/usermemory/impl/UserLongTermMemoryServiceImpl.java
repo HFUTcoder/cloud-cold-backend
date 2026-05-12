@@ -3,7 +3,9 @@ package com.shenchen.cloudcoldagent.service.usermemory.impl;
 import cn.hutool.core.util.IdUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mybatisflex.core.query.QueryWrapper;
+import com.shenchen.cloudcoldagent.config.properties.AgentProperties;
 import com.shenchen.cloudcoldagent.config.properties.LongTermMemoryProperties;
+import com.shenchen.cloudcoldagent.constant.RedisKeyConstant;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.limiter.RateLimiter;
@@ -52,8 +54,8 @@ import java.util.concurrent.Executor;
 @Slf4j
 public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService {
 
-    private static final String USER_MEMORY_PET_NAME_KEY = "user_memory:pet_name:";
-    private static final String USER_MEMORY_LAST_LEARNED_AT_KEY = "user_memory:last_learned_at:";
+    private static final String USER_MEMORY_PET_NAME_KEY = RedisKeyConstant.USER_MEMORY_PET_NAME;
+    private static final String USER_MEMORY_LAST_LEARNED_AT_KEY = RedisKeyConstant.USER_MEMORY_LAST_LEARNED_AT;
     private static final Set<String> SUPPORTED_MEMORY_TYPES = Set.of("USER_PROFILE", "FACT", "PREFERENCE");
 
     private final UserLongTermMemoryStore userLongTermMemoryStore;
@@ -63,6 +65,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
     private final StructuredOutputAgentExecutor structuredOutputAgentExecutor;
     private final RedissonClient redissonClient;
     private final LongTermMemoryProperties properties;
+    private final AgentProperties agentProperties;
     private final ObjectMapper objectMapper;
     private final RateLimiter rateLimiter;
     private final Executor longTermMemoryExecutor;
@@ -88,6 +91,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
                                          StructuredOutputAgentExecutor structuredOutputAgentExecutor,
                                          RedissonClient redissonClient,
                                          LongTermMemoryProperties properties,
+                                         AgentProperties agentProperties,
                                          ObjectMapper objectMapper,
                                          RateLimiter rateLimiter,
                                          Executor longTermMemoryExecutor) {
@@ -98,6 +102,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         this.structuredOutputAgentExecutor = structuredOutputAgentExecutor;
         this.redissonClient = redissonClient;
         this.properties = properties;
+        this.agentProperties = agentProperties;
         this.objectMapper = objectMapper;
         this.rateLimiter = rateLimiter;
         this.longTermMemoryExecutor = longTermMemoryExecutor;
@@ -115,12 +120,14 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         UserPetStateVO vo = new UserPetStateVO();
         vo.setEnabled(true);
         vo.setPetName(resolvePetName(userId));
-        vo.setPendingConversationCount(resolvePendingConversationCount(userId));
-        vo.setPetMood(resolvePetMood(userId));
-        vo.setLastLearnedAt(resolveLastLearnedAt(userId));
+        int pendingCount = resolvePendingConversationCount(userId);
+        LocalDateTime lastLearnedAt = resolveLastLearnedAt(userId);
+        vo.setPendingConversationCount(pendingCount);
+        vo.setLastLearnedAt(lastLearnedAt);
+        vo.setPetMood(resolvePetMoodFromValues(pendingCount, lastLearnedAt));
 
         try {
-            List<UserLongTermMemory> memories = metadataService.listActiveByUserId(userId, 100);
+            List<UserLongTermMemory> memories = metadataService.listActiveByUserId(userId, properties.getListLimit());
             Map<String, List<UserLongTermMemorySourceRelation>> sourceMap = metadataService.mapSourcesByMemoryIds(
                     memories.stream().map(UserLongTermMemory::getMemoryId).toList()
             );
@@ -150,7 +157,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
     public List<UserLongTermMemoryVO> listMemories(Long userId) {
         validateUserId(userId);
         try {
-            List<UserLongTermMemory> memories = metadataService.listActiveByUserId(userId, 100);
+            List<UserLongTermMemory> memories = metadataService.listActiveByUserId(userId, properties.getListLimit());
             Map<String, List<UserLongTermMemorySourceRelation>> sourceMap = metadataService.mapSourcesByMemoryIds(
                     memories.stream().map(UserLongTermMemory::getMemoryId).toList()
             );
@@ -203,7 +210,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         if (StringUtils.isBlank(petName)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "petName 不能为空");
         }
-        redissonClient.getBucket(USER_MEMORY_PET_NAME_KEY + userId, StringCodec.INSTANCE).set(petName.trim(), 30, java.util.concurrent.TimeUnit.DAYS);
+        redissonClient.getBucket(USER_MEMORY_PET_NAME_KEY + userId, StringCodec.INSTANCE).set(petName.trim(), properties.getPetNameTtlDays(), java.util.concurrent.TimeUnit.DAYS);
         return true;
     }
 
@@ -424,7 +431,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
             row.put("historyId", history.getId());
             row.put("conversationId", history.getConversationId());
             row.put("messageType", history.getMessageType());
-            row.put("content", abbreviate(history.getContent(), 1200));
+            row.put("content", abbreviate(history.getContent(), properties.getTranscriptTruncateChars()));
             transcript.add(row);
             if (history.getId() != null) {
                 sourceHistoryIds.add(history.getId());
@@ -536,8 +543,8 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         item.setTitle("近期高频交互偏好");
         item.setContent(merged);
         item.setSummary("近期交互高频内容");
-        item.setConfidence(0.45d);
-        item.setImportance(0.5d);
+        item.setConfidence(properties.getFallbackConfidence());
+        item.setImportance(properties.getFallbackImportance());
         item.setSourceHistoryIds(new ArrayList<>(sourceHistoryIds));
         UserLongTermMemoryDoc memory = buildMemoryDoc(userId, conversationId, item, sourceHistoryIds, conversationByHistoryId);
         return memory == null ? List.of() : List.of(memory);
@@ -574,16 +581,16 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
             return null;
         }
         Map<Long, String> filteredConversationMap = buildFilteredConversationMap(extractedSourceHistoryIds, conversationByHistoryId);
-        double confidence = toDouble(item.getConfidence(), 0.5d);
-        double importance = toDouble(item.getImportance(), 0.5d);
+        double confidence = toDouble(item.getConfidence(), properties.getFallbackConfidence());
+        double importance = toDouble(item.getImportance(), properties.getFallbackImportance());
         LocalDateTime now = LocalDateTime.now();
         return UserLongTermMemoryDoc.builder()
                 .id(buildMemoryId(userId))
                 .userId(userId)
                 .memoryType(memoryType)
-                .title(title.isBlank() ? memoryType : abbreviate(title, 40))
+                .title(title.isBlank() ? memoryType : abbreviate(title, properties.getTitleTruncateChars()))
                 .content(abbreviate(content, properties.getMaxMemoryChars()))
-                .summary(abbreviate(summary.isBlank() ? content : summary, 60))
+                .summary(abbreviate(summary.isBlank() ? content : summary, properties.getSummaryTruncateChars()))
                 .embeddingText("[" + memoryType + "] " + abbreviate(content, properties.getMaxMemoryChars()))
                 .confidence(confidence)
                 .importance(importance)
@@ -648,7 +655,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
     private String resolvePetName(Long userId) {
         String petName = (String) redissonClient.getBucket(USER_MEMORY_PET_NAME_KEY + userId, StringCodec.INSTANCE).get();
         if (StringUtils.isNotBlank(petName)) {
-            redissonClient.getBucket(USER_MEMORY_PET_NAME_KEY + userId, StringCodec.INSTANCE).expire(30, java.util.concurrent.TimeUnit.DAYS);
+            redissonClient.getBucket(USER_MEMORY_PET_NAME_KEY + userId, StringCodec.INSTANCE).expire(properties.getPetNameTtlDays(), java.util.concurrent.TimeUnit.DAYS);
             return petName;
         }
         return properties.getDefaultPetName();
@@ -670,7 +677,7 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
      * @param userId 当前用户 id。
      */
     private void markLearned(Long userId) {
-        redissonClient.getBucket(USER_MEMORY_LAST_LEARNED_AT_KEY + userId, StringCodec.INSTANCE).set(java.time.Instant.now().toString());
+        redissonClient.getBucket(USER_MEMORY_LAST_LEARNED_AT_KEY + userId, StringCodec.INSTANCE).set(java.time.Instant.now().toString(), properties.getPetNameTtlDays(), java.util.concurrent.TimeUnit.DAYS);
     }
 
     /**
@@ -684,8 +691,9 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         if (StringUtils.isBlank(value)) {
             return null;
         }
+        redissonClient.getBucket(USER_MEMORY_LAST_LEARNED_AT_KEY + userId, StringCodec.INSTANCE).expire(properties.getPetNameTtlDays(), java.util.concurrent.TimeUnit.DAYS);
         try {
-            return java.time.Instant.parse(value).atZone(java.time.ZoneId.of("Asia/Shanghai")).toLocalDateTime();
+            return java.time.Instant.parse(value).atZone(java.time.ZoneId.of(agentProperties.getTimezone())).toLocalDateTime();
         } catch (Exception e) {
             return null;
         }
@@ -694,14 +702,14 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
     /**
      * 根据待学习状态和最近学习时间推导宠物当前情绪。
      *
-     * @param userId 当前用户 id。
+     * @param pendingConversationCount 待学习会话数。
+     * @param lastLearnedAt 最近学习时间。
      * @return `learning`、`updated` 或 `idle`。
      */
-    private String resolvePetMood(Long userId) {
-        if (resolvePendingConversationCount(userId) > 0) {
+    private String resolvePetMoodFromValues(int pendingConversationCount, LocalDateTime lastLearnedAt) {
+        if (pendingConversationCount > 0) {
             return "learning";
         }
-        LocalDateTime lastLearnedAt = resolveLastLearnedAt(userId);
         if (lastLearnedAt != null && lastLearnedAt.isAfter(LocalDateTime.now().minusMinutes(properties.getUpdatedMoodMinutes()))) {
             return "updated";
         }

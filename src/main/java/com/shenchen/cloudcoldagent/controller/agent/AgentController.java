@@ -71,7 +71,7 @@ public class AgentController {
             autoCreatedConversation = true;
         }
 
-        SseEmitter emitter = new SseEmitter(0L);
+        SseEmitter emitter = new SseEmitter(300_000L);
         String conversationId = agentCallRequest.getConversationId();
         long startNanos = System.nanoTime();
         log.info("收到智能体调用请求，userId={}, conversationId={}, mode={}, questionLength={}, autoCreatedConversation={}",
@@ -139,7 +139,7 @@ public class AgentController {
                 || agentResumeRequest.getInterruptId().isBlank(), ErrorCode.PARAMS_ERROR);
         User loginUser = userService.getLoginUser(request);
 
-        SseEmitter emitter = new SseEmitter(0L);
+        SseEmitter emitter = new SseEmitter(300_000L);
         long startNanos = System.nanoTime();
         log.info("收到智能体恢复请求，userId={}, interruptId={}",
                 loginUser.getId(),

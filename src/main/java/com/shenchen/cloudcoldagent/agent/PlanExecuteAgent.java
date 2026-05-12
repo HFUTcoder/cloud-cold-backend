@@ -51,6 +51,7 @@ import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -74,12 +75,11 @@ public class PlanExecuteAgent extends BaseAgent {
     private static final String JSON_SCHEMA_KEY_ITEMS = "items";
     private static final String JSON_SCHEMA_TYPE_ARRAY = "array";
 
-    private static final long TOOL_BATCH_TIMEOUT_SECONDS = 60;
-
     private static String toJsonStr(Object value) {
         try {
             return PLAN_OBJECT_MAPPER.writeValueAsString(value);
         } catch (Exception e) {
+            log.warn("JSON 序列化失败，valueClass={}", value == null ? "null" : value.getClass().getSimpleName(), e);
             return "{}";
         }
     }
@@ -89,6 +89,7 @@ public class PlanExecuteAgent extends BaseAgent {
             return PLAN_OBJECT_MAPPER.readValue(json, new TypeReference<LinkedHashMap<String, Object>>() {
             });
         } catch (Exception e) {
+            log.warn("JSON 反序列化失败，jsonLength={}", json == null ? 0 : json.length(), e);
             return new LinkedHashMap<>();
         }
     }
@@ -113,6 +114,10 @@ public class PlanExecuteAgent extends BaseAgent {
     private final SkillService skillService;
 
     private final String agentType;
+
+    private final String timezone;
+
+    private final long toolBatchTimeoutSeconds;
 
     private final Executor toolExecutor;
 
@@ -152,6 +157,8 @@ public class PlanExecuteAgent extends BaseAgent {
                             HitlResumeService hitlResumeService,
                             SkillService skillService,
                             String agentType,
+                            String timezone,
+                            long toolBatchTimeoutSeconds,
                             int toolConcurrency,
                             Set<String> hitlInterceptToolNames,
                             Executor toolExecutor,
@@ -166,7 +173,9 @@ public class PlanExecuteAgent extends BaseAgent {
         this.hitlCheckpointService = hitlCheckpointService;
         this.hitlResumeService = hitlResumeService;
         this.skillService = skillService;
-        this.agentType = StringUtils.isBlank(agentType) ? "PlanExecuteAgent" : agentType;
+        this.agentType = agentType;
+        this.timezone = timezone;
+        this.toolBatchTimeoutSeconds = toolBatchTimeoutSeconds;
         this.hitlInterceptToolNames = hitlInterceptToolNames == null ? Set.of() : new LinkedHashSet<>(hitlInterceptToolNames);
         ChatClient.Builder builder = ChatClient.builder(chatModel);
         if (!this.advisors.isEmpty()) {
@@ -212,6 +221,10 @@ public class PlanExecuteAgent extends BaseAgent {
         private SkillService skillService;
 
         private String agentType = "PlanExecuteAgent";
+
+        private String timezone = "Asia/Shanghai";
+
+        private long toolBatchTimeoutSeconds = 60;
 
         private int toolConcurrency = 3;
 
@@ -287,6 +300,16 @@ public class PlanExecuteAgent extends BaseAgent {
             return this;
         }
 
+        public Builder timezone(String timezone) {
+            this.timezone = timezone;
+            return this;
+        }
+
+        public Builder toolBatchTimeoutSeconds(long toolBatchTimeoutSeconds) {
+            this.toolBatchTimeoutSeconds = toolBatchTimeoutSeconds;
+            return this;
+        }
+
         /**
          * 处理 `tool Concurrency` 对应逻辑。
          *
@@ -348,7 +371,7 @@ public class PlanExecuteAgent extends BaseAgent {
          * @return 返回处理结果。
          */
         public Builder tools(ToolCallback... tools) {
-            this.tools = Arrays.asList(tools);
+            this.tools = tools == null ? new ArrayList<>() : new ArrayList<>(Arrays.asList(tools));
             return this;
         }
 
@@ -418,7 +441,7 @@ public class PlanExecuteAgent extends BaseAgent {
             Objects.requireNonNull(virtualThreadExecutor, "virtualThreadExecutor must not be null");
             return new PlanExecuteAgent(chatModel, tools, advisors, maxRounds, contextCharLimit, maxToolRetries,
                     chatMemory, hitlExecutionService, hitlCheckpointService, hitlResumeService, skillService,
-                    agentType, toolConcurrency, hitlInterceptToolNames, toolExecutor, virtualThreadExecutor);
+                    agentType, timezone, toolBatchTimeoutSeconds, toolConcurrency, hitlInterceptToolNames, toolExecutor, virtualThreadExecutor);
         }
     }
 
@@ -595,7 +618,7 @@ public class PlanExecuteAgent extends BaseAgent {
                         break;
                     }
 
-                    Map<String, TaskResult> results = executePlan(plan, state, runtimeSystemPrompt);
+                    Map<String, TaskResult> results = executePlan(plan, state);
                     emitStep(sink, state.getConversationId(), "task", "Task Result", renderTaskResultsForDisplay(results));
 
                     if (state.getInterruptedCheckpoint() != null) {
@@ -625,7 +648,7 @@ public class PlanExecuteAgent extends BaseAgent {
                     emitStep(sink, state.getConversationId(), "critique", "Critique Feedback",
                             state.getLastCritique() != null ? state.getLastCritique().feedback() : "");
                 }
-                if (state.round == maxRounds) {
+                if (state.getRound() == maxRounds) {
                     log.info("Plan-Execute 达到最大轮次限制，强制进入总结阶段。conversationId={}, round={}",
                             state.getConversationId(),
                             state.getRound());
@@ -789,7 +812,7 @@ public class PlanExecuteAgent extends BaseAgent {
                 break;
             }
 
-            Map<String, TaskResult> results = executePlan(plan, state, runtimeSystemPrompt);
+            Map<String, TaskResult> results = executePlan(plan, state);
             if (state.getInterruptedCheckpoint() != null) {
                 enrichInterruptedCheckpoint(state, plan, results, runtimeSystemPrompt);
                 return new PlanExecuteCallResult(null,
@@ -810,7 +833,7 @@ public class PlanExecuteAgent extends BaseAgent {
                 break;
             }
         }
-        if (state.round == maxRounds) {
+        if (state.getRound() == maxRounds) {
             log.info("Plan-Execute 达到最大轮次限制，强制进入总结阶段。conversationId={}, round={}",
                     state.getConversationId(),
                     state.getRound());
@@ -881,8 +904,8 @@ public class PlanExecuteAgent extends BaseAgent {
         });
 
         String planPrompt = PlanExecutePrompts.formatPlanPrompt(
-                LocalDateTime.now(ZoneId.of("Asia/Shanghai")),
-                state.round,
+                LocalDateTime.now(ZoneId.of(timezone)),
+                state.getRound(),
                 toolDesc,
                 renderExecutedTaskHistory(state),
                 converter.getFormat()
@@ -1010,7 +1033,7 @@ public class PlanExecuteAgent extends BaseAgent {
      * @param runtimeSystemPrompt 运行时 system prompt。
      * @return 任务 id 到执行结果的映射。
      */
-    private Map<String, TaskResult> executePlan(List<PlanTask> plan, OverallState state, String runtimeSystemPrompt) {
+    private Map<String, TaskResult> executePlan(List<PlanTask> plan, OverallState state) {
 
         Map<String, TaskResult> results = new LinkedHashMap<>();
 
@@ -1022,9 +1045,6 @@ public class PlanExecuteAgent extends BaseAgent {
 
         // 按 order 顺序执行（不同 order 串行）
         for (Integer order : new TreeSet<>(grouped.keySet())) {
-
-            // 保存当前工具执行快照
-            String dependencySnapshot = renderDependencySnapshot(accumulatedResults);
 
             List<PlanTask> tasks = grouped.get(order);
             List<PlanTask> nonHitlTasks = tasks == null
@@ -1044,7 +1064,7 @@ public class PlanExecuteAgent extends BaseAgent {
                     tasks == null ? 0 : tasks.size(),
                     summarizePlan(tasks));
 
-            for (ExecutedTaskMergeResult mergeResult : executeTaskBatch(nonHitlTasks, dependencySnapshot, runtimeSystemPrompt, state)) {
+            for (ExecutedTaskMergeResult mergeResult : executeTaskBatch(nonHitlTasks, state)) {
                 mergeTaskResult(state, results, accumulatedResults, mergeResult);
             }
             if (state.getInterruptedCheckpoint() != null) {
@@ -1052,7 +1072,7 @@ public class PlanExecuteAgent extends BaseAgent {
             }
 
             for (PlanTask hitlTask : hitlTasks) {
-                ExecutedTaskMergeResult mergeResult = executeTaskForMerge(hitlTask, dependencySnapshot, runtimeSystemPrompt, state);
+                ExecutedTaskMergeResult mergeResult = executeTaskForMerge(hitlTask, state);
                 mergeTaskResult(state, results, accumulatedResults, mergeResult);
                 if (state.getInterruptedCheckpoint() != null) {
                     break;
@@ -1076,30 +1096,25 @@ public class PlanExecuteAgent extends BaseAgent {
      * 并发执行同一批次中无需 HITL 的任务。
      *
      * @param tasks 当前批次任务。
-     * @param dependencySnapshot 前置任务结果快照。
-     * @param runtimeSystemPrompt 运行时 system prompt。
      * @param state 当前执行状态。
      * @return 批量任务的合并结果列表。
      */
-    private List<ExecutedTaskMergeResult> executeTaskBatch(List<PlanTask> tasks,
-                                                           String dependencySnapshot,
-                                                           String runtimeSystemPrompt,
-                                                           OverallState state) {
+    private List<ExecutedTaskMergeResult> executeTaskBatch(List<PlanTask> tasks, OverallState state) {
         if (tasks == null || tasks.isEmpty()) {
             return List.of();
         }
         List<CompletableFuture<ExecutedTaskMergeResult>> futures = tasks.stream()
                 .map(task -> CompletableFuture.supplyAsync(
-                        () -> executeTaskForMerge(task, dependencySnapshot, runtimeSystemPrompt, state),
+                        () -> executeTaskForMerge(task, state),
                         toolExecutor
                 ))
                 .toList();
         try {
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                    .get(TOOL_BATCH_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                    .get(toolBatchTimeoutSeconds, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
             log.warn("批量任务执行超时（{}s），取消未完成任务。conversationId={}, round={}",
-                    TOOL_BATCH_TIMEOUT_SECONDS,
+                    toolBatchTimeoutSeconds,
                     state == null ? null : state.getConversationId(),
                     state == null ? null : state.getRound());
             futures.forEach(f -> f.cancel(true));
@@ -1138,15 +1153,10 @@ public class PlanExecuteAgent extends BaseAgent {
      * 在并发控制下执行单个任务，并包装成便于合并的结果对象。
      *
      * @param task 当前任务。
-     * @param dependencySnapshot 前置任务结果快照。
-     * @param runtimeSystemPrompt 运行时 system prompt。
      * @param state 当前执行状态。
      * @return 单任务执行结果。
      */
-    private ExecutedTaskMergeResult executeTaskForMerge(PlanTask task,
-                                                        String dependencySnapshot,
-                                                        String runtimeSystemPrompt,
-                                                        OverallState state) {
+    private ExecutedTaskMergeResult executeTaskForMerge(PlanTask task, OverallState state) {
         if (task == null || StringUtils.isBlank(task.id())) {
             return null;
         }
@@ -1154,7 +1164,7 @@ public class PlanExecuteAgent extends BaseAgent {
         try {
             toolSemaphore.acquire();
             acquired = true;
-            return new ExecutedTaskMergeResult(task, executeWithRetry(task, dependencySnapshot, runtimeSystemPrompt, state));
+            return new ExecutedTaskMergeResult(task, executeWithRetry(task, state));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return new ExecutedTaskMergeResult(
@@ -1211,12 +1221,10 @@ public class PlanExecuteAgent extends BaseAgent {
      * 带重试策略执行单个结构化任务。
      *
      * @param task 当前任务。
-     * @param dependencySnapshot 前置任务结果快照。
-     * @param runtimeSystemPrompt 运行时 system prompt。
      * @param state 当前执行状态。
      * @return 最终任务结果；多次失败后返回失败结果。
      */
-    private TaskResult executeWithRetry(PlanTask task, String dependencySnapshot, String runtimeSystemPrompt, OverallState state) {
+    private TaskResult executeWithRetry(PlanTask task, OverallState state) {
 
         int attempt = 0;
         Throwable lastError = null;
@@ -1314,7 +1322,7 @@ public class PlanExecuteAgent extends BaseAgent {
                 }
 
                 List<PlanTask> remainingPlan = excludeCurrentTask(resumeContext.currentPlan(), effectiveCurrentTask);
-                Map<String, TaskResult> remainingResults = executePlan(remainingPlan, state, runtimeSystemPrompt);
+                Map<String, TaskResult> remainingResults = executePlan(remainingPlan, state);
                 currentRoundResults.putAll(remainingResults);
                 emitStep(sink, state.getConversationId(), "task", "Task Result", renderTaskResultsForDisplay(currentRoundResults));
 
@@ -1371,7 +1379,7 @@ public class PlanExecuteAgent extends BaseAgent {
                         break;
                     }
 
-                    Map<String, TaskResult> results = executePlan(plan, state, runtimeSystemPrompt);
+                    Map<String, TaskResult> results = executePlan(plan, state);
                     emitStep(sink, state.getConversationId(), "task", "Task Result", renderTaskResultsForDisplay(results));
 
                     if (state.getInterruptedCheckpoint() != null) {
@@ -1400,7 +1408,7 @@ public class PlanExecuteAgent extends BaseAgent {
                             state.getLastCritique() != null ? state.getLastCritique().feedback() : "");
                 }
 
-                if (state.round == maxRounds) {
+                if (state.getRound() == maxRounds) {
                     log.info("恢复执行达到最大轮次限制，强制进入总结阶段。conversationId={}, interruptId={}, round={}",
                             state.getConversationId(),
                             interruptId,
@@ -1502,7 +1510,7 @@ public class PlanExecuteAgent extends BaseAgent {
         state.executedTasks.putAll(resumeContext.executedTasks() == null ? Map.of() : resumeContext.executedTasks());
         state.approvedToolCallIds.addAll(resumeContext.approvedToolCallIds() == null ? List.of() : resumeContext.approvedToolCallIds());
         state.setSkillRuntimeContexts(resumeContext.skillRuntimeContexts());
-        state.round = resumeContext.round();
+        state.round.set(resumeContext.round());
         return state;
     }
 
@@ -2158,10 +2166,10 @@ public class PlanExecuteAgent extends BaseAgent {
             return;
         }
         String answer = finalAnswerBuffer.toString();
-        addAssistantMemory(state.conversationId, answer);
-        sink.tryEmitNext(AgentStreamEventFactory.finalAnswer(state.getConversationId(), answer));
         hasSentFinalResult.set(true);
+        sink.tryEmitNext(AgentStreamEventFactory.finalAnswer(state.getConversationId(), answer));
         sink.tryEmitComplete();
+        virtualThreadExecutor.execute(() -> addAssistantMemory(state.conversationId, answer));
     }
 
     /**
@@ -2327,13 +2335,13 @@ public class PlanExecuteAgent extends BaseAgent {
         private final Long userId;
         private final String conversationId;
         private final String question;
-        private final List<Message> messages = new ArrayList<>();
-        private final Map<String, ExecutedTaskSnapshot> executedTasks = new LinkedHashMap<>();
-        private final Set<String> approvedToolCallIds = new LinkedHashSet<>();
-        private List<SkillRuntimeContext> skillRuntimeContexts = List.of();
-        private HitlCheckpointVO interruptedCheckpoint;
-        private CritiqueResult lastCritique;
-        private int round = 0;
+        private final List<Message> messages = new CopyOnWriteArrayList<>();
+        private final Map<String, ExecutedTaskSnapshot> executedTasks = new ConcurrentHashMap<>();
+        private final Set<String> approvedToolCallIds = ConcurrentHashMap.newKeySet();
+        private volatile List<SkillRuntimeContext> skillRuntimeContexts = List.of();
+        private volatile HitlCheckpointVO interruptedCheckpoint;
+        private volatile CritiqueResult lastCritique;
+        private final AtomicInteger round = new AtomicInteger(0);
 
         /**
          * 创建 `OverallState` 实例。
@@ -2348,54 +2356,32 @@ public class PlanExecuteAgent extends BaseAgent {
             this.conversationId = conversationId;
         }
 
-        /**
-         * 处理 `next Round` 对应逻辑。
-         */
         public void nextRound() {
-            round++;
+            round.incrementAndGet();
         }
 
-        /**
-         * 处理 `add` 对应逻辑。
-         *
-         * @param m m 参数。
-         */
+        public int getRound() {
+            return round.get();
+        }
+
         public void add(Message m) {
             messages.add(m);
         }
 
-        /**
-         * 处理 `current Chars` 对应逻辑。
-         *
-         * @return 返回处理结果。
-         */
         public int currentChars() {
             return messages.stream()
                     .mapToInt(m -> m.getText() == null ? 0 : m.getText().length())
                     .sum();
         }
 
-        /**
-         * 处理 `clear Messages` 对应逻辑。
-         */
         public void clearMessages() {
             messages.clear();
         }
 
-        /**
-         * 获取 `get Approved Tool Call Ids` 对应结果。
-         *
-         * @return 返回处理结果。
-         */
         public Set<String> getApprovedToolCallIds() {
             return approvedToolCallIds;
         }
 
-        /**
-         * 设置 `set Interrupted Checkpoint` 对应值。
-         *
-         * @param interruptedCheckpoint interruptedCheckpoint 参数。
-         */
         public void setInterruptedCheckpoint(HitlCheckpointVO interruptedCheckpoint) {
             this.interruptedCheckpoint = interruptedCheckpoint;
         }
@@ -2404,12 +2390,6 @@ public class PlanExecuteAgent extends BaseAgent {
             this.skillRuntimeContexts = skillRuntimeContexts == null ? List.of() : skillRuntimeContexts;
         }
 
-        /**
-         * 处理 `record Task` 对应逻辑。
-         *
-         * @param task task 参数。
-         * @param result result 参数。
-         */
         public void recordTask(PlanTask task, TaskResult result) {
             if (task == null || result == null) {
                 return;
@@ -2423,7 +2403,7 @@ public class PlanExecuteAgent extends BaseAgent {
                     result.success(),
                     result.output(),
                     result.error(),
-                    round
+                    round.get()
             ));
         }
     }

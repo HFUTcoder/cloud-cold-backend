@@ -13,6 +13,8 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "cloudcold.agent")
 public class AgentProperties {
 
+    private String timezone = "Asia/Shanghai";
+
     private Memory memory = new Memory();
 
     private React react = new React();
@@ -63,6 +65,11 @@ public class AgentProperties {
         private int contextCharLimit = 5000;
 
         private int toolConcurrency = 3;
+
+        /**
+         * 批量工具调用超时时间（秒）。
+         */
+        private long toolBatchTimeoutSeconds = 60;
     }
 
     @Data

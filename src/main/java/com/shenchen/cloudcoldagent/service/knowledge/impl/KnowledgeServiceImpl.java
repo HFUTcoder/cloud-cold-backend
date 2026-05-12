@@ -361,15 +361,30 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
     }
 
     /**
-     * 以本地文件路径为入口执行文档入库。
+     * 以本地文件路径为入口执行文档入库（调试用途）。
      *
      * @param filePath 本地文件路径。
+     * @param userId 用户 id。
+     * @param knowledgeId 知识库 id。
      * @return 入库后的正文 chunk 列表。
      * @throws Exception 解析或入库失败时抛出。
      */
     @Override
-    public List<EsDocumentChunk> add(String filePath) throws Exception {
-        PreparedDocumentIndexResult preparedResult = prepareDocumentIndex(new File(filePath).getAbsoluteFile(), null);
+    public List<EsDocumentChunk> add(String filePath, Long userId, Long knowledgeId) throws Exception {
+        File file = new File(filePath).getAbsoluteFile();
+        long documentId = Math.abs(file.getAbsolutePath().hashCode());
+        DocumentIndexContext context = new DocumentIndexContext(
+                userId,
+                knowledgeId,
+                documentId,
+                file.getName(),
+                null,
+                file.getAbsolutePath(),
+                "pdf",
+                "application/pdf",
+                file.length()
+        );
+        PreparedDocumentIndexResult preparedResult = prepareDocumentIndex(file, context);
         List<EsDocumentChunk> allChunks = new ArrayList<>();
         allChunks.addAll(preparedResult.parentChunks());
         allChunks.addAll(preparedResult.childChunks());
@@ -381,14 +396,16 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
      * 先删除同 source 的旧索引，再重新执行入库。
      *
      * @param filePath 本地文件路径或 source。
+     * @param userId 用户 id。
+     * @param knowledgeId 知识库 id。
      * @return 重新入库后的正文 chunk 列表。
      * @throws Exception 删除旧索引或重新入库失败时抛出。
      */
     @Override
-    public List<EsDocumentChunk> update(String filePath) throws Exception {
+    public List<EsDocumentChunk> update(String filePath, Long userId, Long knowledgeId) throws Exception {
         String normalizedSource = normalizeSource(filePath);
         deleteBySource(normalizedSource);
-        return add(normalizedSource);
+        return add(normalizedSource, userId, knowledgeId);
     }
 
     /**
