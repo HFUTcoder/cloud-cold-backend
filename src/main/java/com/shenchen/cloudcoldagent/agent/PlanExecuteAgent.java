@@ -1030,7 +1030,6 @@ public class PlanExecuteAgent extends BaseAgent {
      *
      * @param plan 当前轮计划任务。
      * @param state 当前执行状态。
-     * @param runtimeSystemPrompt 运行时 system prompt。
      * @return 任务 id 到执行结果的映射。
      */
     private Map<String, TaskResult> executePlan(List<PlanTask> plan, OverallState state) {
