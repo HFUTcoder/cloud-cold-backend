@@ -97,7 +97,7 @@ springdoc:
   group-configs:
     - group: 'default'
       paths-to-match: '/**'
-      packages-to-scan: com.shenchen.cloudcoldagent.controller
+      packages-to-scan: com.shenchen.cloudcoldagent.controller,com.shenchen.cloudcoldagent.multiagent
 
 knife4j:
   enable: true
@@ -169,3 +169,11 @@ cloudcold:
     keyword-index-name: user_long_term_memory_docs
     vector-index-name: user_long_term_memory_vector
     vector-dimensions: 1536
+  # 多 Agent 协调者模式
+  multiagent:
+    coordinator:
+      enabled: true
+      max-workers: 5
+      min-workers: 2
+      max-rounds-per-worker: 5
+      max-coordinator-rounds: 3
