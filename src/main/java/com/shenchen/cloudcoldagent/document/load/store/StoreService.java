@@ -1,6 +1,6 @@
 package com.shenchen.cloudcoldagent.document.load.store;
 
-import com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.EsDocumentChunk;
 import com.shenchen.cloudcoldagent.service.storage.ElasticSearchService;
 import org.springframework.ai.document.Document;
 import org.springframework.stereotype.Service;
@@ -15,11 +15,6 @@ public class StoreService {
 
     private final ElasticSearchService elasticSearchService;
 
-    /**
-     * 创建 `StoreService` 实例。
-     *
-     * @param elasticSearchService elasticSearchService 参数。
-     */
     public StoreService(ElasticSearchService elasticSearchService) {
         this.elasticSearchService = elasticSearchService;
     }

@@ -1,7 +1,7 @@
 package com.shenchen.cloudcoldagent.mapper.chat;
 
 import com.mybatisflex.core.BaseMapper;
-import com.shenchen.cloudcoldagent.model.entity.ConversationSkillRelation;
+import com.shenchen.cloudcoldagent.model.entity.agent.ConversationSkillRelation;
 
 /**
  * `ConversationSkillRelationMapper` 接口定义。

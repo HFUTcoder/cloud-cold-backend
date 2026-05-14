@@ -1,8 +1,8 @@
 package com.shenchen.cloudcoldagent.service.chat;
 
 import com.mybatisflex.core.service.IService;
-import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistory;
-import com.shenchen.cloudcoldagent.model.vo.ChatMemoryHistoryVO;
+import com.shenchen.cloudcoldagent.model.entity.agent.ChatMemoryHistory;
+import com.shenchen.cloudcoldagent.model.vo.agent.ChatMemoryHistoryVO;
 
 import java.util.List;
 

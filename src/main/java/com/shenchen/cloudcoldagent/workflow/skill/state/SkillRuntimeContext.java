@@ -1,6 +1,6 @@
 package com.shenchen.cloudcoldagent.workflow.skill.state;
 
-import com.shenchen.cloudcoldagent.model.vo.SkillResourceListVO;
+import com.shenchen.cloudcoldagent.model.vo.skill.SkillResourceListVO;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

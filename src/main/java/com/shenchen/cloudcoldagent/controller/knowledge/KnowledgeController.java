@@ -16,10 +16,10 @@ import com.shenchen.cloudcoldagent.model.dto.knowledge.KnowledgeScalarSearchRequ
 import com.shenchen.cloudcoldagent.model.dto.knowledge.KnowledgeUpdateRequest;
 import com.shenchen.cloudcoldagent.model.dto.knowledge.KnowledgeVectorSearchRequest;
 import com.shenchen.cloudcoldagent.model.dto.knowledge.KnowledgeWriteRequest;
-import com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk;
-import com.shenchen.cloudcoldagent.model.entity.Knowledge;
-import com.shenchen.cloudcoldagent.model.entity.User;
-import com.shenchen.cloudcoldagent.model.vo.KnowledgeVO;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.EsDocumentChunk;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.Knowledge;
+import com.shenchen.cloudcoldagent.model.entity.user.User;
+import com.shenchen.cloudcoldagent.model.vo.knowledge.KnowledgeVO;
 import com.shenchen.cloudcoldagent.service.knowledge.KnowledgeService;
 import com.shenchen.cloudcoldagent.service.user.UserService;
 import jakarta.servlet.http.HttpServletRequest;

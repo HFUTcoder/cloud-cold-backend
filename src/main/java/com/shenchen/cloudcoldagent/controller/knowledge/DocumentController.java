@@ -11,8 +11,9 @@ import com.shenchen.cloudcoldagent.utils.ThrowUtils;
 import com.shenchen.cloudcoldagent.model.dto.document.DocumentAddRequest;
 import com.shenchen.cloudcoldagent.model.dto.document.DocumentQueryRequest;
 import com.shenchen.cloudcoldagent.model.dto.document.DocumentUpdateRequest;
-import com.shenchen.cloudcoldagent.model.entity.User;
-import com.shenchen.cloudcoldagent.model.vo.DocumentVO;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.Document;
+import com.shenchen.cloudcoldagent.model.entity.user.User;
+import com.shenchen.cloudcoldagent.model.vo.knowledge.DocumentVO;
 import com.shenchen.cloudcoldagent.service.knowledge.DocumentService;
 import com.shenchen.cloudcoldagent.service.knowledge.KnowledgeDocumentIngestionService;
 import com.shenchen.cloudcoldagent.service.storage.MinioService;
@@ -123,7 +124,7 @@ public class DocumentController {
     public BaseResponse<String> getDocumentPreviewUrl(@RequestParam Long id, HttpServletRequest httpServletRequest) throws Exception {
         ThrowUtils.throwIf(id == null || id <= 0, ErrorCode.PARAMS_ERROR);
         User loginUser = userService.getLoginUser(httpServletRequest);
-        com.shenchen.cloudcoldagent.model.entity.Document document = documentService.getDocumentById(loginUser.getId(), id);
+        Document document = documentService.getDocumentById(loginUser.getId(), id);
         ThrowUtils.throwIf(document.getObjectName() == null || document.getObjectName().isBlank(),
                 ErrorCode.OPERATION_ERROR, "当前文档缺少可预览的原文件");
         return ResultUtils.success(minioService.getPresignedUrl(document.getObjectName()));
@@ -172,7 +173,7 @@ public class DocumentController {
                                                                HttpServletRequest httpServletRequest) {
         ThrowUtils.throwIf(request == null, ErrorCode.PARAMS_ERROR);
         User loginUser = userService.getLoginUser(httpServletRequest);
-        Page<com.shenchen.cloudcoldagent.model.entity.Document> documentPage = documentService.pageByUserId(loginUser.getId(), request);
+        Page<Document> documentPage = documentService.pageByUserId(loginUser.getId(), request);
         Page<DocumentVO> documentVOPage = new Page<>(documentPage.getPageNumber(), documentPage.getPageSize(), documentPage.getTotalRow());
         documentVOPage.setRecords(documentService.getDocumentVOList(documentPage.getRecords()));
         return ResultUtils.success(documentVOPage);

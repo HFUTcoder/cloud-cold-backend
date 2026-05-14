@@ -62,11 +62,6 @@ public class EsConfig {
         this.embeddingModel = embeddingModel;
     }
 
-    /**
-     * 处理 `elasticsearch Rest Client` 对应逻辑。
-     *
-     * @return 返回处理结果。
-     */
     @Bean
     @Lazy
     public RestClient elasticsearchRestClient() {
@@ -125,12 +120,6 @@ public class EsConfig {
         }
     }
 
-    /**
-     * 处理 `elasticsearch Client` 对应逻辑。
-     *
-     * @param elasticsearchRestClient elasticsearchRestClient 参数。
-     * @return 返回处理结果。
-     */
     @Bean
     @Lazy
     public ElasticsearchClient elasticsearchClient(RestClient elasticsearchRestClient) {

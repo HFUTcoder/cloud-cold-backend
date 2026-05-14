@@ -13,161 +13,47 @@ import java.util.Map;
  */
 public interface UserLongTermMemoryMetadataService {
 
-    /**
-     * 处理 `upsert Memories` 对应逻辑。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     * @param memories memories 参数。
-     */
     void upsertMemories(Long userId, String conversationId, List<UserLongTermMemoryDoc> memories);
 
-    /**
-     * 查询 `list Active By User Id` 对应集合。
-     *
-     * @param userId userId 参数。
-     * @param size size 参数。
-     * @return 返回处理结果。
-     */
     List<UserLongTermMemory> listActiveByUserId(Long userId, int size);
 
-    /**
-     * 处理 `map Active By Memory Ids` 对应逻辑。
-     *
-     * @param userId userId 参数。
-     * @param memoryIds memoryIds 参数。
-     * @return 返回处理结果。
-     */
     Map<String, UserLongTermMemory> mapActiveByMemoryIds(Long userId, List<String> memoryIds);
 
-    /**
-     * 处理 `map Active Docs By Memory Ids` 对应逻辑。
-     *
-     * @param userId userId 参数。
-     * @param memoryIds memoryIds 参数。
-     * @return 返回处理结果。
-     */
     Map<String, UserLongTermMemoryDoc> mapActiveDocsByMemoryIds(Long userId, List<String> memoryIds);
 
-    /**
-     * 处理 `map Sources By Memory Ids` 对应逻辑。
-     *
-     * @param memoryIds memoryIds 参数。
-     * @return 返回处理结果。
-     */
     Map<String, List<UserLongTermMemorySourceRelation>> mapSourcesByMemoryIds(List<String> memoryIds);
 
-    /**
-     * 处理 `mark Retrieved` 对应逻辑。
-     *
-     * @param userId userId 参数。
-     * @param memoryIds memoryIds 参数。
-     */
     void markRetrieved(Long userId, List<String> memoryIds);
 
-    /**
-     * 删除 `delete Memory` 对应内容。
-     *
-     * @param userId userId 参数。
-     * @param memoryId memoryId 参数。
-     * @return 返回处理结果。
-     */
     boolean deleteMemory(Long userId, String memoryId);
 
-    /**
-     * 处理 `soft Delete By User Id` 对应逻辑。
-     *
-     * @param userId userId 参数。
-     */
     void softDeleteByUserId(Long userId);
 
-    /**
-     * 获取某会话下的活跃记忆 memoryId 列表。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     * @return memoryId 列表。
-     */
     List<String> getMemoryIdsByConversation(Long userId, String conversationId);
 
-    /**
-     * 删除 `delete By Conversation Id` 对应内容。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     */
     void deleteByConversationId(Long userId, String conversationId);
 
-    /**
-     * 处理 `ensure Conversation State` 对应逻辑。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     */
     void ensureConversationState(Long userId, String conversationId);
 
     /**
      * 累计待学习轮次并返回更新后的值。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     * @param roundCount roundCount 参数。
-     * @return 更新后的 pendingCompletedRounds。
      */
     int incrementPendingRounds(Long userId, String conversationId, int roundCount);
 
-    /**
-     * 处理 `mark Conversation Unprocessed` 对应逻辑。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     */
     void markConversationUnprocessed(Long userId, String conversationId);
 
-    /**
-     * 处理 `mark All User Conversations Unprocessed` 对应逻辑。
-     *
-     * @param userId userId 参数。
-     */
     void markAllUserConversationsUnprocessed(Long userId);
 
-    /**
-     * 删除 `delete Conversation State` 对应内容。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     */
     void deleteConversationState(Long userId, String conversationId);
 
-    /**
-     * 查询 `list Pending Conversation States` 对应集合。
-     *
-     * @param userId userId 参数。
-     * @return 返回处理结果。
-     */
     List<UserLongTermMemoryConversationState> listPendingConversationStates(Long userId);
 
-    /**
-     * 查询 `list User Ids With Pending Conversation States` 对应集合。
-     *
-     * @return 返回处理结果。
-     */
     List<Long> listUserIdsWithPendingConversationStates();
 
-    /**
-     * 处理 `mark Conversation Processed` 对应逻辑。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     */
     void markConversationProcessed(Long userId, String conversationId);
 
     /**
      * 从 pendingCompletedRounds 中减去已处理的轮次数，根据余额重新计算状态。
-     *
-     * @param userId 当前用户 id。
-     * @param conversationId 会话 id。
-     * @param processedRounds 本次已处理的轮次数。
      */
     void deductPendingRounds(Long userId, String conversationId, int processedRounds);
 }

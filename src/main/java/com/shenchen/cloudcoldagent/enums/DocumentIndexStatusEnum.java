@@ -18,23 +18,11 @@ public enum DocumentIndexStatusEnum {
 
     private final String value;
 
-    /**
-     * 创建 `DocumentIndexStatusEnum` 实例。
-     *
-     * @param text text 参数。
-     * @param value value 参数。
-     */
     DocumentIndexStatusEnum(String text, String value) {
         this.text = text;
         this.value = value;
     }
 
-    /**
-     * 获取 `get Enum By Value` 对应结果。
-     *
-     * @param value value 参数。
-     * @return 返回处理结果。
-     */
     public static DocumentIndexStatusEnum getEnumByValue(String value) {
         if (ObjUtil.isEmpty(value)) {
             return null;

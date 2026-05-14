@@ -1,7 +1,7 @@
 package com.shenchen.cloudcoldagent.service.chat;
 
 import com.mybatisflex.core.service.IService;
-import com.shenchen.cloudcoldagent.model.entity.ChatConversation;
+import com.shenchen.cloudcoldagent.model.entity.agent.ChatConversation;
 
 import java.util.List;
 

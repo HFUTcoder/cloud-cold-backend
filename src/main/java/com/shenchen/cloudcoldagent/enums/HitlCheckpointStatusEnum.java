@@ -19,23 +19,11 @@ public enum HitlCheckpointStatusEnum {
 
     private final String value;
 
-    /**
-     * 创建 `HitlCheckpointStatusEnum` 实例。
-     *
-     * @param text text 参数。
-     * @param value value 参数。
-     */
     HitlCheckpointStatusEnum(String text, String value) {
         this.text = text;
         this.value = value;
     }
 
-    /**
-     * 处理 `from Value` 对应逻辑。
-     *
-     * @param value value 参数。
-     * @return 返回处理结果。
-     */
     public static HitlCheckpointStatusEnum fromValue(String value) {
         if (value == null || value.isBlank()) {
             return null;

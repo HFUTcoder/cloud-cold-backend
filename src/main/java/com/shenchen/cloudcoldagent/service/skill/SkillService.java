@@ -1,9 +1,9 @@
 package com.shenchen.cloudcoldagent.service.skill;
 
-import com.shenchen.cloudcoldagent.model.vo.SkillMetadataVO;
-import com.shenchen.cloudcoldagent.model.vo.SkillResourceContentVO;
-import com.shenchen.cloudcoldagent.model.vo.SkillScriptExecutionVO;
-import com.shenchen.cloudcoldagent.model.vo.SkillResourceListVO;
+import com.shenchen.cloudcoldagent.model.vo.skill.SkillMetadataVO;
+import com.shenchen.cloudcoldagent.model.vo.skill.SkillResourceContentVO;
+import com.shenchen.cloudcoldagent.model.vo.skill.SkillScriptExecutionVO;
+import com.shenchen.cloudcoldagent.model.vo.skill.SkillResourceListVO;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillArgumentSpec;
 
 import java.io.IOException;

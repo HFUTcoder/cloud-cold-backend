@@ -1,7 +1,7 @@
 package com.shenchen.cloudcoldagent.mapper.chat;
 
 import com.mybatisflex.core.BaseMapper;
-import com.shenchen.cloudcoldagent.model.entity.ChatConversation;
+import com.shenchen.cloudcoldagent.model.entity.agent.ChatConversation;
 
 /**
  * 会话映射层

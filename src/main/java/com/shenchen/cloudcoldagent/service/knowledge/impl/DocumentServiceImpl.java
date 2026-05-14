@@ -12,8 +12,9 @@ import com.shenchen.cloudcoldagent.model.dto.document.DocumentAddRequest;
 import com.shenchen.cloudcoldagent.model.dto.document.DocumentQueryRequest;
 import com.shenchen.cloudcoldagent.model.dto.document.DocumentUpdateRequest;
 import com.shenchen.cloudcoldagent.enums.DocumentIndexStatusEnum;
-import com.shenchen.cloudcoldagent.model.entity.KnowledgeDocumentImage;
-import com.shenchen.cloudcoldagent.model.vo.DocumentVO;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.Document;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.KnowledgeDocumentImage;
+import com.shenchen.cloudcoldagent.model.vo.knowledge.DocumentVO;
 import com.shenchen.cloudcoldagent.service.knowledge.DocumentService;
 import com.shenchen.cloudcoldagent.service.knowledge.KnowledgeDocumentImageService;
 import com.shenchen.cloudcoldagent.service.knowledge.KnowledgeService;
@@ -30,7 +31,7 @@ import java.util.List;
  */
 @Service
 @Slf4j
-public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenchen.cloudcoldagent.model.entity.Document>
+public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document>
         implements DocumentService {
 
     private final KnowledgeService knowledgeService;
@@ -69,7 +70,7 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
 
         knowledgeService.getKnowledgeById(userId, request.getKnowledgeId());
 
-        com.shenchen.cloudcoldagent.model.entity.Document document = new com.shenchen.cloudcoldagent.model.entity.Document();
+        Document document = new Document();
         BeanUtil.copyProperties(request, document);
         document.setUserId(userId);
         if (document.getIndexStatus() == null || document.getIndexStatus().isBlank()) {
@@ -96,7 +97,7 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.NOT_LOGIN_ERROR);
         ThrowUtils.throwIf(request == null || request.getId() == null || request.getId() <= 0, ErrorCode.PARAMS_ERROR);
 
-        com.shenchen.cloudcoldagent.model.entity.Document existing = getDocumentById(userId, request.getId());
+        Document existing = getDocumentById(userId, request.getId());
         Long oldKnowledgeId = existing.getKnowledgeId();
 
         if (request.getKnowledgeId() != null) {
@@ -134,7 +135,7 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.NOT_LOGIN_ERROR);
         ThrowUtils.throwIf(id == null || id <= 0, ErrorCode.PARAMS_ERROR);
 
-        com.shenchen.cloudcoldagent.model.entity.Document document = getDocumentById(userId, id);
+        Document document = getDocumentById(userId, id);
         try {
             try {
                 knowledgeService.deleteByDocumentId(document.getId());
@@ -171,10 +172,10 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
      * @return 文档实体。
      */
     @Override
-    public com.shenchen.cloudcoldagent.model.entity.Document getDocumentById(Long userId, Long id) {
+    public Document getDocumentById(Long userId, Long id) {
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.NOT_LOGIN_ERROR);
         ThrowUtils.throwIf(id == null || id <= 0, ErrorCode.PARAMS_ERROR);
-        com.shenchen.cloudcoldagent.model.entity.Document document = this.mapper.selectOneByQuery(
+        Document document = this.mapper.selectOneByQuery(
                 QueryWrapper.create()
                         .eq("id", id)
                         .eq("userId", userId)
@@ -191,7 +192,7 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
      * @return 文档实体列表。
      */
     @Override
-    public List<com.shenchen.cloudcoldagent.model.entity.Document> listByKnowledgeId(Long userId, Long knowledgeId) {
+    public List<Document> listByKnowledgeId(Long userId, Long knowledgeId) {
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.NOT_LOGIN_ERROR);
         ThrowUtils.throwIf(knowledgeId == null || knowledgeId <= 0, ErrorCode.PARAMS_ERROR);
         knowledgeService.getKnowledgeById(userId, knowledgeId);
@@ -211,7 +212,7 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
      * @return 文档分页结果。
      */
     @Override
-    public Page<com.shenchen.cloudcoldagent.model.entity.Document> pageByUserId(Long userId, DocumentQueryRequest request) {
+    public Page<Document> pageByUserId(Long userId, DocumentQueryRequest request) {
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.NOT_LOGIN_ERROR);
         ThrowUtils.throwIf(request == null, ErrorCode.PARAMS_ERROR);
         return this.page(Page.of(request.getPageNum(), request.getPageSize()), getQueryWrapper(userId, request));
@@ -245,7 +246,7 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
      * @return 文档 VO。
      */
     @Override
-    public DocumentVO getDocumentVO(com.shenchen.cloudcoldagent.model.entity.Document document) {
+    public DocumentVO getDocumentVO(Document document) {
         if (document == null) {
             return null;
         }
@@ -261,7 +262,7 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
      * @return 文档 VO 列表。
      */
     @Override
-    public List<DocumentVO> getDocumentVOList(List<com.shenchen.cloudcoldagent.model.entity.Document> documents) {
+    public List<DocumentVO> getDocumentVOList(List<Document> documents) {
         if (documents == null || documents.isEmpty()) {
             return new ArrayList<>();
         }
@@ -274,7 +275,7 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, com.shenche
      * @param document 文档实体。
      * @throws Exception 删除对象失败且不可忽略时抛出。
      */
-    private void deleteDocumentObject(com.shenchen.cloudcoldagent.model.entity.Document document) throws Exception {
+    private void deleteDocumentObject(Document document) throws Exception {
         if (document == null || document.getObjectName() == null || document.getObjectName().isBlank()) {
             return;
         }

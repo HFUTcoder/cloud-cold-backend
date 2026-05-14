@@ -6,11 +6,11 @@ import com.shenchen.cloudcoldagent.mapper.chat.ChatMemoryHistoryImageRelationMap
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.mapper.chat.ChatMemoryHistoryMapper;
-import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistory;
-import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistoryImageRelation;
-import com.shenchen.cloudcoldagent.model.entity.KnowledgeDocumentImage;
-import com.shenchen.cloudcoldagent.model.vo.ChatMemoryHistoryVO;
-import com.shenchen.cloudcoldagent.model.vo.RetrievedKnowledgeImage;
+import com.shenchen.cloudcoldagent.model.entity.agent.ChatMemoryHistory;
+import com.shenchen.cloudcoldagent.model.entity.agent.ChatMemoryHistoryImageRelation;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.KnowledgeDocumentImage;
+import com.shenchen.cloudcoldagent.model.vo.agent.ChatMemoryHistoryVO;
+import com.shenchen.cloudcoldagent.model.vo.agent.RetrievedKnowledgeImage;
 import com.shenchen.cloudcoldagent.service.chat.ChatMemoryHistoryImageRelationService;
 import com.shenchen.cloudcoldagent.service.chat.ChatConversationService;
 import com.shenchen.cloudcoldagent.service.chat.ChatMemoryHistoryService;
@@ -40,15 +40,6 @@ public class ChatMemoryHistoryServiceImpl extends ServiceImpl<ChatMemoryHistoryM
     private final MinioService minioService;
     private final UserLongTermMemoryService userLongTermMemoryService;
 
-    /**
-     * 创建 `ChatMemoryHistoryServiceImpl` 实例。
-     *
-     * @param chatConversationService chatConversationService 参数。
-     * @param chatMemoryHistoryImageRelationService chatMemoryHistoryImageRelationService 参数。
-     * @param knowledgeDocumentImageService knowledgeDocumentImageService 参数。
-     * @param minioService minioService 参数。
-     * @param userLongTermMemoryService userLongTermMemoryService 参数。
-     */
     public ChatMemoryHistoryServiceImpl(ChatConversationService chatConversationService,
                                         ChatMemoryHistoryImageRelationService chatMemoryHistoryImageRelationService,
                                         KnowledgeDocumentImageService knowledgeDocumentImageService,
@@ -61,13 +52,6 @@ public class ChatMemoryHistoryServiceImpl extends ServiceImpl<ChatMemoryHistoryM
         this.userLongTermMemoryService = userLongTermMemoryService;
     }
 
-    /**
-     * 查询 `list By Conversation Id` 对应集合。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     * @return 返回处理结果。
-     */
     @Override
     public List<ChatMemoryHistoryVO> listByConversationId(Long userId, String conversationId) {
         if (userId == null || userId <= 0) {
@@ -91,24 +75,11 @@ public class ChatMemoryHistoryServiceImpl extends ServiceImpl<ChatMemoryHistoryM
         return buildHistoryVOs(histories);
     }
 
-    /**
-     * 查询 `list Conversation Ids By User Id` 对应集合。
-     *
-     * @param userId userId 参数。
-     * @return 返回处理结果。
-     */
     @Override
     public List<String> listConversationIdsByUserId(Long userId) {
         return chatConversationService.listConversationIdsByUserId(userId);
     }
 
-    /**
-     * 删除 `delete By History Id` 对应内容。
-     *
-     * @param userId userId 参数。
-     * @param id id 参数。
-     * @return 返回处理结果。
-     */
     @Override
     public boolean deleteByHistoryId(Long userId, Long id) {
         if (userId == null || userId <= 0) {

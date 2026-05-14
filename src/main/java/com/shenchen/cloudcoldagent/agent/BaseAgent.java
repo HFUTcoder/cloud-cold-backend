@@ -1,11 +1,16 @@
 package com.shenchen.cloudcoldagent.agent;
 
+import com.shenchen.cloudcoldagent.model.entity.record.support.NormalizationResult;
+import com.shenchen.cloudcoldagent.utils.JsonArgumentUtils;
+import com.shenchen.cloudcoldagent.utils.JsonUtil;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
@@ -13,10 +18,14 @@ import org.springframework.ai.tool.ToolCallback;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Semaphore;
 
 /**
  * Agent 基类，统一承载模型、工具、轮次和记忆相关公共能力。
  */
+@Slf4j
 public abstract class BaseAgent {
 
     public static final String TOOL_CALL_TYPE_FUNCTION = "function";
@@ -25,27 +34,44 @@ public abstract class BaseAgent {
     public static final String QUESTION_TAG_START = "<question>";
     public static final String QUESTION_TAG_END = "</question>";
 
+    protected final String name;
     protected final ChatModel chatModel;
     protected final List<ToolCallback> tools;
     protected final List<Advisor> advisors;
+    protected final String systemPrompt;
     protected final int maxRounds;
     protected final ChatMemory chatMemory;
+    protected final Executor toolExecutor;
+    protected final Executor virtualThreadExecutor;
+    protected final Semaphore toolSemaphore;
 
     /**
      * 初始化 Agent 运行所需的公共依赖，包括模型、工具集、advisor、最大轮次和会话记忆。
      *
+     * @param name Agent 名称，用于日志标识。
      * @param chatModel Agent 使用的底层大模型。
      * @param tools 当前 Agent 可调用的工具集合。
      * @param advisors 挂载到模型请求链路上的 advisor 集合。
+     * @param systemPrompt 业务侧补充的 system prompt。
      * @param maxRounds Agent 单次执行允许的最大轮次。
      * @param chatMemory 会话级记忆存储，可为空。
+     * @param toolConcurrency 工具并发调用上限。
+     * @param toolExecutor 工具调用线程池。
+     * @param virtualThreadExecutor 虚拟线程执行器。
      */
-    protected BaseAgent(ChatModel chatModel, List<ToolCallback> tools, List<Advisor> advisors, int maxRounds, ChatMemory chatMemory) {
+    protected BaseAgent(String name, ChatModel chatModel, List<ToolCallback> tools, List<Advisor> advisors,
+                        String systemPrompt, int maxRounds, ChatMemory chatMemory,
+                        int toolConcurrency, Executor toolExecutor, Executor virtualThreadExecutor) {
+        this.name = name;
         this.chatModel = chatModel;
         this.tools = tools == null ? Collections.emptyList() : new ArrayList<>(tools);
         this.advisors = advisors == null ? Collections.emptyList() : new ArrayList<>(advisors);
+        this.systemPrompt = systemPrompt;
         this.maxRounds = maxRounds;
         this.chatMemory = chatMemory;
+        this.toolExecutor = toolExecutor;
+        this.virtualThreadExecutor = virtualThreadExecutor;
+        this.toolSemaphore = new Semaphore(Math.max(1, toolConcurrency));
     }
 
     /**
@@ -141,5 +167,64 @@ public abstract class BaseAgent {
                     .append("\n");
         }
         return sb.toString();
+    }
+
+    /**
+     * 规范化工具调用列表，统一 type 为 function 并规范化参数 JSON。
+     */
+    protected List<AssistantMessage.ToolCall> normalizeToolCalls(List<AssistantMessage.ToolCall> toolCalls) {
+        if (toolCalls == null || toolCalls.isEmpty()) {
+            return List.of();
+        }
+        List<AssistantMessage.ToolCall> normalized = new ArrayList<>(toolCalls.size());
+        for (AssistantMessage.ToolCall toolCall : toolCalls) {
+            if (toolCall == null) {
+                continue;
+            }
+            normalized.add(new AssistantMessage.ToolCall(
+                    toolCall.id(),
+                    TOOL_CALL_TYPE_FUNCTION,
+                    toolCall.name(),
+                    normalizeArguments(toolCall)
+            ));
+        }
+        return normalized;
+    }
+
+    /**
+     * 规范化单个工具调用的参数 JSON。
+     */
+    protected String normalizeArguments(AssistantMessage.ToolCall toolCall) {
+        String rawArguments = toolCall == null ? null : toolCall.arguments();
+        NormalizationResult result = JsonArgumentUtils.normalizeJsonArguments(rawArguments);
+        if (!result.valid()) {
+            log.warn("工具调用参数不是合法 JSON，toolName={}, toolId={}, rawArguments={}, error={}",
+                    toolCall == null ? null : toolCall.name(),
+                    toolCall == null ? null : toolCall.id(),
+                    rawArguments,
+                    result.errorMessage());
+            return rawArguments;
+        }
+        return result.normalizedJson();
+    }
+
+    /**
+     * 向消息列表中添加工具执行错误的响应消息。
+     */
+    protected void addErrorToolResponse(List<Message> messages, AssistantMessage.ToolCall toolCall, String errMsg) {
+        String errorJson;
+        try {
+            errorJson = "{\"error\":" + JsonUtil.objectMapper().writeValueAsString(errMsg) + "}";
+        } catch (Exception ex) {
+            errorJson = "{\"error\":\"tool execution failed\"}";
+        }
+        ToolResponseMessage.ToolResponse tr = new ToolResponseMessage.ToolResponse(
+                toolCall.id(),
+                toolCall.name(),
+                errorJson
+        );
+        messages.add(ToolResponseMessage.builder()
+                .responses(List.of(tr))
+                .build());
     }
 }

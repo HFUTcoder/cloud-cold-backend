@@ -2,9 +2,9 @@ package com.shenchen.cloudcoldagent.common;
 
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.model.entity.record.hitl.PendingToolCall;
-import com.shenchen.cloudcoldagent.model.vo.AgentStreamEvent;
-import com.shenchen.cloudcoldagent.model.vo.AgentStreamEventData;
-import com.shenchen.cloudcoldagent.model.vo.RetrievedKnowledgeImage;
+import com.shenchen.cloudcoldagent.model.vo.agent.AgentStreamEvent;
+import com.shenchen.cloudcoldagent.model.vo.agent.AgentStreamEventData;
+import com.shenchen.cloudcoldagent.model.vo.agent.RetrievedKnowledgeImage;
 
 import java.util.List;
 

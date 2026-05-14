@@ -5,7 +5,7 @@ import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.mapper.chat.ChatMemoryHistoryImageRelationMapper;
-import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistoryImageRelation;
+import com.shenchen.cloudcoldagent.model.entity.agent.ChatMemoryHistoryImageRelation;
 import com.shenchen.cloudcoldagent.service.chat.ChatMemoryHistoryImageRelationService;
 import org.springframework.stereotype.Service;
 
@@ -61,12 +61,6 @@ public class ChatMemoryHistoryImageRelationServiceImpl
         }
     }
 
-    /**
-     * 查询 `list By History Id` 对应集合。
-     *
-     * @param historyId historyId 参数。
-     * @return 返回处理结果。
-     */
     @Override
     public List<ChatMemoryHistoryImageRelation> listByHistoryId(Long historyId) {
         validateHistoryId(historyId);
@@ -111,12 +105,6 @@ public class ChatMemoryHistoryImageRelationServiceImpl
         return result;
     }
 
-    /**
-     * 删除 `delete By History Id` 对应内容。
-     *
-     * @param historyId historyId 参数。
-     * @return 返回处理结果。
-     */
     @Override
     public boolean deleteByHistoryId(Long historyId) {
         validateHistoryId(historyId);
@@ -128,12 +116,6 @@ public class ChatMemoryHistoryImageRelationServiceImpl
         ) > 0;
     }
 
-    /**
-     * 删除 `delete By Conversation Id` 对应内容。
-     *
-     * @param conversationId conversationId 参数。
-     * @return 返回处理结果。
-     */
     @Override
     public boolean deleteByConversationId(String conversationId) {
         validateConversationId(conversationId);
@@ -145,22 +127,12 @@ public class ChatMemoryHistoryImageRelationServiceImpl
         ) > 0;
     }
 
-    /**
-     * 校验 `validate History Id` 对应内容。
-     *
-     * @param historyId historyId 参数。
-     */
     private void validateHistoryId(Long historyId) {
         if (historyId == null || historyId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "historyId 不合法");
         }
     }
 
-    /**
-     * 校验 `validate Conversation Id` 对应内容。
-     *
-     * @param conversationId conversationId 参数。
-     */
     private void validateConversationId(String conversationId) {
         if (conversationId == null || conversationId.isBlank()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "conversationId 不能为空");

@@ -5,7 +5,7 @@ import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.mapper.chat.UserConversationRelationMapper;
-import com.shenchen.cloudcoldagent.model.entity.UserConversationRelation;
+import com.shenchen.cloudcoldagent.model.entity.agent.UserConversationRelation;
 import com.shenchen.cloudcoldagent.service.chat.UserConversationRelationService;
 import org.springframework.stereotype.Service;
 
@@ -20,12 +20,6 @@ import java.util.Objects;
 public class UserConversationRelationServiceImpl extends ServiceImpl<UserConversationRelationMapper, UserConversationRelation>
         implements UserConversationRelationService {
 
-    /**
-     * 查询 `list Conversation Ids By User Id` 对应集合。
-     *
-     * @param userId userId 参数。
-     * @return 返回处理结果。
-     */
     @Override
     public List<String> listConversationIdsByUserId(Long userId) {
         validateUserId(userId);
@@ -56,13 +50,6 @@ public class UserConversationRelationServiceImpl extends ServiceImpl<UserConvers
         return relation == null ? null : relation.getUserId();
     }
 
-    /**
-     * 判断 `is Conversation Owned By User` 条件是否成立。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     * @return 返回处理结果。
-     */
     @Override
     public boolean isConversationOwnedByUser(Long userId, String conversationId) {
         validateUserId(userId);
@@ -101,12 +88,6 @@ public class UserConversationRelationServiceImpl extends ServiceImpl<UserConvers
                 .build());
     }
 
-    /**
-     * 删除 `delete By Conversation Id` 对应内容。
-     *
-     * @param conversationId conversationId 参数。
-     * @return 返回处理结果。
-     */
     @Override
     public boolean deleteByConversationId(String conversationId) {
         validateConversationId(conversationId);
@@ -121,22 +102,12 @@ public class UserConversationRelationServiceImpl extends ServiceImpl<UserConvers
         ) > 0;
     }
 
-    /**
-     * 校验 `validate User Id` 对应内容。
-     *
-     * @param userId userId 参数。
-     */
     private void validateUserId(Long userId) {
         if (userId == null || userId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "userId 不合法");
         }
     }
 
-    /**
-     * 校验 `validate Conversation Id` 对应内容。
-     *
-     * @param conversationId conversationId 参数。
-     */
     private void validateConversationId(String conversationId) {
         if (conversationId == null || conversationId.isBlank()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "conversationId 不能为空");

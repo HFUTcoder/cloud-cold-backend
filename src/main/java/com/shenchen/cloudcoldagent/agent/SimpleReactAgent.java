@@ -3,10 +3,9 @@ package com.shenchen.cloudcoldagent.agent;
 import com.shenchen.cloudcoldagent.common.AgentStreamEventFactory;
 import com.shenchen.cloudcoldagent.context.AgentRuntimeContext;
 import com.shenchen.cloudcoldagent.model.entity.record.support.NormalizationResult;
-import com.shenchen.cloudcoldagent.model.vo.AgentStreamEvent;
+import com.shenchen.cloudcoldagent.model.vo.agent.AgentStreamEvent;
 import com.shenchen.cloudcoldagent.prompts.ReactAgentPrompts;
 import com.shenchen.cloudcoldagent.utils.JsonArgumentUtils;
-import com.shenchen.cloudcoldagent.utils.JsonUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientResponse;
@@ -39,11 +38,6 @@ import java.util.concurrent.atomic.AtomicLong;
 public class SimpleReactAgent extends BaseAgent {
 
     private static final String REACT_AGENT_SYSTEM_PROMPT = ReactAgentPrompts.STRICT_REACT_SYSTEM_PROMPT;
-    private final String name;
-    private final String systemPrompt;
-    private final Executor toolExecutor;
-    private final Executor virtualThreadExecutor;
-    private final Semaphore toolSemaphore;
     private ChatClient chatClient;
 
     /**
@@ -63,12 +57,7 @@ public class SimpleReactAgent extends BaseAgent {
     public SimpleReactAgent(String name, ChatModel chatModel, List<ToolCallback> tools, List<Advisor> advisors,
                             String systemPrompt, int maxRounds, ChatMemory chatMemory, int toolConcurrency,
                             Executor toolExecutor, Executor virtualThreadExecutor) {
-        super(chatModel, tools, advisors, maxRounds, chatMemory);
-        this.name = name;
-        this.systemPrompt = systemPrompt;
-        this.toolSemaphore = new Semaphore(Math.max(1, toolConcurrency));
-        this.toolExecutor = toolExecutor;
-        this.virtualThreadExecutor = virtualThreadExecutor;
+        super(name, chatModel, tools, advisors, systemPrompt, maxRounds, chatMemory, toolConcurrency, toolExecutor, virtualThreadExecutor);
 
         initChatClient();
 
@@ -98,38 +87,18 @@ public class SimpleReactAgent extends BaseAgent {
         }
     }
 
-    /**
-     * 以无显式用户上下文的方式同步调用快速模式 Agent。
-     *
-     * @param question 用户问题。
-     * @return Agent 最终回答。
-     */
+    /** 同步调用 Agent（无会话记忆，无运行时 system prompt）。 */
     public String call(String question) {
         return callInternal(null, null, question, null, question);
     }
 
     // 带会话记忆
-    /**
-     * 以带会话上下文的方式同步调用快速模式 Agent。
-     *
-     * @param userId 当前用户 id。
-     * @param conversationId 当前会话 id。
-     * @param question 用户问题。
-     * @return Agent 最终回答。
-     */
+    /** 同步调用 Agent（带会话记忆）。 */
     public String call(Long userId, String conversationId, String question) {
         return callInternal(userId, conversationId, question, null, question);
     }
 
-    /**
-     * 以带运行时 system prompt 的方式同步调用快速模式 Agent。
-     *
-     * @param userId 当前用户 id。
-     * @param conversationId 当前会话 id。
-     * @param question 用户问题。
-     * @param runtimeSystemPrompt 动态注入的运行时系统提示词。
-     * @return Agent 最终回答。
-     */
+    /** 同步调用 Agent（带会话记忆 + 运行时 system prompt）。 */
     public String call(Long userId, String conversationId, String question, String runtimeSystemPrompt) {
         return callInternal(userId, conversationId, question, runtimeSystemPrompt, question);
     }
@@ -297,66 +266,23 @@ public class SimpleReactAgent extends BaseAgent {
     }
 
 
-    /**
-     * 流式处理 `stream` 对应内容。
-     *
-     * @param question question 参数。
-     * @return 返回处理结果。
-     */
     public Flux<AgentStreamEvent> stream(String question) {
         return streamInternal(null, null, question, null, question);
     }
 
     // 带会话记忆
-    /**
-     * 流式处理 `stream` 对应内容。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     * @param question question 参数。
-     * @return 返回处理结果。
-     */
     public Flux<AgentStreamEvent> stream(Long userId, String conversationId, String question) {
         return streamInternal(userId, conversationId, question, null, question);
     }
 
-    /**
-     * 流式处理 `stream` 对应内容。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     * @param question question 参数。
-     * @param runtimeSystemPrompt runtimeSystemPrompt 参数。
-     * @return 返回处理结果。
-     */
     public Flux<AgentStreamEvent> stream(Long userId, String conversationId, String question, String runtimeSystemPrompt) {
         return streamInternal(userId, conversationId, question, runtimeSystemPrompt, question);
     }
 
-    /**
-     * 流式处理 `stream` 对应内容。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     * @param question question 参数。
-     * @param runtimeSystemPrompt runtimeSystemPrompt 参数。
-     * @param memoryQuestion memoryQuestion 参数。
-     * @return 返回处理结果。
-     */
     public Flux<AgentStreamEvent> stream(Long userId, String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
         return streamInternal(userId, conversationId, question, runtimeSystemPrompt, memoryQuestion);
     }
 
-    /**
-     * 流式处理 `stream Internal` 对应内容。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     * @param question question 参数。
-     * @param runtimeSystemPrompt runtimeSystemPrompt 参数。
-     * @param memoryQuestion memoryQuestion 参数。
-     * @return 返回处理结果。
-     */
     public Flux<AgentStreamEvent> streamInternal(Long userId, String conversationId, String question, String runtimeSystemPrompt, String memoryQuestion) {
         log.info("开始执行快速模式流式回答，conversationId={}, questionLength={}",
                 conversationId,
@@ -390,18 +316,6 @@ public class SimpleReactAgent extends BaseAgent {
                 });
     }
 
-    /**
-     * 处理 `schedule Round` 对应逻辑。
-     *
-     * @param messages messages 参数。
-     * @param sink sink 参数。
-     * @param roundCounter roundCounter 参数。
-     * @param hasSentFinalResult hasSentFinalResult 参数。
-     * @param finalAnswerBuffer finalAnswerBuffer 参数。
-     * @param useMemory useMemory 参数。
-     * @param conversationId conversationId 参数。
-     * @param userId userId 参数。
-     */
     private void scheduleRound(List<Message> messages, Sinks.Many<AgentStreamEvent> sink, AtomicLong roundCounter, AtomicBoolean hasSentFinalResult,
                                StringBuilder finalAnswerBuffer, boolean useMemory, String conversationId, Long userId) {
         // 轮次+1
@@ -427,14 +341,6 @@ public class SimpleReactAgent extends BaseAgent {
                 .subscribe();
     }
 
-    /**
-     * 处理 `process Chunk` 对应逻辑。
-     *
-     * @param chunk chunk 参数。
-     * @param sink sink 参数。
-     * @param state state 参数。
-     * @param conversationId conversationId 参数。
-     */
     private void processChunk(ChatResponse chunk, Sinks.Many<AgentStreamEvent> sink, RoundState state, String conversationId) {
 
         if (chunk == null || chunk.getResult() == null ||
@@ -461,12 +367,6 @@ public class SimpleReactAgent extends BaseAgent {
         }
     }
 
-    /**
-     * 处理 `merge Tool Call` 对应逻辑。
-     *
-     * @param state state 参数。
-     * @param incoming incoming 参数。
-     */
     private void mergeToolCall(RoundState state, AssistantMessage.ToolCall incoming) {
         if (incoming == null) {
             return;
@@ -549,15 +449,6 @@ public class SimpleReactAgent extends BaseAgent {
     }
 
 
-    /**
-     * 处理 `force Final Stream` 对应逻辑。
-     *
-     * @param conversationId conversationId 参数。
-     * @param useMemory useMemory 参数。
-     * @param messages messages 参数。
-     * @param sink sink 参数。
-     * @param hasSentFinalResult hasSentFinalResult 参数。
-     */
     private void forceFinalStream(String conversationId, boolean useMemory, List<Message> messages, Sinks.Many<AgentStreamEvent> sink, AtomicBoolean hasSentFinalResult) {
         messages.add(new UserMessage(ReactAgentPrompts.FORCE_FINAL_ANSWER_PROMPT));
 
@@ -598,16 +489,6 @@ public class SimpleReactAgent extends BaseAgent {
                 .subscribe();
     }
 
-    /**
-     * 执行 `execute Tool Calls` 对应逻辑。
-     *
-     * @param toolCalls toolCalls 参数。
-     * @param messages messages 参数。
-     * @param hasSentFinalResult hasSentFinalResult 参数。
-     * @param onComplete onComplete 参数。
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     */
     private void executeToolCalls(List<AssistantMessage.ToolCall> toolCalls,
                                   List<Message> messages,
                                   AtomicBoolean hasSentFinalResult,
@@ -666,13 +547,6 @@ public class SimpleReactAgent extends BaseAgent {
         }
     }
 
-    /**
-     * 处理 `complete Tool Call` 对应逻辑。
-     *
-     * @param completedCount completedCount 参数。
-     * @param total total 参数。
-     * @param onComplete onComplete 参数。
-     */
     private void completeToolCall(AtomicInteger completedCount, int total, Runnable onComplete, Executor executor) {
         int current = completedCount.incrementAndGet();
         if (current >= total) {
@@ -680,87 +554,16 @@ public class SimpleReactAgent extends BaseAgent {
         }
     }
 
-    /**
-     * 处理 `add Error Tool Response` 对应逻辑。
-     *
-     * @param messages messages 参数。
-     * @param toolCall toolCall 参数。
-     * @param errMsg errMsg 参数。
-     */
-    private void addErrorToolResponse(List<Message> messages, AssistantMessage.ToolCall toolCall, String errMsg) {
-        String errorJson;
-        try {
-            errorJson = "{\"error\":" + JsonUtil.objectMapper().writeValueAsString(errMsg) + "}";
-        } catch (Exception ex) {
-            errorJson = "{\"error\":\"tool execution failed\"}";
-        }
-        ToolResponseMessage.ToolResponse tr = new ToolResponseMessage.ToolResponse(
-                toolCall.id(),
-                toolCall.name(),
-                errorJson
-        );
-
-        messages.add(ToolResponseMessage.builder()
-                .responses(List.of(tr))
-                .build());
+    public static Builder builder(Executor toolExecutor, Executor virtualThreadExecutor) {
+        return new Builder(toolExecutor, virtualThreadExecutor);
     }
 
-    /**
-     * 处理 `normalize Tool Calls` 对应逻辑。
-     *
-     * @param toolCalls toolCalls 参数。
-     * @return 返回处理结果。
-     */
-    private List<AssistantMessage.ToolCall> normalizeToolCalls(List<AssistantMessage.ToolCall> toolCalls) {
-        if (toolCalls == null || toolCalls.isEmpty()) {
-            return List.of();
-        }
-        List<AssistantMessage.ToolCall> normalized = new ArrayList<>(toolCalls.size());
-        for (AssistantMessage.ToolCall toolCall : toolCalls) {
-            if (toolCall == null) {
-                continue;
-            }
-            normalized.add(new AssistantMessage.ToolCall(
-                    toolCall.id(),
-                    TOOL_CALL_TYPE_FUNCTION,
-                    toolCall.name(),
-                    normalizeArguments(toolCall)
-            ));
-        }
-        return normalized;
-    }
-
-    /**
-     * 处理 `normalize Arguments` 对应逻辑。
-     *
-     * @param toolCall toolCall 参数。
-     * @return 返回处理结果。
-     */
-    private String normalizeArguments(AssistantMessage.ToolCall toolCall) {
-        String rawArguments = toolCall == null ? null : toolCall.arguments();
-        NormalizationResult result = JsonArgumentUtils.normalizeJsonArguments(rawArguments);
-        if (!result.valid()) {
-            log.warn("工具调用参数不是合法 JSON，toolName={}, toolId={}, rawArguments={}, error={}",
-                    toolCall == null ? null : toolCall.name(),
-                    toolCall == null ? null : toolCall.id(),
-                    rawArguments,
-                    result.errorMessage());
-            return rawArguments;
-        }
-        return result.normalizedJson();
-    }
-
-    public static Builder builder() {
-        return new Builder();
-    }
-
-    /**
-     * 创建 `Builder` 实例。
-     */
     /**
      * SimpleReactAgent 构建器。
      */
     public static class Builder {
+        private final Executor toolExecutor;
+        private final Executor virtualThreadExecutor;
         private String name;
         private ChatModel chatModel;
         private List<ToolCallback> tools = new ArrayList<>();
@@ -769,103 +572,52 @@ public class SimpleReactAgent extends BaseAgent {
         private int maxRounds;
         private int toolConcurrency = 3;
         private ChatMemory chatMemory;
-        private Executor toolExecutor;
-        private Executor virtualThreadExecutor;
 
-        /**
-         * 处理 `chat Memory` 对应逻辑。
-         *
-         * @param chatMemory chatMemory 参数。
-         * @return 返回处理结果。
-         */
+        private Builder(Executor toolExecutor, Executor virtualThreadExecutor) {
+            this.toolExecutor = toolExecutor;
+            this.virtualThreadExecutor = virtualThreadExecutor;
+        }
+
         public Builder chatMemory(ChatMemory chatMemory) {
             this.chatMemory = chatMemory;
             return this;
         }
 
-        /**
-         * 处理 `name` 对应逻辑。
-         *
-         * @param name name 参数。
-         * @return 返回处理结果。
-         */
         public Builder name(String name) {
             this.name = name;
             return this;
         }
 
-        /**
-         * 处理 `chat Model` 对应逻辑。
-         *
-         * @param chatModel chatModel 参数。
-         * @return 返回处理结果。
-         */
         public Builder chatModel(ChatModel chatModel) {
             this.chatModel = chatModel;
             return this;
         }
 
-        /**
-         * 处理 `tools` 对应逻辑。
-         *
-         * @param tools tools 参数。
-         * @return 返回处理结果。
-         */
         public Builder tools(ToolCallback... tools) {
             this.tools = tools == null ? new ArrayList<>() : new ArrayList<>(Arrays.asList(tools));
             return this;
         }
 
-        /**
-         * 处理 `tools` 对应逻辑。
-         *
-         * @param tools tools 参数。
-         * @return 返回处理结果。
-         */
         public Builder tools(List<ToolCallback> tools) {
             this.tools = tools == null ? new ArrayList<>() : new ArrayList<>(tools);
             return this;
         }
 
-        /**
-         * 处理 `advisors` 对应逻辑。
-         *
-         * @param advisors advisors 参数。
-         * @return 返回处理结果。
-         */
         public Builder advisors(Advisor... advisors) {
             this.advisors = advisors == null ? new ArrayList<>() : new ArrayList<>(Arrays.asList(advisors));
             return this;
         }
 
-        /**
-         * 处理 `advisors` 对应逻辑。
-         *
-         * @param advisors advisors 参数。
-         * @return 返回处理结果。
-         */
         public Builder advisors(List<Advisor> advisors) {
             this.advisors = advisors == null ? new ArrayList<>() : new ArrayList<>(advisors);
             return this;
         }
 
-        /**
-         * 处理 `system Prompt` 对应逻辑。
-         *
-         * @param systemPrompt systemPrompt 参数。
-         * @return 返回处理结果。
-         */
         public Builder systemPrompt(String systemPrompt) {
             this.systemPrompt = systemPrompt;
             return this;
         }
 
-        /**
-         * 处理 `max Rounds` 对应逻辑。
-         *
-         * @param maxRounds maxRounds 参数。
-         * @return 返回处理结果。
-         */
         public Builder maxRounds(int maxRounds) {
             this.maxRounds = maxRounds;
             return this;
@@ -876,21 +628,6 @@ public class SimpleReactAgent extends BaseAgent {
             return this;
         }
 
-        public Builder toolExecutor(Executor toolExecutor) {
-            this.toolExecutor = toolExecutor;
-            return this;
-        }
-
-        public Builder virtualThreadExecutor(Executor virtualThreadExecutor) {
-            this.virtualThreadExecutor = virtualThreadExecutor;
-            return this;
-        }
-
-        /**
-         * 构建 `build` 对应结果。
-         *
-         * @return 返回处理结果。
-         */
         public SimpleReactAgent build() {
             if (chatModel == null) {
                 throw new IllegalArgumentException("chatModel 不能为空！");

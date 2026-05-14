@@ -5,7 +5,7 @@ import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.mapper.knowledge.KnowledgeDocumentImageMapper;
-import com.shenchen.cloudcoldagent.model.entity.KnowledgeDocumentImage;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.KnowledgeDocumentImage;
 import com.shenchen.cloudcoldagent.service.knowledge.KnowledgeDocumentImageService;
 import org.springframework.stereotype.Service;
 
@@ -77,12 +77,6 @@ public class KnowledgeDocumentImageServiceImpl
         return image;
     }
 
-    /**
-     * 查询 `list By Image Ids` 对应集合。
-     *
-     * @param imageIds imageIds 参数。
-     * @return 返回处理结果。
-     */
     @Override
     public List<KnowledgeDocumentImage> listByImageIds(List<Long> imageIds) {
         if (imageIds == null || imageIds.isEmpty()) {
@@ -143,12 +137,6 @@ public class KnowledgeDocumentImageServiceImpl
         return result;
     }
 
-    /**
-     * 查询 `list By Document Id` 对应集合。
-     *
-     * @param documentId documentId 参数。
-     * @return 返回处理结果。
-     */
     @Override
     public List<KnowledgeDocumentImage> listByDocumentId(Long documentId) {
         validateDocumentId(documentId);
@@ -159,12 +147,6 @@ public class KnowledgeDocumentImageServiceImpl
                 .orderBy("id", true));
     }
 
-    /**
-     * 查询 `list By Knowledge Id` 对应集合。
-     *
-     * @param knowledgeId knowledgeId 参数。
-     * @return 返回处理结果。
-     */
     @Override
     public List<KnowledgeDocumentImage> listByKnowledgeId(Long knowledgeId) {
         validateKnowledgeId(knowledgeId);
@@ -176,12 +158,6 @@ public class KnowledgeDocumentImageServiceImpl
                 .orderBy("id", true));
     }
 
-    /**
-     * 删除 `delete By Document Id` 对应内容。
-     *
-     * @param documentId documentId 参数。
-     * @return 返回处理结果。
-     */
     @Override
     public boolean deleteByDocumentId(Long documentId) {
         validateDocumentId(documentId);
@@ -193,12 +169,6 @@ public class KnowledgeDocumentImageServiceImpl
         ) > 0;
     }
 
-    /**
-     * 删除 `delete By Knowledge Id` 对应内容。
-     *
-     * @param knowledgeId knowledgeId 参数。
-     * @return 返回处理结果。
-     */
     @Override
     public boolean deleteByKnowledgeId(Long knowledgeId) {
         validateKnowledgeId(knowledgeId);
@@ -210,44 +180,24 @@ public class KnowledgeDocumentImageServiceImpl
         ) > 0;
     }
 
-    /**
-     * 校验 `validate User Id` 对应内容。
-     *
-     * @param userId userId 参数。
-     */
     private void validateUserId(Long userId) {
         if (userId == null || userId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "userId 不合法");
         }
     }
 
-    /**
-     * 校验 `validate Knowledge Id` 对应内容。
-     *
-     * @param knowledgeId knowledgeId 参数。
-     */
     private void validateKnowledgeId(Long knowledgeId) {
         if (knowledgeId == null || knowledgeId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "knowledgeId 不合法");
         }
     }
 
-    /**
-     * 校验 `validate Document Id` 对应内容。
-     *
-     * @param documentId documentId 参数。
-     */
     private void validateDocumentId(Long documentId) {
         if (documentId == null || documentId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "documentId 不合法");
         }
     }
 
-    /**
-     * 校验 `validate Image Id` 对应内容。
-     *
-     * @param imageId imageId 参数。
-     */
     private void validateImageId(Long imageId) {
         if (imageId == null || imageId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "imageId 不合法");

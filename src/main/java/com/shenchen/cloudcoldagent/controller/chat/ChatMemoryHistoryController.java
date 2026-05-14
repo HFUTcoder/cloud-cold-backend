@@ -7,8 +7,8 @@ import com.shenchen.cloudcoldagent.common.ResultUtils;
 import com.shenchen.cloudcoldagent.constant.UserConstant;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.utils.ThrowUtils;
-import com.shenchen.cloudcoldagent.model.entity.User;
-import com.shenchen.cloudcoldagent.model.vo.ChatMemoryHistoryVO;
+import com.shenchen.cloudcoldagent.model.entity.user.User;
+import com.shenchen.cloudcoldagent.model.vo.agent.ChatMemoryHistoryVO;
 import com.shenchen.cloudcoldagent.service.chat.ChatMemoryHistoryService;
 import com.shenchen.cloudcoldagent.service.user.UserService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,12 +32,6 @@ public class ChatMemoryHistoryController {
 
     private final UserService userService;
 
-    /**
-     * 创建 `ChatMemoryHistoryController` 实例。
-     *
-     * @param chatMemoryHistoryService chatMemoryHistoryService 参数。
-     * @param userService userService 参数。
-     */
     public ChatMemoryHistoryController(ChatMemoryHistoryService chatMemoryHistoryService,
                                        UserService userService) {
         this.chatMemoryHistoryService = chatMemoryHistoryService;

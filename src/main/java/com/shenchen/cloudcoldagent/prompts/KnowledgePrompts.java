@@ -5,17 +5,9 @@ package com.shenchen.cloudcoldagent.prompts;
  */
 public final class KnowledgePrompts {
 
-    /**
-     * 创建 `KnowledgePrompts` 实例。
-     */
     private KnowledgePrompts() {
     }
 
-    /**
-     * 构建 `build Bound Knowledge Runtime Prompt` 对应结果。
-     *
-     * @return 返回处理结果。
-     */
     public static String buildBoundKnowledgeRuntimePrompt() {
         return """
                 当前会话已绑定知识库。
@@ -24,12 +16,6 @@ public final class KnowledgePrompts {
                 """.trim();
     }
 
-    /**
-     * 构建 `build No Hit Augmented Question` 对应结果。
-     *
-     * @param question question 参数。
-     * @return 返回处理结果。
-     */
     public static String buildNoHitAugmentedQuestion(String question) {
         return """
                 请优先基于知识库内容回答用户问题。
@@ -41,13 +27,6 @@ public final class KnowledgePrompts {
                 """.formatted(question);
     }
 
-    /**
-     * 构建 `build Hit Augmented Question` 对应结果。
-     *
-     * @param knowledgeContent knowledgeContent 参数。
-     * @param question question 参数。
-     * @return 返回处理结果。
-     */
     public static String buildHitAugmentedQuestion(String knowledgeContent, String question) {
         return """
                 请优先基于以下知识库内容回答用户问题。
@@ -61,11 +40,6 @@ public final class KnowledgePrompts {
                 """.formatted(knowledgeContent, question);
     }
 
-    /**
-     * 构建 `build Image Description Prompt` 对应结果。
-     *
-     * @return 返回处理结果。
-     */
     public static String buildImageDescriptionPrompt() {
         return "请描述这张图片的内容，包括场景、对象、布局、颜色、文字信息，直接输出纯文本描述，不要多余说明。";
     }

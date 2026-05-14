@@ -1,6 +1,6 @@
 package com.shenchen.cloudcoldagent.tools.skill;
 
-import com.shenchen.cloudcoldagent.model.vo.SkillResourceListVO;
+import com.shenchen.cloudcoldagent.model.vo.skill.SkillResourceListVO;
 import com.shenchen.cloudcoldagent.registry.SkillRegistry;
 import com.shenchen.cloudcoldagent.service.skill.SkillService;
 import com.shenchen.cloudcoldagent.tools.BaseTool;
@@ -19,24 +19,12 @@ public class ReadSkillTool extends BaseTool {
     private final SkillRegistry skillRegistry;
     private final SkillService skillService;
 
-    /**
-     * 创建 `ReadSkillTool` 实例。
-     *
-     * @param skillRegistry skillRegistry 参数。
-     * @param skillService skillService 参数。
-     */
     public ReadSkillTool(SkillRegistry skillRegistry, SkillService skillService) {
         super(false);
         this.skillRegistry = skillRegistry;
         this.skillService = skillService;
     }
 
-    /**
-     * 处理 `read Skill` 对应逻辑。
-     *
-     * @param skillName skillName 参数。
-     * @return 返回处理结果。
-     */
     @Tool(name = "read_skill", description = "读取某个 skill 的完整内容，并附带该 skill 当前可用的 references/scripts 资源清单。当你需要使用某个 skill 的详细说明、步骤、约束或真实脚本路径时，优先调用此工具。")
     public String readSkill(@ToolParam(description = "skill 名称") String skillName) {
         logToolStart(TOOL_NAME, "skillName", skillName);
@@ -59,14 +47,6 @@ public class ReadSkillTool extends BaseTool {
         }
     }
 
-    /**
-     * 构建 `build Read Result` 对应结果。
-     *
-     * @param skillName skillName 参数。
-     * @param content content 参数。
-     * @param resourceList resourceList 参数。
-     * @return 返回处理结果。
-     */
     private String buildReadResult(String skillName, String content, SkillResourceListVO resourceList) {
         return """
                 skillName: %s
@@ -86,12 +66,6 @@ public class ReadSkillTool extends BaseTool {
         );
     }
 
-    /**
-     * 处理 `format List` 对应逻辑。
-     *
-     * @param items items 参数。
-     * @return 返回处理结果。
-     */
     private String formatList(java.util.List<String> items) {
         if (items == null || items.isEmpty()) {
             return "- 无";

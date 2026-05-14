@@ -4,7 +4,7 @@ import com.shenchen.cloudcoldagent.document.extract.cleaner.DocumentCleaner;
 import com.shenchen.cloudcoldagent.document.extract.reader.DocumentReaderFactory;
 import com.shenchen.cloudcoldagent.document.load.store.StoreService;
 import com.shenchen.cloudcoldagent.document.transform.splitter.OverlapParagraphTextSplitter;
-import com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.EsDocumentChunk;
 import com.shenchen.cloudcoldagent.service.storage.ElasticSearchService;
 import org.springframework.ai.document.Document;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -26,13 +26,6 @@ public class EsController {
 
     private final StoreService storeService;
 
-    /**
-     * 创建 `EsController` 实例。
-     *
-     * @param selector selector 参数。
-     * @param elasticSearchService elasticSearchService 参数。
-     * @param storeService storeService 参数。
-     */
     public EsController(DocumentReaderFactory selector,
                         ElasticSearchService elasticSearchService,
                         StoreService storeService) {
@@ -41,13 +34,6 @@ public class EsController {
         this.storeService = storeService;
     }
 
-    /**
-     * 处理 `write` 对应逻辑。
-     *
-     * @param filePath filePath 参数。
-     * @return 返回处理结果。
-     * @throws Exception 异常信息。
-     */
     @RequestMapping("write")
     public String write(String filePath) throws Exception {
         // 1. 加载文档
@@ -79,13 +65,6 @@ public class EsController {
         return "success";
     }
 
-    /**
-     * 处理 `search` 对应逻辑。
-     *
-     * @param keyword keyword 参数。
-     * @return 返回处理结果。
-     * @throws Exception 异常信息。
-     */
     @RequestMapping("search")
     public List<EsDocumentChunk> search(String keyword) throws Exception {
         return elasticSearchService.searchByKeyword(keyword);

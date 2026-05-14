@@ -17,18 +17,6 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class SkillWorkflowConfig {
 
-    /**
-     * 处理 `skill Workflow Graph` 对应逻辑。
-     *
-     * @param loadBoundSkillsNode loadBoundSkillsNode 参数。
-     * @param loadConversationHistoryNode loadConversationHistoryNode 参数。
-     * @param recognizeBoundSkillsNode recognizeBoundSkillsNode 参数。
-     * @param discoverCandidateSkillsNode discoverCandidateSkillsNode 参数。
-     * @param loadSkillContentsNode loadSkillContentsNode 参数。
-     * @param buildSkillRuntimeContextNode buildSkillRuntimeContextNode 参数。
-     * @return 返回处理结果。
-     * @throws Exception 异常信息。
-     */
     @Bean
     public CompiledGraph skillWorkflowGraph(LoadBoundSkillsNode loadBoundSkillsNode,
                                             LoadConversationHistoryNode loadConversationHistoryNode,

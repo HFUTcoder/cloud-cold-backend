@@ -6,10 +6,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shenchen.cloudcoldagent.registry.SkillRegistry;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
-import com.shenchen.cloudcoldagent.model.vo.SkillMetadataVO;
-import com.shenchen.cloudcoldagent.model.vo.SkillResourceContentVO;
-import com.shenchen.cloudcoldagent.model.vo.SkillResourceListVO;
-import com.shenchen.cloudcoldagent.model.vo.SkillScriptExecutionVO;
+import com.shenchen.cloudcoldagent.model.vo.skill.SkillMetadataVO;
+import com.shenchen.cloudcoldagent.model.vo.skill.SkillResourceContentVO;
+import com.shenchen.cloudcoldagent.model.vo.skill.SkillResourceListVO;
+import com.shenchen.cloudcoldagent.model.vo.skill.SkillScriptExecutionVO;
 import com.shenchen.cloudcoldagent.service.skill.SkillService;
 import com.shenchen.cloudcoldagent.utils.PythonScriptRuntimeUtils;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillArgumentSpec;
@@ -456,12 +456,6 @@ public class SkillServiceImpl implements SkillService {
         }
     }
 
-    /**
-     * 校验 `validate Required Arguments` 对应内容。
-     *
-     * @param argumentSpecs argumentSpecs 参数。
-     * @param arguments arguments 参数。
-     */
     private void validateRequiredArguments(Map<String, SkillArgumentSpec> argumentSpecs, Map<String, Object> arguments) {
         if (argumentSpecs == null || argumentSpecs.isEmpty()) {
             return;
@@ -537,12 +531,7 @@ public class SkillServiceImpl implements SkillService {
     }
 
     /**
-     * 查询 `list Files Under` 对应集合。
-     *
-     * @param skillBasePath skillBasePath 参数。
-     * @param directoryName directoryName 参数。
-     * @return 返回处理结果。
-     * @throws IOException 异常信息。
+     * 列出 skill 根目录下指定子目录中的所有文件相对路径。
      */
     private List<String> listFilesUnder(Path skillBasePath, String directoryName) throws IOException {
         Path targetDirectory = skillBasePath.resolve(directoryName).normalize();

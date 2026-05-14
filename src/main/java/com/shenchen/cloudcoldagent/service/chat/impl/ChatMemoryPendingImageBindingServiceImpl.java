@@ -1,6 +1,6 @@
 package com.shenchen.cloudcoldagent.service.chat.impl;
 
-import com.shenchen.cloudcoldagent.model.vo.RetrievedKnowledgeImage;
+import com.shenchen.cloudcoldagent.model.vo.agent.RetrievedKnowledgeImage;
 import com.shenchen.cloudcoldagent.service.chat.ChatMemoryPendingImageBindingService;
 import org.springframework.stereotype.Service;
 

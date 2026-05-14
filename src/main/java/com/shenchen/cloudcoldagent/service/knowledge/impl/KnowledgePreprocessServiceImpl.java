@@ -1,11 +1,11 @@
 package com.shenchen.cloudcoldagent.service.knowledge.impl;
 
 import com.shenchen.cloudcoldagent.constant.KnowledgeChunkConstant;
-import com.shenchen.cloudcoldagent.model.entity.ChatConversation;
-import com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk;
+import com.shenchen.cloudcoldagent.model.entity.agent.ChatConversation;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.EsDocumentChunk;
 import com.shenchen.cloudcoldagent.model.entity.record.agent.knowledge.KnowledgePreprocessResult;
-import com.shenchen.cloudcoldagent.model.entity.KnowledgeDocumentImage;
-import com.shenchen.cloudcoldagent.model.vo.RetrievedKnowledgeImage;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.KnowledgeDocumentImage;
+import com.shenchen.cloudcoldagent.model.vo.agent.RetrievedKnowledgeImage;
 import com.shenchen.cloudcoldagent.prompts.KnowledgePrompts;
 import com.shenchen.cloudcoldagent.service.knowledge.KnowledgeDocumentImageService;
 import com.shenchen.cloudcoldagent.service.knowledge.KnowledgePreprocessService;

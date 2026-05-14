@@ -15,11 +15,6 @@ public class EmbeddingService {
 
     private final EmbeddingModel embeddingModel;
 
-    /**
-     * 创建 `EmbeddingService` 实例。
-     *
-     * @param embeddingModel embeddingModel 参数。
-     */
     public EmbeddingService(EmbeddingModel embeddingModel) {
         this.embeddingModel = embeddingModel;
     }

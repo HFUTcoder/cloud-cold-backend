@@ -1,7 +1,7 @@
 package com.shenchen.cloudcoldagent.workflow.skill.node;
 
 import com.alibaba.cloud.ai.graph.OverAllState;
-import com.shenchen.cloudcoldagent.model.vo.SkillResourceListVO;
+import com.shenchen.cloudcoldagent.model.vo.skill.SkillResourceListVO;
 import com.shenchen.cloudcoldagent.service.skill.SkillService;
 import com.shenchen.cloudcoldagent.utils.StateValueUtils;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillWorkflowStateKeys;
@@ -22,21 +22,10 @@ public class LoadSkillContentsNode {
 
     private final SkillService skillService;
 
-    /**
-     * 创建 `LoadSkillContentsNode` 实例。
-     *
-     * @param skillService skillService 参数。
-     */
     public LoadSkillContentsNode(SkillService skillService) {
         this.skillService = skillService;
     }
 
-    /**
-     * 处理 `apply` 对应逻辑。
-     *
-     * @param state state 参数。
-     * @return 返回处理结果。
-     */
     public CompletableFuture<Map<String, Object>> apply(OverAllState state) {
         List<String> selectedSkills =
                 StateValueUtils.getValue(state, SkillWorkflowStateKeys.SELECTED_SKILLS, List.of());

@@ -1,7 +1,7 @@
 package com.shenchen.cloudcoldagent.model.entity.record.knowledge;
 
-import com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk;
-import com.shenchen.cloudcoldagent.model.entity.KnowledgeDocumentImage;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.EsDocumentChunk;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.KnowledgeDocumentImage;
 
 import java.util.List;
 

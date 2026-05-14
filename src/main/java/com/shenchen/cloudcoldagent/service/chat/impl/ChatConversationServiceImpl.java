@@ -7,8 +7,9 @@ import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.mapper.chat.ChatConversationMapper;
 import com.shenchen.cloudcoldagent.mapper.chat.ChatMemoryHistoryMapper;
 import com.shenchen.cloudcoldagent.mapper.hitl.HitlCheckpointMapper;
-import com.shenchen.cloudcoldagent.model.entity.ChatConversation;
-import com.shenchen.cloudcoldagent.model.entity.HitlCheckpoint;
+import com.shenchen.cloudcoldagent.model.entity.agent.ChatConversation;
+import com.shenchen.cloudcoldagent.model.entity.hitl.HitlCheckpoint;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.Knowledge;
 import com.shenchen.cloudcoldagent.registry.SkillRegistry;
 import com.shenchen.cloudcoldagent.service.chat.ChatConversationService;
 import com.shenchen.cloudcoldagent.service.chat.ConversationKnowledgeRelationService;
@@ -255,13 +256,6 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         return userConversationRelationService.isConversationOwnedByUser(userId, normalizedConversationId);
     }
 
-    /**
-     * 获取 `get By Conversation Id` 对应结果。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     * @return 返回处理结果。
-     */
     @Override
     public ChatConversation getByConversationId(Long userId, String conversationId) {
         String normalizedConversationId = normalizeConversationId(userId, conversationId);
@@ -279,13 +273,6 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         return conversation;
     }
 
-    /**
-     * 更新 `update Conversation Skills` 对应内容。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     * @param selectedSkills selectedSkills 参数。
-     */
     @Override
     public void updateConversationSkills(Long userId, String conversationId, List<String> selectedSkills) {
         ChatConversation conversation = getByConversationId(userId, conversationId);
@@ -307,13 +294,6 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
                 normalizedSkills);
     }
 
-    /**
-     * 更新 `update Conversation Knowledge` 对应内容。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     * @param knowledgeId knowledgeId 参数。
-     */
     @Override
     public void updateConversationKnowledge(Long userId, String conversationId, Long knowledgeId) {
         ChatConversation conversation = getByConversationId(userId, conversationId);
@@ -324,7 +304,7 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
             log.info("解除会话绑定知识库，userId={}, conversationId={}", userId, conversation.getConversationId());
             return;
         }
-        com.shenchen.cloudcoldagent.model.entity.Knowledge knowledge = knowledgeService.getKnowledgeById(userId, knowledgeId);
+        Knowledge knowledge = knowledgeService.getKnowledgeById(userId, knowledgeId);
         conversationKnowledgeRelationService.bindKnowledge(userId, conversation.getConversationId(), knowledgeId, LocalDateTime.now());
         conversation.setSelectedKnowledgeId(knowledgeId);
         conversation.setSelectedKnowledgeName(knowledge.getKnowledgeName());
@@ -336,11 +316,7 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
     }
 
     /**
-     * 构建 `build Conversation Skill Prompt` 对应结果。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     * @return 返回处理结果。
+     * 已废弃，当前 skill 前置能力统一由 skill workflow 负责。
      */
     @Override
     public String buildConversationSkillPrompt(Long userId, String conversationId) {
@@ -350,11 +326,7 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
     }
 
     /**
-     * 处理 `normalize Conversation Id` 对应逻辑。
-     *
-     * @param userId userId 参数。
-     * @param rawConversationId rawConversationId 参数。
-     * @return 返回处理结果。
+     * 规范化会话 id：空值时生成新 UUID，非空时 trim。
      */
     @Override
     public String normalizeConversationId(Long userId, String rawConversationId) {
@@ -367,13 +339,6 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         return rawConversationId.trim();
     }
 
-    /**
-     * 生成 `generate Title On First Message` 对应结果。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     * @param firstMessage firstMessage 参数。
-     */
     @Override
     public void generateTitleOnFirstMessage(Long userId, String conversationId, String firstMessage) {
         String normalizedConversationId = normalizeConversationId(userId, conversationId);
@@ -407,12 +372,6 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         this.updateById(conversation);
     }
 
-    /**
-     * 处理 `fill Conversation Bindings` 对应逻辑。
-     *
-     * @param userId userId 参数。
-     * @param conversation conversation 参数。
-     */
     private void fillConversationBindings(Long userId, ChatConversation conversation) {
         if (conversation == null) {
             return;
@@ -423,12 +382,6 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
         fillSelectedKnowledge(userId, conversation);
     }
 
-    /**
-     * 处理 `fill Selected Knowledge` 对应逻辑。
-     *
-     * @param userId userId 参数。
-     * @param conversation conversation 参数。
-     */
     private void fillSelectedKnowledge(Long userId, ChatConversation conversation) {
         if (conversation == null || userId == null || userId <= 0) {
             return;
@@ -449,10 +402,7 @@ public class ChatConversationServiceImpl extends ServiceImpl<ChatConversationMap
     }
 
     /**
-     * 处理 `normalize Selected Skills` 对应逻辑。
-     *
-     * @param selectedSkills selectedSkills 参数。
-     * @return 返回处理结果。
+     * 去重、trim 并校验 skill 是否存在。
      */
     private List<String> normalizeSelectedSkills(List<String> selectedSkills) {
         if (selectedSkills == null || selectedSkills.isEmpty()) {

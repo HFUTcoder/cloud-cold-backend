@@ -13,6 +13,7 @@ import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemoryDoc
 import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryStore;
 import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryMetadataService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.filter.Filter;
@@ -43,7 +44,7 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
                                        LongTermMemoryProperties properties,
                                        ObjectMapper objectMapper,
                                        UserLongTermMemoryMetadataService metadataService,
-                                       @org.springframework.beans.factory.annotation.Qualifier("longTermMemoryVectorStore") VectorStore vectorStore) {
+                                       @Qualifier("longTermMemoryVectorStore") VectorStore vectorStore) {
         this.elasticsearchClient = elasticsearchClient;
         this.properties = properties;
         this.objectMapper = objectMapper;
@@ -170,13 +171,6 @@ public class UserLongTermMemoryStoreImpl implements UserLongTermMemoryStore {
         return result;
     }
 
-    /**
-     * 删除 `delete By Id` 对应内容。
-     *
-     * @param userId userId 参数。
-     * @param memoryId memoryId 参数。
-     * @throws Exception 异常信息。
-     */
     @Override
     public void deleteById(Long userId, String memoryId) throws Exception {
         if (userId == null || userId <= 0 || memoryId == null || memoryId.isBlank()) {

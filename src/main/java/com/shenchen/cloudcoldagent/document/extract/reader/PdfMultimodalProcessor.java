@@ -374,16 +374,6 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
          */
         private final int y1;
 
-        /**
-         * 创建 `ContentElement` 实例。
-         *
-         * @param type type 参数。
-         * @param content content 参数。
-         * @param x0 x0 参数。
-         * @param y0 y0 参数。
-         * @param x1 x1 参数。
-         * @param y1 y1 参数。
-         */
         public ContentElement(ContentType type, String content, int x0, int y0, int x1, int y1) {
             this.type = type;
             this.content = content;
@@ -393,38 +383,18 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
             this.y1 = y1;
         }
 
-        /**
-         * 获取 `get Type` 对应结果。
-         *
-         * @return 返回处理结果。
-         */
         public ContentType getType() {
             return type;
         }
 
-        /**
-         * 获取 `get Content` 对应结果。
-         *
-         * @return 返回处理结果。
-         */
         public String getContent() {
             return content;
         }
 
-        /**
-         * 获取 `get X 0` 对应结果。
-         *
-         * @return 返回处理结果。
-         */
         public int getX0() {
             return x0;
         }
 
-        /**
-         * 获取 `get Y 0` 对应结果。
-         *
-         * @return 返回处理结果。
-         */
         public int getY0() {
             return y0;
         }
@@ -457,15 +427,6 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
 
         private final List<ExtractedDocumentImage> extractedImages;
 
-        /**
-         * 创建 `UnifiedContentStripper` 实例。
-         *
-         * @param pageHeight pageHeight 参数。
-         * @param pageNumber pageNumber 参数。
-         * @param imageIndexCounter imageIndexCounter 参数。
-         * @param extractedImages extractedImages 参数。
-         * @throws IOException 异常信息。
-         */
         public UnifiedContentStripper(float pageHeight,
                                       int pageNumber,
                                       AtomicInteger imageIndexCounter,
@@ -482,12 +443,6 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
             addOperator(new SetGraphicsStateParameters(this)); // gs操作符：设置图形状态参数
         }
 
-        /**
-         * 处理 `write String` 对应逻辑。
-         *
-         * @param text text 参数。
-         * @param textPositions textPositions 参数。
-         */
         @Override
         protected void writeString(String text, List<TextPosition> textPositions) {
             // 只处理非空的文本和位置信息
@@ -503,13 +458,6 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
             }
         }
 
-        /**
-         * 处理 `process Operator` 对应逻辑。
-         *
-         * @param operator operator 参数。
-         * @param operands operands 参数。
-         * @throws IOException 异常信息。
-         */
         @Override
         protected void processOperator(Operator operator, List<COSBase> operands) throws IOException {
             String operation = operator.getName();
@@ -550,11 +498,6 @@ public class PdfMultimodalProcessor implements DocumentReaderStrategy {
             }
         }
 
-        /**
-         * 获取 `get Elements` 对应结果。
-         *
-         * @return 返回处理结果。
-         */
         public List<ContentElement> getElements() {
             return elements;
         }

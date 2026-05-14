@@ -14,28 +14,11 @@ public class KnowledgeHybridSearchTool extends AbstractKnowledgeSearchTool {
 
     private static final String TOOL_NAME = "knowledge_hybrid_search";
 
-    /**
-     * 创建 `KnowledgeHybridSearchTool` 实例。
-     *
-     * @param knowledgeService knowledgeService 参数。
-     * @param chatConversationService chatConversationService 参数。
-     */
     public KnowledgeHybridSearchTool(KnowledgeService knowledgeService,
                                      ChatConversationService chatConversationService) {
         super(knowledgeService, chatConversationService);
     }
 
-    /**
-     * 处理 `knowledge Hybrid Search` 对应逻辑。
-     *
-     * @param knowledgeId knowledgeId 参数。
-     * @param query query 参数。
-     * @param keywordSize keywordSize 参数。
-     * @param useSmartAnalyzer useSmartAnalyzer 参数。
-     * @param vectorTopK vectorTopK 参数。
-     * @param similarityThreshold similarityThreshold 参数。
-     * @return 返回处理结果。
-     */
     @Tool(name = TOOL_NAME, description = "在指定知识库中执行混合检索，综合关键词与向量语义结果，适合作为知识库问答默认检索方式；未传 knowledgeId 时默认使用当前会话已绑定知识库")
     public String knowledgeHybridSearch(@ToolParam(description = "知识库 ID，可为空；为空时默认使用当前会话已绑定知识库") Long knowledgeId,
                                         @ToolParam(description = "查询语句") String query,

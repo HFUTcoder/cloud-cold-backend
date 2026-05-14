@@ -1,6 +1,6 @@
 package com.shenchen.cloudcoldagent.tools.skill;
 
-import com.shenchen.cloudcoldagent.model.vo.SkillResourceListVO;
+import com.shenchen.cloudcoldagent.model.vo.skill.SkillResourceListVO;
 import com.shenchen.cloudcoldagent.service.skill.SkillService;
 import com.shenchen.cloudcoldagent.tools.BaseTool;
 import org.springframework.ai.tool.annotation.Tool;
@@ -17,22 +17,11 @@ public class ListSkillResourcesTool extends BaseTool {
 
     private final SkillService skillService;
 
-    /**
-     * 创建 `ListSkillResourcesTool` 实例。
-     *
-     * @param skillService skillService 参数。
-     */
     public ListSkillResourcesTool(SkillService skillService) {
         super(false);
         this.skillService = skillService;
     }
 
-    /**
-     * 查询 `list Skill Resources` 对应集合。
-     *
-     * @param skillName skillName 参数。
-     * @return 返回处理结果。
-     */
     @Tool(name = "list_skill_resources", description = "列出某个 skill 下当前可读取的资源清单。 当你不知道 references 或 scripts 中具体有哪些文件时，先调用此工具，不要猜文件名。")
     public String listSkillResources(@ToolParam(description = "skill 名称") String skillName) {
         logToolStart(TOOL_NAME, "skillName", skillName);
@@ -46,12 +35,6 @@ public class ListSkillResourcesTool extends BaseTool {
         }
     }
 
-    /**
-     * 处理 `format Result` 对应逻辑。
-     *
-     * @param result result 参数。
-     * @return 返回处理结果。
-     */
     private String formatResult(SkillResourceListVO result) {
         return """
                 skillName: %s
@@ -68,12 +51,6 @@ public class ListSkillResourcesTool extends BaseTool {
         );
     }
 
-    /**
-     * 处理 `format List` 对应逻辑。
-     *
-     * @param items items 参数。
-     * @return 返回处理结果。
-     */
     private String formatList(java.util.List<String> items) {
         if (items == null || items.isEmpty()) {
             return "- 无";

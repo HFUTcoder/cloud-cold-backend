@@ -2,7 +2,7 @@ package com.shenchen.cloudcoldagent.workflow.skill.node;
 
 import cn.hutool.json.JSONUtil;
 import com.alibaba.cloud.ai.graph.OverAllState;
-import com.shenchen.cloudcoldagent.model.vo.SkillMetadataVO;
+import com.shenchen.cloudcoldagent.model.vo.skill.SkillMetadataVO;
 import com.shenchen.cloudcoldagent.prompts.SkillWorkflowPrompts;
 import com.shenchen.cloudcoldagent.service.skill.SkillService;
 import com.shenchen.cloudcoldagent.utils.StateValueUtils;
@@ -32,24 +32,12 @@ public class DiscoverCandidateSkillsNode {
     private final SkillService skillService;
     private final StructuredOutputAgentExecutor structuredOutputAgentExecutor;
 
-    /**
-     * 创建 `DiscoverCandidateSkillsNode` 实例。
-     *
-     * @param skillService skillService 参数。
-     * @param structuredOutputAgentExecutor structuredOutputAgentExecutor 参数。
-     */
     public DiscoverCandidateSkillsNode(SkillService skillService,
                                        StructuredOutputAgentExecutor structuredOutputAgentExecutor) {
         this.skillService = skillService;
         this.structuredOutputAgentExecutor = structuredOutputAgentExecutor;
     }
 
-    /**
-     * 处理 `apply` 对应逻辑。
-     *
-     * @param state state 参数。
-     * @return 返回处理结果。
-     */
     public CompletableFuture<Map<String, Object>> apply(OverAllState state) {
         String question = state.value(SkillWorkflowStateKeys.USER_QUESTION, String.class).orElse("");
         Long userId = state.value(SkillWorkflowStateKeys.USER_ID, Long.class).orElse(null);

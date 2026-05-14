@@ -6,11 +6,13 @@ import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.utils.ThrowUtils;
 import com.shenchen.cloudcoldagent.model.dto.document.DocumentAddRequest;
-import com.shenchen.cloudcoldagent.model.entity.KnowledgeDocumentImage;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.Document;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.EsDocumentChunk;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.KnowledgeDocumentImage;
 import com.shenchen.cloudcoldagent.model.entity.record.knowledge.DocumentIndexContext;
 import com.shenchen.cloudcoldagent.model.entity.record.knowledge.PreparedDocumentIndexResult;
 import com.shenchen.cloudcoldagent.enums.DocumentIndexStatusEnum;
-import com.shenchen.cloudcoldagent.model.vo.DocumentVO;
+import com.shenchen.cloudcoldagent.model.vo.knowledge.DocumentVO;
 import com.shenchen.cloudcoldagent.service.knowledge.DocumentService;
 import com.shenchen.cloudcoldagent.service.knowledge.KnowledgeDocumentImageService;
 import com.shenchen.cloudcoldagent.service.knowledge.KnowledgeDocumentIngestionService;
@@ -93,7 +95,7 @@ public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentI
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "上传文件到对象存储失败");
         }
 
-        com.shenchen.cloudcoldagent.model.entity.Document document;
+        Document document;
         try {
             DocumentAddRequest addRequest = new DocumentAddRequest();
             addRequest.setKnowledgeId(knowledgeId);
@@ -116,7 +118,7 @@ public class KnowledgeDocumentIngestionServiceImpl implements KnowledgeDocumentI
         File tempFile = null;
         PreparedDocumentIndexResult preparedResult = null;
         List<KnowledgeDocumentImage> persistedImages = List.of();
-        List<com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk> allChunks = List.of();
+        List<EsDocumentChunk> allChunks = List.of();
         try {
             document.setIndexStatus(DocumentIndexStatusEnum.INDEXING.getValue());
             document.setIndexErrorMessage(null);

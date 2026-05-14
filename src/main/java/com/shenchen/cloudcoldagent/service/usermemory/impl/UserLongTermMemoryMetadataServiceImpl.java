@@ -36,13 +36,6 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
     private final UserLongTermMemorySourceRelationMapper sourceRelationMapper;
     private final UserLongTermMemoryConversationStateMapper conversationStateMapper;
 
-    /**
-     * 创建 `UserLongTermMemoryMetadataServiceImpl` 实例。
-     *
-     * @param userLongTermMemoryMapper userLongTermMemoryMapper 参数。
-     * @param sourceRelationMapper sourceRelationMapper 参数。
-     * @param conversationStateMapper conversationStateMapper 参数。
-     */
     public UserLongTermMemoryMetadataServiceImpl(UserLongTermMemoryMapper userLongTermMemoryMapper,
                                                  UserLongTermMemorySourceRelationMapper sourceRelationMapper,
                                                  UserLongTermMemoryConversationStateMapper conversationStateMapper) {
@@ -109,13 +102,6 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
         }
     }
 
-    /**
-     * 查询 `list Active By User Id` 对应集合。
-     *
-     * @param userId userId 参数。
-     * @param size size 参数。
-     * @return 返回处理结果。
-     */
     @Override
     public List<UserLongTermMemory> listActiveByUserId(Long userId, int size) {
         if (userId == null || userId <= 0) {
@@ -265,13 +251,6 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
         );
     }
 
-    /**
-     * 删除 `delete Memory` 对应内容。
-     *
-     * @param userId userId 参数。
-     * @param memoryId memoryId 参数。
-     * @return 返回处理结果。
-     */
     @Override
     public boolean deleteMemory(Long userId, String memoryId) {
         if (userId == null || userId <= 0 || StringUtils.isBlank(memoryId)) {
@@ -333,13 +312,6 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
         );
     }
 
-    /**
-     * 获取某会话下的活跃记忆 memoryId 列表。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     * @return memoryId 列表。
-     */
     @Override
     public List<String> getMemoryIdsByConversation(Long userId, String conversationId) {
         if (userId == null || userId <= 0 || StringUtils.isBlank(conversationId)) {
@@ -356,12 +328,6 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
                 .toList();
     }
 
-    /**
-     * 删除 `delete By Conversation Id` 对应内容。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     */
     @Override
     public void deleteByConversationId(Long userId, String conversationId) {
         if (userId == null || userId <= 0 || StringUtils.isBlank(conversationId)) {
@@ -514,12 +480,6 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
         );
     }
 
-    /**
-     * 删除 `delete Conversation State` 对应内容。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     */
     @Override
     public void deleteConversationState(Long userId, String conversationId) {
         if (userId == null || userId <= 0 || StringUtils.isBlank(conversationId)) {
@@ -537,12 +497,6 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
         );
     }
 
-    /**
-     * 查询 `list Pending Conversation States` 对应集合。
-     *
-     * @param userId userId 参数。
-     * @return 返回处理结果。
-     */
     @Override
     public List<UserLongTermMemoryConversationState> listPendingConversationStates(Long userId) {
         if (userId == null || userId <= 0) {
@@ -556,11 +510,6 @@ public class UserLongTermMemoryMetadataServiceImpl implements UserLongTermMemory
                 .orderBy("id", true));
     }
 
-    /**
-     * 查询 `list User Ids With Pending Conversation States` 对应集合。
-     *
-     * @return 返回处理结果。
-     */
     @Override
     public List<Long> listUserIdsWithPendingConversationStates() {
         List<UserLongTermMemoryConversationState> rows = conversationStateMapper.selectListByQuery(QueryWrapper.create()

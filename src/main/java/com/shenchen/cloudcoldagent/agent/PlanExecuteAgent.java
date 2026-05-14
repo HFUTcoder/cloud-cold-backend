@@ -13,8 +13,8 @@ import com.shenchen.cloudcoldagent.model.entity.record.agent.planexecute.PlanExe
 import com.shenchen.cloudcoldagent.model.entity.record.agent.planexecute.PlanTask;
 import com.shenchen.cloudcoldagent.model.entity.record.agent.planexecute.ResumeContext;
 import com.shenchen.cloudcoldagent.model.entity.record.agent.planexecute.TaskResult;
-import com.shenchen.cloudcoldagent.model.vo.HitlCheckpointVO;
-import com.shenchen.cloudcoldagent.model.vo.AgentStreamEvent;
+import com.shenchen.cloudcoldagent.model.vo.hitl.HitlCheckpointVO;
+import com.shenchen.cloudcoldagent.model.vo.agent.AgentStreamEvent;
 import com.shenchen.cloudcoldagent.prompts.PlanExecutePrompts;
 import com.shenchen.cloudcoldagent.service.hitl.HitlCheckpointService;
 import com.shenchen.cloudcoldagent.service.hitl.HitlExecutionService;
@@ -65,7 +65,7 @@ import reactor.core.scheduler.Schedulers;
 
 
 /**
- * 思考模式 / 专家模式 Agent，采用 plan-execute 流程完成规划、执行、批判和总结。
+ * 思考模式 Agent，采用 plan-execute 流程完成规划、执行、批判和总结。
  */
 @Slf4j
 public class PlanExecuteAgent extends BaseAgent {
@@ -97,9 +97,6 @@ public class PlanExecuteAgent extends BaseAgent {
     // plan-execute 总轮数
     private final int contextCharLimit;
 
-    // 控制工具并发调用上限
-    private final Semaphore toolSemaphore;
-
     // 工具重试次数
     private final int maxToolRetries;
 
@@ -119,35 +116,43 @@ public class PlanExecuteAgent extends BaseAgent {
 
     private final long toolBatchTimeoutSeconds;
 
-    private final Executor toolExecutor;
-
-    private final Executor virtualThreadExecutor;
-
     private final ChatClient chatClient;
 
+    /** 不含 advisors 的裸 ChatClient，自动注册 tools + extensionTools。 */
+    private final ChatClient bareChatClient;
+
     /**
-     * 创建 `PlanExecuteAgent` 实例。
-     *
-     * @param chatModel chatModel 参数。
-     * @param tools tools 参数。
-     * @param advisors advisors 参数。
-     * @param maxRounds maxRounds 参数。
-     * @param contextCharLimit contextCharLimit 参数。
-     * @param maxToolRetries maxToolRetries 参数。
-     * @param chatMemory chatMemory 参数。
-     * @param hitlExecutionService hitlExecutionService 参数。
-     * @param hitlCheckpointService hitlCheckpointService 参数。
-     * @param hitlResumeService hitlResumeService 参数。
-     * @param skillService skillService 参数。
-     * @param agentType agentType 参数。
-     * @param toolConcurrency toolConcurrency 参数。
-     * @param hitlInterceptToolNames hitlInterceptToolNames 参数。
+     * Prompt 策略接口，允许外部覆盖 plan/critique/summarize/compress 四个阶段的 prompt。
+     * <p>
+     * 默认为 null，此时使用 {@link PlanExecutePrompts} 的通用 prompt。
+     */
+    public interface PromptProvider {
+        String buildPlanPrompt(LocalDateTime now, int round, String skillContext,
+                               String executedTaskHistory, String outputFormat);
+        String buildCritiquePrompt();
+        String buildSummarySystemPrompt();
+        String buildSummaryUserPrompt(String question, String confirmedArguments,
+                                      String renderedMessages);
+        String buildCompressPrompt(int contextCharLimit);
+    }
+
+    private final PromptProvider promptProvider;
+
+    /**
+     * @param name Agent 名称，用于日志标识。
+     * @param systemPrompt 业务侧补充的 system prompt。
+     * @param contextCharLimit 上下文字符数阈值，超过此值触发压缩。
+     * @param maxToolRetries 单个工具调用失败后的最大重试次数。
+     * @param toolConcurrency 同 order 内工具并发数。
+     * @param hitlInterceptToolNames 需要 HITL 人工确认的工具名称集合。
      * @param toolExecutor 工具调用线程池。
      * @param virtualThreadExecutor 虚拟线程执行器，用于主循环解耦。
      */
-    public PlanExecuteAgent(ChatModel chatModel,
+    public PlanExecuteAgent(String name,
+                            ChatModel chatModel,
                             List<ToolCallback> tools,
                             List<Advisor> advisors,
+                            String systemPrompt,
                             int maxRounds,
                             int contextCharLimit,
                             int maxToolRetries,
@@ -161,16 +166,16 @@ public class PlanExecuteAgent extends BaseAgent {
                             long toolBatchTimeoutSeconds,
                             int toolConcurrency,
                             Set<String> hitlInterceptToolNames,
+                            PromptProvider promptProvider,
+                            List<ToolCallback> extensionTools,
                             Executor toolExecutor,
                             Executor virtualThreadExecutor) {
-        super(chatModel, tools, advisors, maxRounds, chatMemory);
+        super(name, chatModel, tools, advisors, systemPrompt, maxRounds, chatMemory, toolConcurrency, toolExecutor, virtualThreadExecutor);
         this.contextCharLimit = contextCharLimit;
         this.maxToolRetries = maxToolRetries;
-        this.toolSemaphore = new Semaphore(Math.max(1, toolConcurrency));
-        this.toolExecutor = toolExecutor;
-        this.virtualThreadExecutor = virtualThreadExecutor;
         this.hitlExecutionService = hitlExecutionService;
         this.hitlCheckpointService = hitlCheckpointService;
+        this.promptProvider = promptProvider;
         this.hitlResumeService = hitlResumeService;
         this.skillService = skillService;
         this.agentType = agentType;
@@ -182,119 +187,116 @@ public class PlanExecuteAgent extends BaseAgent {
             builder.defaultAdvisors(this.advisors);
         }
         this.chatClient = builder.build();
+        this.bareChatClient = ChatClient.builder(chatModel).build();
     }
 
     /**
-     * 创建 PlanExecuteAgent 构建器。
-     *
-     * @return 新的构建器实例。
+     * 创建 Builder，基础设施依赖通过构造函数注入，业务参数通过 setter 设置。
      */
-    public static Builder builder() {
-        return new Builder();
+    public static Builder builder(ChatMemory chatMemory,
+                                  HitlExecutionService hitlExecutionService,
+                                  HitlCheckpointService hitlCheckpointService,
+                                  HitlResumeService hitlResumeService,
+                                  SkillService skillService,
+                                  Executor toolExecutor,
+                                  Executor virtualThreadExecutor) {
+        return new Builder(chatMemory, hitlExecutionService, hitlCheckpointService,
+                hitlResumeService, skillService, toolExecutor, virtualThreadExecutor);
     }
 
-    /**
-     * PlanExecuteAgent 构建器。
-     */
     public static class Builder {
+        // 基础设施依赖（构造函数注入，不暴露 setter）
+        private final ChatMemory chatMemory;
+        private final HitlExecutionService hitlExecutionService;
+        private final HitlCheckpointService hitlCheckpointService;
+        private final HitlResumeService hitlResumeService;
+        private final SkillService skillService;
+        private final Executor toolExecutor;
+        private final Executor virtualThreadExecutor;
+
+        // 业务参数（通过 setter 设置）
+        private String name;
         private ChatModel chatModel;
         private List<ToolCallback> tools = new ArrayList<>();
         private List<Advisor> advisors = new ArrayList<>();
-
-        // 默认迭代5轮
+        private String systemPrompt;
         private int maxRounds = 5;
-
-        // 默认context压缩阈值50000字符
         private int contextCharLimit = 50000;
-
-        // 默认工具重试次数2次
         private int maxToolRetries = 2;
-
-        private ChatMemory chatMemory;
-
-        private HitlExecutionService hitlExecutionService;
-
-        private HitlCheckpointService hitlCheckpointService;
-
-        private HitlResumeService hitlResumeService;
-
-        private SkillService skillService;
-
         private String agentType = "PlanExecuteAgent";
-
         private String timezone = "Asia/Shanghai";
-
         private long toolBatchTimeoutSeconds = 60;
-
         private int toolConcurrency = 3;
-
         private Set<String> hitlInterceptToolNames = new LinkedHashSet<>();
+        private PromptProvider promptProvider;
+        private List<ToolCallback> extensionTools;
 
-        private Executor toolExecutor;
-
-        private Executor virtualThreadExecutor;
-
-        /**
-         * 处理 `chat Memory` 对应逻辑。
-         *
-         * @param chatMemory chatMemory 参数。
-         * @return 返回处理结果。
-         */
-        public Builder chatMemory(ChatMemory chatMemory) {
+        private Builder(ChatMemory chatMemory,
+                        HitlExecutionService hitlExecutionService,
+                        HitlCheckpointService hitlCheckpointService,
+                        HitlResumeService hitlResumeService,
+                        SkillService skillService,
+                        Executor toolExecutor,
+                        Executor virtualThreadExecutor) {
             this.chatMemory = chatMemory;
-            return this;
-        }
-
-        /**
-         * 处理 `hitl Execution Service` 对应逻辑。
-         *
-         * @param hitlExecutionService hitlExecutionService 参数。
-         * @return 返回处理结果。
-         */
-        public Builder hitlExecutionService(HitlExecutionService hitlExecutionService) {
             this.hitlExecutionService = hitlExecutionService;
-            return this;
-        }
-
-        /**
-         * 处理 `hitl Checkpoint Service` 对应逻辑。
-         *
-         * @param hitlCheckpointService hitlCheckpointService 参数。
-         * @return 返回处理结果。
-         */
-        public Builder hitlCheckpointService(HitlCheckpointService hitlCheckpointService) {
             this.hitlCheckpointService = hitlCheckpointService;
-            return this;
-        }
-
-        /**
-         * 处理 `hitl Resume Service` 对应逻辑。
-         *
-         * @param hitlResumeService hitlResumeService 参数。
-         * @return 返回处理结果。
-         */
-        public Builder hitlResumeService(HitlResumeService hitlResumeService) {
             this.hitlResumeService = hitlResumeService;
-            return this;
-        }
-
-        /**
-         * 处理 `skill Service` 对应逻辑。
-         *
-         * @param skillService skillService 参数。
-         * @return 返回处理结果。
-         */
-        public Builder skillService(SkillService skillService) {
             this.skillService = skillService;
+            this.toolExecutor = toolExecutor;
+            this.virtualThreadExecutor = virtualThreadExecutor;
+        }
+
+        public Builder name(String name) {
+            this.name = name;
             return this;
         }
 
-        /**
-         * 处理 `agent Type` 对应逻辑。
-         *
-         * @param agentType agentType 参数。
-         * @return 返回处理结果。
-         */
+        public Builder chatModel(ChatModel chatModel) {
+            this.chatModel = chatModel;
+            return this;
+        }
+
+        public Builder tools(List<ToolCallback> tools) {
+            this.tools = tools;
+            return this;
+        }
+
+        public Builder tools(ToolCallback... tools) {
+            this.tools = tools == null ? new ArrayList<>() : new ArrayList<>(Arrays.asList(tools));
+            return this;
+        }
+
+        public Builder advisors(List<Advisor> advisors) {
+            this.advisors = advisors == null ? new ArrayList<>() : new ArrayList<>(advisors);
+            return this;
+        }
+
+        public Builder advisors(Advisor... advisors) {
+            this.advisors = advisors == null ? new ArrayList<>() : new ArrayList<>(Arrays.asList(advisors));
+            return this;
+        }
+
+        public Builder systemPrompt(String systemPrompt) {
+            this.systemPrompt = systemPrompt;
+            return this;
+        }
+
+        public Builder maxRounds(int maxRounds) {
+            this.maxRounds = maxRounds;
+            return this;
+        }
+
+        public Builder contextCharLimit(int contextCharLimit) {
+            this.contextCharLimit = contextCharLimit;
+            return this;
+        }
+
+        public Builder maxToolRetries(int maxToolRetries) {
+            this.maxToolRetries = maxToolRetries;
+            return this;
+        }
+
         public Builder agentType(String agentType) {
             this.agentType = agentType;
             return this;
@@ -310,138 +312,32 @@ public class PlanExecuteAgent extends BaseAgent {
             return this;
         }
 
-        /**
-         * 处理 `tool Concurrency` 对应逻辑。
-         *
-         * @param toolConcurrency toolConcurrency 参数。
-         * @return 返回处理结果。
-         */
         public Builder toolConcurrency(int toolConcurrency) {
             this.toolConcurrency = toolConcurrency;
             return this;
         }
 
-        /**
-         * 处理 `hitl Intercept Tool Names` 对应逻辑。
-         *
-         * @param hitlInterceptToolNames hitlInterceptToolNames 参数。
-         * @return 返回处理结果。
-         */
         public Builder hitlInterceptToolNames(Set<String> hitlInterceptToolNames) {
             this.hitlInterceptToolNames = hitlInterceptToolNames == null ? new LinkedHashSet<>() : new LinkedHashSet<>(hitlInterceptToolNames);
             return this;
         }
 
-        public Builder toolExecutor(Executor toolExecutor) {
-            this.toolExecutor = toolExecutor;
+        public Builder promptProvider(PromptProvider promptProvider) {
+            this.promptProvider = promptProvider;
             return this;
         }
 
-        public Builder virtualThreadExecutor(Executor virtualThreadExecutor) {
-            this.virtualThreadExecutor = virtualThreadExecutor;
+        public Builder extensionTools(List<ToolCallback> extensionTools) {
+            this.extensionTools = extensionTools;
             return this;
         }
 
-        /**
-         * 处理 `chat Model` 对应逻辑。
-         *
-         * @param chatModel chatModel 参数。
-         * @return 返回处理结果。
-         */
-        public Builder chatModel(ChatModel chatModel) {
-            this.chatModel = chatModel;
-            return this;
-        }
-
-        /**
-         * 处理 `tools` 对应逻辑。
-         *
-         * @param tools tools 参数。
-         * @return 返回处理结果。
-         */
-        public Builder tools(List<ToolCallback> tools) {
-            this.tools = tools;
-            return this;
-        }
-
-        /**
-         * 处理 `tools` 对应逻辑。
-         *
-         * @param tools tools 参数。
-         * @return 返回处理结果。
-         */
-        public Builder tools(ToolCallback... tools) {
-            this.tools = tools == null ? new ArrayList<>() : new ArrayList<>(Arrays.asList(tools));
-            return this;
-        }
-
-        /**
-         * 处理 `advisors` 对应逻辑。
-         *
-         * @param advisors advisors 参数。
-         * @return 返回处理结果。
-         */
-        public Builder advisors(List<Advisor> advisors) {
-            this.advisors = advisors == null ? new ArrayList<>() : new ArrayList<>(advisors);
-            return this;
-        }
-
-        /**
-         * 处理 `advisors` 对应逻辑。
-         *
-         * @param advisors advisors 参数。
-         * @return 返回处理结果。
-         */
-        public Builder advisors(Advisor... advisors) {
-            this.advisors = advisors == null ? new ArrayList<>() : new ArrayList<>(Arrays.asList(advisors));
-            return this;
-        }
-
-        /**
-         * 处理 `max Rounds` 对应逻辑。
-         *
-         * @param maxRounds maxRounds 参数。
-         * @return 返回处理结果。
-         */
-        public Builder maxRounds(int maxRounds) {
-            this.maxRounds = maxRounds;
-            return this;
-        }
-
-        /**
-         * 处理 `context Char Limit` 对应逻辑。
-         *
-         * @param contextCharLimit contextCharLimit 参数。
-         * @return 返回处理结果。
-         */
-        public Builder contextCharLimit(int contextCharLimit) {
-            this.contextCharLimit = contextCharLimit;
-            return this;
-        }
-
-        /**
-         * 处理 `max Tool Retries` 对应逻辑。
-         *
-         * @param maxToolRetries maxToolRetries 参数。
-         * @return 返回处理结果。
-         */
-        public Builder maxToolRetries(int maxToolRetries) {
-            this.maxToolRetries = maxToolRetries;
-            return this;
-        }
-
-        /**
-         * 构建 `build` 对应结果。
-         *
-         * @return 返回处理结果。
-         */
         public PlanExecuteAgent build() {
             Objects.requireNonNull(chatModel, "chatModel must not be null");
-            Objects.requireNonNull(toolExecutor, "toolExecutor must not be null");
-            Objects.requireNonNull(virtualThreadExecutor, "virtualThreadExecutor must not be null");
-            return new PlanExecuteAgent(chatModel, tools, advisors, maxRounds, contextCharLimit, maxToolRetries,
-                    chatMemory, hitlExecutionService, hitlCheckpointService, hitlResumeService, skillService,
-                    agentType, timezone, toolBatchTimeoutSeconds, toolConcurrency, hitlInterceptToolNames, toolExecutor, virtualThreadExecutor);
+            return new PlanExecuteAgent(name, chatModel, tools, advisors, systemPrompt, maxRounds, contextCharLimit,
+                    maxToolRetries, chatMemory, hitlExecutionService, hitlCheckpointService, hitlResumeService,
+                    skillService, agentType, timezone, toolBatchTimeoutSeconds, toolConcurrency,
+                    hitlInterceptToolNames, promptProvider, extensionTools, toolExecutor, virtualThreadExecutor);
         }
     }
 
@@ -565,6 +461,9 @@ public class PlanExecuteAgent extends BaseAgent {
         OverallState state = new OverallState(userId, conversationId, question);
         state.setSkillRuntimeContexts(skillRuntimeContexts == null ? List.of() : skillRuntimeContexts);
 
+        if (StringUtils.isNotBlank(systemPrompt)) {
+            state.add(new SystemMessage(systemPrompt));
+        }
         if (runtimeSystemPrompt != null && !runtimeSystemPrompt.isBlank()) {
             state.add(new SystemMessage(runtimeSystemPrompt));
         }
@@ -775,6 +674,9 @@ public class PlanExecuteAgent extends BaseAgent {
         OverallState state = new OverallState(userId, conversationId, question);
         state.setSkillRuntimeContexts(skillRuntimeContexts == null ? List.of() : skillRuntimeContexts);
 
+        if (StringUtils.isNotBlank(systemPrompt)) {
+            state.add(new SystemMessage(systemPrompt));
+        }
         if (runtimeSystemPrompt != null && !runtimeSystemPrompt.isBlank()) {
             state.add(new SystemMessage(runtimeSystemPrompt));
         }
@@ -896,27 +798,27 @@ public class PlanExecuteAgent extends BaseAgent {
      */
     private List<PlanTask> generatePlan(OverallState state) {
         String toolDesc = renderToolDescriptions();
-        List<SkillRuntimeContext> skillContexts = state.getSkillRuntimeContexts();
-        if (!skillContexts.isEmpty()) {
-            toolDesc = enrichToolDescriptionsWithSkillContexts(toolDesc, skillContexts);
+        String skillContext = buildSkillContextText(state.getSkillRuntimeContexts());
+        String fullContext = toolDesc;
+        if (!skillContext.isEmpty()) {
+            fullContext += "\n\n" + skillContext;
         }
         BeanOutputConverter<List<PlanTask>> converter = new BeanOutputConverter<>(new ParameterizedTypeReference<>() {
         });
 
-        String planPrompt = PlanExecutePrompts.formatPlanPrompt(
-                LocalDateTime.now(ZoneId.of(timezone)),
-                state.getRound(),
-                toolDesc,
-                renderExecutedTaskHistory(state),
-                converter.getFormat()
-        );
+        LocalDateTime now = LocalDateTime.now(ZoneId.of(timezone));
+        String executedHistory = renderExecutedTaskHistory(state);
+        String outputFormat = converter.getFormat();
+        String planPrompt = promptProvider != null
+                ? promptProvider.buildPlanPrompt(now, state.getRound(), fullContext, executedHistory, outputFormat)
+                : PlanExecutePrompts.formatPlanPrompt(now, state.getRound(), fullContext, executedHistory, outputFormat);
 
         Prompt prompt = new Prompt(List.of(
                 new SystemMessage(planPrompt),
                 new UserMessage(PlanExecutePrompts.buildConversationHistoryUserPrompt(renderMessages(state.getMessages())))
         ));
 
-        String json = chatModel.call(prompt).getResult().getOutput().getText();
+        String json = bareChatClient.prompt(prompt).call().chatResponse().getResult().getOutput().getText();
         if (StringUtils.isBlank(json)) {
             log.warn("执行计划生成结果为空，降级为空计划。conversationId={}, round={}",
                     state.getConversationId(),
@@ -954,9 +856,12 @@ public class PlanExecuteAgent extends BaseAgent {
     /**
      * 将当前可用的 skill 上下文注入工具描述，让 LLM 生成计划时直接引用正确的 skillName 和 scriptPath。
      */
-    private String enrichToolDescriptionsWithSkillContexts(String toolDesc, List<SkillRuntimeContext> skillContexts) {
-        StringBuilder sb = new StringBuilder(toolDesc.trim());
-        sb.append("\n\n【当前可用的 Skill 上下文 —— 调用 execute_skill_script 时必须严格按此填写 skillName 和 scriptPath】\n");
+    private String buildSkillContextText(List<SkillRuntimeContext> skillContexts) {
+        if (skillContexts == null || skillContexts.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("【当前可用的 Skill 上下文 —— 调用 execute_skill_script 时必须严格按此填写 skillName 和 scriptPath】\n");
         for (SkillRuntimeContext ctx : skillContexts) {
             sb.append("- skillName: \"").append(ctx.getSkillName()).append("\"");
             if (ctx.getSingleScriptPath() != null) {
@@ -1596,13 +1501,7 @@ public class PlanExecuteAgent extends BaseAgent {
         streamSummary(sink, state, finalAnswerBuffer, hasSentFinalResult);
     }
 
-    /**
-     * 处理 `exclude Current Task` 对应逻辑。
-     *
-     * @param plan plan 参数。
-     * @param currentTask currentTask 参数。
-     * @return 返回处理结果。
-     */
+    /** 清洗计划后移除当前被中断的任务，返回剩余可执行任务。 */
     private List<PlanTask> excludeCurrentTask(List<PlanTask> plan, PlanTask currentTask) {
         List<PlanTask> sanitizedPlan = sanitizePlan(plan, null);
         if (currentTask == null || sanitizedPlan.isEmpty()) {
@@ -1613,13 +1512,6 @@ public class PlanExecuteAgent extends BaseAgent {
                 .toList();
     }
 
-    /**
-     * 判断 `is Same Task` 条件是否成立。
-     *
-     * @param left left 参数。
-     * @param right right 参数。
-     * @return 返回处理结果。
-     */
     private boolean isSameTask(PlanTask left, PlanTask right) {
         if (left == null || right == null) {
             return false;
@@ -1627,13 +1519,7 @@ public class PlanExecuteAgent extends BaseAgent {
         return StringUtils.isNotBlank(left.id()) && StringUtils.equals(left.id(), right.id());
     }
 
-    /**
-     * 执行 `execute Structured Tool Task` 对应逻辑。
-     *
-     * @param task task 参数。
-     * @param state state 参数。
-     * @return 返回处理结果。
-     */
+    /** 校验参数、命中 HITL 时创建 checkpoint 中断，否则调用工具并返回结果。 */
     private TaskResult executeStructuredToolTask(PlanTask task, OverallState state) {
         if (task == null || StringUtils.isBlank(task.toolName())) {
             return new TaskResult(task == null ? null : task.id(), false, false, null, "结构化任务缺少 toolName", null);
@@ -1686,13 +1572,7 @@ public class PlanExecuteAgent extends BaseAgent {
         }
     }
 
-    /**
-     * 处理 `repair Structured Tool Task` 对应逻辑。
-     *
-     * @param task task 参数。
-     * @param state state 参数。
-     * @return 返回处理结果。
-     */
+    /** 将 skill 模板默认值与 LLM 输出合并，修复缺失或类型错误的结构化参数。 */
     private PlanTask repairStructuredToolTask(PlanTask task, OverallState state) {
         if (task == null || StringUtils.isBlank(task.toolName())) {
             return task;
@@ -1793,15 +1673,7 @@ public class PlanExecuteAgent extends BaseAgent {
         return text.isEmpty() ? null : text;
     }
 
-    /**
-     * 创建 `create Direct Tool Checkpoint` 对应内容。
-     *
-     * @param state state 参数。
-     * @param toolName toolName 参数。
-     * @param argumentsJson argumentsJson 参数。
-     * @param description description 参数。
-     * @return 返回处理结果。
-     */
+    /** 将单次工具调用包装为 HITL checkpoint，等待用户确认后才能执行。 */
     private HitlCheckpointVO createDirectToolCheckpoint(OverallState state,
                                                         String toolName,
                                                         String argumentsJson,
@@ -1837,13 +1709,7 @@ public class PlanExecuteAgent extends BaseAgent {
         );
     }
 
-    /**
-     * 处理 `enrich Hitl Arguments Json` 对应逻辑。
-     *
-     * @param toolName toolName 参数。
-     * @param argumentsJson argumentsJson 参数。
-     * @return 返回处理结果。
-     */
+    /** 为 execute_skill_script 工具补充 argumentSpecs 字段，供 HITL 前端渲染参数编辑表单。 */
     private String enrichHitlArgumentsJson(String toolName, String argumentsJson) {
         if (!JsonArgumentUtils.EXECUTE_SKILL_SCRIPT_TOOL.equals(toolName) || StringUtils.isBlank(argumentsJson) || skillService == null) {
             return argumentsJson;
@@ -1891,13 +1757,6 @@ public class PlanExecuteAgent extends BaseAgent {
         state.setInterruptedCheckpoint(updatedCheckpoint);
     }
 
-    /**
-     * 查找 `find Interrupted Task` 对应结果。
-     *
-     * @param plan plan 参数。
-     * @param results results 参数。
-     * @return 返回处理结果。
-     */
     private PlanTask findInterruptedTask(List<PlanTask> plan, Map<String, TaskResult> results) {
         if (plan == null || plan.isEmpty() || results == null || results.isEmpty()) {
             return null;
@@ -1914,13 +1773,7 @@ public class PlanExecuteAgent extends BaseAgent {
                 .orElse(null);
     }
 
-    /**
-     * 处理 `append Task Result Message` 对应逻辑。
-     *
-     * @param state state 参数。
-     * @param task task 参数。
-     * @param result result 参数。
-     */
+    /** 将任务执行结果格式化为 AssistantMessage 追加到会话上下文，供后续轮次的 LLM 参考。 */
     private void appendTaskResultMessage(OverallState state, PlanTask task, TaskResult result) {
         if (state == null || task == null || result == null) {
             return;
@@ -1948,13 +1801,6 @@ public class PlanExecuteAgent extends BaseAgent {
         )));
     }
 
-    /**
-     * 构建 `build Hitl Interrupt Event` 对应结果。
-     *
-     * @param conversationId conversationId 参数。
-     * @param checkpoint checkpoint 参数。
-     * @return 返回处理结果。
-     */
     private AgentStreamEvent buildHitlInterruptEvent(String conversationId, HitlCheckpointVO checkpoint) {
         if (checkpoint == null) {
             return AgentStreamEventFactory.emptyHitlInterrupt(conversationId);
@@ -1968,12 +1814,6 @@ public class PlanExecuteAgent extends BaseAgent {
         );
     }
 
-    /**
-     * 处理 `render Dependency Snapshot` 对应逻辑。
-     *
-     * @param results results 参数。
-     * @return 返回处理结果。
-     */
     private String renderDependencySnapshot(Map<String, String> results) {
 
         if (results.isEmpty()) {
@@ -1994,12 +1834,6 @@ public class PlanExecuteAgent extends BaseAgent {
         return sb.toString();
     }
 
-    /**
-     * 处理 `render Executed Task History` 对应逻辑。
-     *
-     * @param state state 参数。
-     * @return 返回处理结果。
-     */
     private String renderExecutedTaskHistory(OverallState state) {
         if (state == null || state.getExecutedTasks().isEmpty()) {
             return "暂无已执行任务。";
@@ -2020,11 +1854,14 @@ public class PlanExecuteAgent extends BaseAgent {
         BeanOutputConverter<CritiqueResult> converter = new BeanOutputConverter<>(new ParameterizedTypeReference<>() {
         });
 
+        String critiquePrompt = promptProvider != null
+                ? promptProvider.buildCritiquePrompt()
+                : PlanExecutePrompts.getCritiquePrompt();
         Prompt prompt = new Prompt(List.of(
-                new SystemMessage(PlanExecutePrompts.getCritiquePrompt()),
+                new SystemMessage(critiquePrompt),
                 new UserMessage(renderMessages(state.getMessages()))
         ));
-        String raw = chatModel.call(prompt).getResult().getOutput().getText();
+        String raw = bareChatClient.prompt(prompt).call().chatResponse().getResult().getOutput().getText();
 
         try {
             return converter.convert(raw);
@@ -2042,11 +1879,7 @@ public class PlanExecuteAgent extends BaseAgent {
         }
     }
 
-    /**
-     * 处理 `compress If Needed` 对应逻辑。
-     *
-     * @param state state 参数。
-     */
+    /** 当会话上下文字符数超过 contextCharLimit 时，调用 LLM 压缩历史消息并替换。 */
     private void compressIfNeeded(OverallState state) {
 
         if (state.currentChars() < contextCharLimit) {
@@ -2058,7 +1891,9 @@ public class PlanExecuteAgent extends BaseAgent {
                 state.getRound(),
                 state.currentChars());
 
-        String compressLimitPrompt = PlanExecutePrompts.formatCompressPrompt(contextCharLimit);
+        String compressLimitPrompt = promptProvider != null
+                ? promptProvider.buildCompressPrompt(contextCharLimit)
+                : PlanExecutePrompts.formatCompressPrompt(contextCharLimit);
 
         Prompt prompt = new Prompt(List.of(
                 new SystemMessage(compressLimitPrompt),
@@ -2066,7 +1901,7 @@ public class PlanExecuteAgent extends BaseAgent {
                 new UserMessage(renderMessages(state.getMessages()))
         ));
 
-        String snapshot = chatModel.call(prompt)
+        String snapshot = bareChatClient.prompt(prompt).call().chatResponse()
                 .getResult()
                 .getOutput()
                 .getText();
@@ -2110,12 +1945,6 @@ public class PlanExecuteAgent extends BaseAgent {
                 .subscribe();
     }
 
-    /**
-     * 处理 `summarize` 对应逻辑。
-     *
-     * @param state state 参数。
-     * @return 返回处理结果。
-     */
     private String summarize(OverallState state) {
         Prompt prompt = buildSummarizePrompt(state);
         String answer = chatModel.call(prompt).getResult().getOutput().getText();
@@ -2123,15 +1952,7 @@ public class PlanExecuteAgent extends BaseAgent {
         return answer;
     }
 
-    /**
-     * 处理 `process Summary Chunk` 对应逻辑。
-     *
-     * @param chunk chunk 参数。
-     * @param sink sink 参数。
-     * @param finalAnswerBuffer finalAnswerBuffer 参数。
-     * @param conversationId conversationId 参数。
-     * @param hasSentFinalResult hasSentFinalResult 参数。
-     */
+    /** 处理流式总结的单个 chunk：追加到缓冲区并向前端推送 assistantDelta 事件。 */
     private void processSummaryChunk(ChatResponse chunk,
                                      Sinks.Many<AgentStreamEvent> sink,
                                      StringBuilder finalAnswerBuffer,
@@ -2149,14 +1970,7 @@ public class PlanExecuteAgent extends BaseAgent {
         sink.tryEmitNext(AgentStreamEventFactory.assistantDelta(conversationId, text));
     }
 
-    /**
-     * 处理 `complete Summary Stream` 对应逻辑。
-     *
-     * @param sink sink 参数。
-     * @param state state 参数。
-     * @param finalAnswerBuffer finalAnswerBuffer 参数。
-     * @param hasSentFinalResult hasSentFinalResult 参数。
-     */
+    /** 流式总结完成时发出 finalAnswer 事件，关闭流，并异步写入会话记忆。 */
     private void completeSummaryStream(Sinks.Many<AgentStreamEvent> sink,
                                        OverallState state,
                                        StringBuilder finalAnswerBuffer,
@@ -2171,14 +1985,6 @@ public class PlanExecuteAgent extends BaseAgent {
         virtualThreadExecutor.execute(() -> addAssistantMemory(state.conversationId, answer));
     }
 
-    /**
-     * 处理 `emit Final Answer` 对应逻辑。
-     *
-     * @param sink sink 参数。
-     * @param conversationId conversationId 参数。
-     * @param content content 参数。
-     * @param hasSentFinalResult hasSentFinalResult 参数。
-     */
     private void emitFinalAnswer(Sinks.Many<AgentStreamEvent> sink,
                                  String conversationId,
                                  String content,
@@ -2191,13 +1997,6 @@ public class PlanExecuteAgent extends BaseAgent {
         sink.tryEmitComplete();
     }
 
-    /**
-     * 处理 `log Task Result` 对应逻辑。
-     *
-     * @param state state 参数。
-     * @param task task 参数。
-     * @param result result 参数。
-     */
     private void logTaskResult(OverallState state, PlanTask task, TaskResult result) {
         if (task == null || result == null) {
             return;
@@ -2213,12 +2012,6 @@ public class PlanExecuteAgent extends BaseAgent {
                 abbreviate(result.error(), 200));
     }
 
-    /**
-     * 处理 `summarize Plan` 对应逻辑。
-     *
-     * @param plan plan 参数。
-     * @return 返回处理结果。
-     */
     private String summarizePlan(List<PlanTask> plan) {
         if (plan == null || plan.isEmpty()) {
             return "[]";
@@ -2232,13 +2025,6 @@ public class PlanExecuteAgent extends BaseAgent {
                 .collect(Collectors.joining(", ", "[", "]"));
     }
 
-    /**
-     * 处理 `abbreviate` 对应逻辑。
-     *
-     * @param text text 参数。
-     * @param maxLength maxLength 参数。
-     * @return 返回处理结果。
-     */
     private String abbreviate(String text, int maxLength) {
         if (text == null || maxLength <= 0 || text.length() <= maxLength) {
             return text;
@@ -2246,20 +2032,16 @@ public class PlanExecuteAgent extends BaseAgent {
         return text.substring(0, maxLength) + "...";
     }
 
-    /**
-     * 构建 `build Summarize Prompt` 对应结果。
-     *
-     * @param state state 参数。
-     * @return 返回处理结果。
-     */
     private Prompt buildSummarizePrompt(OverallState state) {
-        String systemMessageContent = PlanExecutePrompts.buildSummarySystemPrompt();
+        String systemMessageContent = promptProvider != null
+                ? promptProvider.buildSummarySystemPrompt()
+                : PlanExecutePrompts.buildSummarySystemPrompt();
 
-        String userMessageContent = PlanExecutePrompts.buildSummaryUserPrompt(
-                state.getQuestion(),
-                renderLatestConfirmedArguments(state),
-                renderMessages(state.getMessages())
-        );
+        String confirmedArgs = renderLatestConfirmedArguments(state);
+        String renderedMsgs = renderMessages(state.getMessages());
+        String userMessageContent = promptProvider != null
+                ? promptProvider.buildSummaryUserPrompt(state.getQuestion(), confirmedArgs, renderedMsgs)
+                : PlanExecutePrompts.buildSummaryUserPrompt(state.getQuestion(), confirmedArgs, renderedMsgs);
 
         Prompt prompt = new Prompt(List.of(
                 new SystemMessage(systemMessageContent),
@@ -2268,12 +2050,6 @@ public class PlanExecuteAgent extends BaseAgent {
         return prompt;
     }
 
-    /**
-     * 处理 `render Messages` 对应逻辑。
-     *
-     * @param messages messages 参数。
-     * @return 返回处理结果。
-     */
     private String renderMessages(List<Message> messages) {
         StringBuilder sb = new StringBuilder();
         for (Message m : messages) {
@@ -2283,22 +2059,10 @@ public class PlanExecuteAgent extends BaseAgent {
         return sb.toString();
     }
 
-    /**
-     * 处理 `default Task Value` 对应逻辑。
-     *
-     * @param value value 参数。
-     * @return 返回处理结果。
-     */
     private String defaultTaskValue(String value) {
         return StringUtils.defaultIfBlank(value, "-");
     }
 
-    /**
-     * 处理 `render Latest Confirmed Arguments` 对应逻辑。
-     *
-     * @param state state 参数。
-     * @return 返回处理结果。
-     */
     private String renderLatestConfirmedArguments(OverallState state) {
         if (state == null || state.getExecutedTasks().isEmpty()) {
             return "无";
@@ -2313,15 +2077,6 @@ public class PlanExecuteAgent extends BaseAgent {
                 .orElse("无");
     }
 
-    /**
-     * 创建 `ExecutedTaskMergeResult` 实例。
-     *
-     * @param task task 参数。
-     * @param result result 参数。
-     */
-    /**
-     * `ExecutedTaskMergeResult` 记录对象。
-     */
     private record ExecutedTaskMergeResult(PlanTask task, TaskResult result) {
     }
 
@@ -2342,13 +2097,6 @@ public class PlanExecuteAgent extends BaseAgent {
         private volatile CritiqueResult lastCritique;
         private final AtomicInteger round = new AtomicInteger(0);
 
-        /**
-         * 创建 `OverallState` 实例。
-         *
-         * @param userId userId 参数。
-         * @param conversationId conversationId 参数。
-         * @param question question 参数。
-         */
         public OverallState(Long userId, String conversationId, String question) {
             this.userId = userId;
             this.question = question;

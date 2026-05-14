@@ -16,18 +16,9 @@ public final class JsonArgumentUtils {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     public static final String EXECUTE_SKILL_SCRIPT_TOOL = "execute_skill_script";
 
-    /**
-     * 创建 `JsonArgumentUtils` 实例。
-     */
     private JsonArgumentUtils() {
     }
 
-    /**
-     * 处理 `normalize Json Arguments` 对应逻辑。
-     *
-     * @param rawArguments rawArguments 参数。
-     * @return 返回处理结果。
-     */
     public static NormalizationResult normalizeJsonArguments(String rawArguments) {
         if (rawArguments == null || rawArguments.isBlank()) {
             return new NormalizationResult("{}", true, null);
@@ -48,12 +39,6 @@ public final class JsonArgumentUtils {
         }
     }
 
-    /**
-     * 处理 `read Object Map` 对应逻辑。
-     *
-     * @param rawArguments rawArguments 参数。
-     * @return 返回处理结果。
-     */
     public static Map<String, Object> readObjectMap(String rawArguments) {
         if (rawArguments == null || rawArguments.isBlank()) {
             return new LinkedHashMap<>();
@@ -69,14 +54,6 @@ public final class JsonArgumentUtils {
         }
     }
 
-    /**
-     * 处理 `repair Structured Tool Arguments` 对应逻辑。
-     *
-     * @param toolName toolName 参数。
-     * @param rawArguments rawArguments 参数。
-     * @param templateArguments templateArguments 参数。
-     * @return 返回处理结果。
-     */
     public static Map<String, Object> repairStructuredToolArguments(String toolName,
                                                                     Map<String, Object> rawArguments,
                                                                     Map<String, Object> templateArguments) {
@@ -161,13 +138,6 @@ public final class JsonArgumentUtils {
         });
     }
 
-    /**
-     * 校验 `validate Structured Tool Arguments` 对应内容。
-     *
-     * @param toolName toolName 参数。
-     * @param arguments arguments 参数。
-     * @return 返回处理结果。
-     */
     public static String validateStructuredToolArguments(String toolName, Map<String, Object> arguments) {
         if (!EXECUTE_SKILL_SCRIPT_TOOL.equals(toolName)) {
             return null;
@@ -194,13 +164,6 @@ public final class JsonArgumentUtils {
         return null;
     }
 
-    /**
-     * 处理 `copy If Present` 对应逻辑。
-     *
-     * @param source source 参数。
-     * @param target target 参数。
-     * @param key key 参数。
-     */
     private static void copyIfPresent(Map<String, Object> source, Map<String, Object> target, String key) {
         if (target.containsKey(key)) {
             Object value = target.get(key);

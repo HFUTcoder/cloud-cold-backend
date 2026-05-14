@@ -27,17 +27,9 @@ public final class ReactAgentPrompts {
             如果信息不完整，请合理总结和说明。
             """;
 
-    /**
-     * 创建 `ReactAgentPrompts` 实例。
-     */
     private ReactAgentPrompts() {
     }
 
-    /**
-     * 获取 `get Web Search Prompt` 对应结果。
-     *
-     * @return 返回处理结果。
-     */
     public static String getWebSearchPrompt() {
         return BaseAgentPrompts.getBasePromptWithPrefix("""
                 ## 角色补充
@@ -50,11 +42,6 @@ public final class ReactAgentPrompts {
                 """);
     }
 
-    /**
-     * 获取 `get File Prompt` 对应结果。
-     *
-     * @return 返回处理结果。
-     */
     public static String getFilePrompt() {
         return BaseAgentPrompts.getBasePromptWithPrefix("""
                 ## 角色补充
@@ -69,29 +56,14 @@ public final class ReactAgentPrompts {
                 """);
     }
 
-    /**
-     * 获取 `get Web Search Base Prompt` 对应结果。
-     *
-     * @return 返回处理结果。
-     */
     public static String getWebSearchBasePrompt() {
         return getWebSearchPrompt();
     }
 
-    /**
-     * 获取 `get File Base Prompt` 对应结果。
-     *
-     * @return 返回处理结果。
-     */
     public static String getFileBasePrompt() {
         return getFilePrompt();
     }
 
-    /**
-     * 获取 `get Recommend Prompt` 对应结果。
-     *
-     * @return 返回处理结果。
-     */
     public static String getRecommendPrompt() {
         return """
                 ## 任务

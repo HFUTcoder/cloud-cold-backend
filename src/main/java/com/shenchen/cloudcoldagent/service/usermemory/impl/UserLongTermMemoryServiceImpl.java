@@ -11,7 +11,7 @@ import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.limiter.RateLimiter;
 import com.shenchen.cloudcoldagent.annotation.DistributeLock;
 import com.shenchen.cloudcoldagent.mapper.chat.ChatMemoryHistoryMapper;
-import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistory;
+import com.shenchen.cloudcoldagent.model.entity.agent.ChatMemoryHistory;
 import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemory;
 import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemoryConversationState;
 import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemoryDoc;
@@ -716,11 +716,6 @@ public class UserLongTermMemoryServiceImpl implements UserLongTermMemoryService 
         return "idle";
     }
 
-    /**
-     * 校验 `validate User Id` 对应内容。
-     *
-     * @param userId userId 参数。
-     */
     private void validateUserId(Long userId) {
         if (userId == null || userId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "userId 不合法");

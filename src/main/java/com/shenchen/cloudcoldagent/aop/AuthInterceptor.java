@@ -3,7 +3,7 @@ package com.shenchen.cloudcoldagent.aop;
 import com.shenchen.cloudcoldagent.annotation.AuthCheck;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
-import com.shenchen.cloudcoldagent.model.entity.User;
+import com.shenchen.cloudcoldagent.model.entity.user.User;
 import com.shenchen.cloudcoldagent.enums.UserRoleEnum;
 import com.shenchen.cloudcoldagent.service.user.UserService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -25,23 +25,10 @@ public class AuthInterceptor {
 
     private final UserService userService;
 
-    /**
-     * 创建 `AuthInterceptor` 实例。
-     *
-     * @param userService userService 参数。
-     */
     public AuthInterceptor(UserService userService) {
         this.userService = userService;
     }
 
-    /**
-     * 处理 `do Interceptor` 对应逻辑。
-     *
-     * @param joinPoint joinPoint 参数。
-     * @param authCheck authCheck 参数。
-     * @return 返回处理结果。
-     * @throws Throwable 异常信息。
-     */
     @Around("@annotation(authCheck)")
     public Object doInterceptor(ProceedingJoinPoint joinPoint, AuthCheck authCheck) throws Throwable {
         String mustRole = authCheck.mustRole();

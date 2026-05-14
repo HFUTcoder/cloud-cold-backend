@@ -17,23 +17,11 @@ public class SearchTool extends BaseTool {
 
     private final SearchService searchService;
 
-    /**
-     * 创建 `SearchTool` 实例。
-     *
-     * @param searchService searchService 参数。
-     * @param searchProperties searchProperties 参数。
-     */
     public SearchTool(SearchService searchService, SearchProperties searchProperties) {
         super(searchProperties.getMock().isEnabled());
         this.searchService = searchService;
     }
 
-    /**
-     * 处理 `search` 对应逻辑。
-     *
-     * @param query query 参数。
-     * @return 返回处理结果。
-     */
     @Tool(name = "search", description = "联网搜索工具，用于检索最新网页信息")
     public String search(@ToolParam(description = "查询语句") String query) {
         logToolStart(TOOL_NAME, "query", query);
@@ -57,13 +45,6 @@ public class SearchTool extends BaseTool {
         }
     }
 
-    /**
-     * 处理 `format Search Response` 对应逻辑。
-     *
-     * @param query query 参数。
-     * @param response response 参数。
-     * @return 返回处理结果。
-     */
     private String formatSearchResponse(String query, SearchService.Response response) {
         if (response == null || response.getSearchResult() == null) {
             return "未检索到搜索结果。";
@@ -93,12 +74,6 @@ public class SearchTool extends BaseTool {
         return sb.toString();
     }
 
-    /**
-     * 处理 `mock Search Result` 对应逻辑。
-     *
-     * @param query query 参数。
-     * @return 返回处理结果。
-     */
     private String mockSearchResult(String query) {
         StringBuilder sb = new StringBuilder();
         sb.append("【MOCK联网搜索结果】\n");

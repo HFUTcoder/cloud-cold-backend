@@ -1,7 +1,7 @@
 package com.shenchen.cloudcoldagent.service.agent;
 
 import com.shenchen.cloudcoldagent.model.dto.agent.AgentCallRequest;
-import com.shenchen.cloudcoldagent.model.vo.AgentStreamEvent;
+import com.shenchen.cloudcoldagent.model.vo.agent.AgentStreamEvent;
 import reactor.core.publisher.Flux;
 
 /**

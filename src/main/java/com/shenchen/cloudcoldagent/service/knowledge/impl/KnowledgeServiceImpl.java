@@ -18,14 +18,14 @@ import com.shenchen.cloudcoldagent.mapper.knowledge.KnowledgeMapper;
 import com.shenchen.cloudcoldagent.model.dto.knowledge.KnowledgeAddRequest;
 import com.shenchen.cloudcoldagent.model.dto.knowledge.KnowledgeQueryRequest;
 import com.shenchen.cloudcoldagent.model.dto.knowledge.KnowledgeUpdateRequest;
-import com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk;
-import com.shenchen.cloudcoldagent.model.entity.Knowledge;
-import com.shenchen.cloudcoldagent.model.entity.KnowledgeDocumentImage;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.EsDocumentChunk;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.Knowledge;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.KnowledgeDocumentImage;
 import com.shenchen.cloudcoldagent.model.entity.record.knowledge.DocumentReadResult;
 import com.shenchen.cloudcoldagent.model.entity.record.knowledge.DocumentIndexContext;
 import com.shenchen.cloudcoldagent.model.entity.record.knowledge.ExtractedDocumentImage;
 import com.shenchen.cloudcoldagent.model.entity.record.knowledge.PreparedDocumentIndexResult;
-import com.shenchen.cloudcoldagent.model.vo.KnowledgeVO;
+import com.shenchen.cloudcoldagent.model.vo.knowledge.KnowledgeVO;
 import com.shenchen.cloudcoldagent.service.knowledge.KnowledgeDocumentImageService;
 import com.shenchen.cloudcoldagent.service.storage.ElasticSearchService;
 import com.shenchen.cloudcoldagent.service.knowledge.KnowledgeService;
@@ -154,12 +154,12 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         ThrowUtils.throwIf(knowledgeId == null || knowledgeId <= 0, ErrorCode.PARAMS_ERROR);
 
         Knowledge knowledge = getKnowledgeById(userId, knowledgeId);
-        List<com.shenchen.cloudcoldagent.model.entity.Document> documents = documentMapper.selectListByQuery(
+        List<com.shenchen.cloudcoldagent.model.entity.knowledge.Document> documents = documentMapper.selectListByQuery(
                 QueryWrapper.create()
                         .eq("userId", userId)
                         .eq("knowledgeId", knowledgeId)
         );
-        for (com.shenchen.cloudcoldagent.model.entity.Document document : documents) {
+        for (com.shenchen.cloudcoldagent.model.entity.knowledge.Document document : documents) {
             try {
                 deleteDocumentIndex(document);
             } catch (Exception e) {
@@ -270,12 +270,12 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
     @Override
     public void refreshKnowledgeStats(Long userId, Long knowledgeId) {
         Knowledge knowledge = getKnowledgeById(userId, knowledgeId);
-        List<com.shenchen.cloudcoldagent.model.entity.Document> documents = documentMapper.selectListByQuery(
+        List<com.shenchen.cloudcoldagent.model.entity.knowledge.Document> documents = documentMapper.selectListByQuery(
                 QueryWrapper.create().eq("userId", userId).eq("knowledgeId", knowledgeId)
         );
         knowledge.setDocumentCount(documents.size());
         LocalDateTime lastUploadTime = documents.stream()
-                .map(com.shenchen.cloudcoldagent.model.entity.Document::getCreateTime)
+                .map(com.shenchen.cloudcoldagent.model.entity.knowledge.Document::getCreateTime)
                 .filter(Objects::nonNull)
                 .max(LocalDateTime::compareTo)
                 .orElse(null);
@@ -408,12 +408,6 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return add(normalizedSource, userId, knowledgeId);
     }
 
-    /**
-     * 删除 `delete By Ids` 对应内容。
-     *
-     * @param ids ids 参数。
-     * @throws Exception 异常信息。
-     */
     @Override
     public void deleteByIds(List<String> ids) throws Exception {
         elasticSearchService.deleteByIds(ids);
@@ -425,12 +419,6 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return elasticSearchService.mget(ids);
     }
 
-    /**
-     * 删除 `delete By Document Id` 对应内容。
-     *
-     * @param documentId documentId 参数。
-     * @throws Exception 异常信息。
-     */
     @Override
     public void deleteByDocumentId(Long documentId) throws Exception {
         if (documentId == null || documentId <= 0) {
@@ -445,12 +433,6 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         elasticSearchService.deleteByDocumentId(documentId);
     }
 
-    /**
-     * 删除 `delete By Source` 对应内容。
-     *
-     * @param source source 参数。
-     * @throws Exception 异常信息。
-     */
     @Override
     public void deleteBySource(String source) throws Exception {
         String normalizedSource = normalizeSource(source);
@@ -473,45 +455,16 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return scalarSearch(query, DEFAULT_SCALAR_TOP_K, false);
     }
 
-    /**
-     * 处理 `scalar Search` 对应逻辑。
-     *
-     * @param query query 参数。
-     * @param size size 参数。
-     * @param useSmartAnalyzer useSmartAnalyzer 参数。
-     * @return 返回处理结果。
-     * @throws Exception 异常信息。
-     */
     @Override
     public List<EsDocumentChunk> scalarSearch(String query, int size, boolean useSmartAnalyzer) throws Exception {
         return elasticSearchService.searchByKeyword(query, size, useSmartAnalyzer);
     }
 
-    /**
-     * 处理 `scalar Search` 对应逻辑。
-     *
-     * @param userId userId 参数。
-     * @param knowledgeId knowledgeId 参数。
-     * @param query query 参数。
-     * @return 返回处理结果。
-     * @throws Exception 异常信息。
-     */
     @Override
     public List<EsDocumentChunk> scalarSearch(Long userId, Long knowledgeId, String query) throws Exception {
         return scalarSearch(userId, knowledgeId, query, DEFAULT_SCALAR_TOP_K, false);
     }
 
-    /**
-     * 处理 `scalar Search` 对应逻辑。
-     *
-     * @param userId userId 参数。
-     * @param knowledgeId knowledgeId 参数。
-     * @param query query 参数。
-     * @param size size 参数。
-     * @param useSmartAnalyzer useSmartAnalyzer 参数。
-     * @return 返回处理结果。
-     * @throws Exception 异常信息。
-     */
     @Override
     public List<EsDocumentChunk> scalarSearch(Long userId, Long knowledgeId, String query, int size,
                                               boolean useSmartAnalyzer) throws Exception {
@@ -519,56 +472,22 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
                 buildKnowledgeScopeMetadata(userId, knowledgeId));
     }
 
-    /**
-     * 处理 `metadata Search` 对应逻辑。
-     *
-     * @param metadataFilters metadataFilters 参数。
-     * @return 返回处理结果。
-     * @throws Exception 异常信息。
-     */
     @Override
     public List<EsDocumentChunk> metadataSearch(Map<String, Object> metadataFilters) throws Exception {
         return metadataSearch(metadataFilters, DEFAULT_SCALAR_TOP_K);
     }
 
-    /**
-     * 处理 `metadata Search` 对应逻辑。
-     *
-     * @param metadataFilters metadataFilters 参数。
-     * @param size size 参数。
-     * @return 返回处理结果。
-     * @throws Exception 异常信息。
-     */
     @Override
     public List<EsDocumentChunk> metadataSearch(Map<String, Object> metadataFilters, int size) throws Exception {
         return elasticSearchService.searchByMetadata(metadataFilters, size);
     }
 
-    /**
-     * 处理 `metadata Search` 对应逻辑。
-     *
-     * @param userId userId 参数。
-     * @param knowledgeId knowledgeId 参数。
-     * @param metadataFilters metadataFilters 参数。
-     * @return 返回处理结果。
-     * @throws Exception 异常信息。
-     */
     @Override
     public List<EsDocumentChunk> metadataSearch(Long userId, Long knowledgeId, Map<String, Object> metadataFilters)
             throws Exception {
         return metadataSearch(userId, knowledgeId, metadataFilters, DEFAULT_SCALAR_TOP_K);
     }
 
-    /**
-     * 处理 `metadata Search` 对应逻辑。
-     *
-     * @param userId userId 参数。
-     * @param knowledgeId knowledgeId 参数。
-     * @param metadataFilters metadataFilters 参数。
-     * @param size size 参数。
-     * @return 返回处理结果。
-     * @throws Exception 异常信息。
-     */
     @Override
     public List<EsDocumentChunk> metadataSearch(Long userId, Long knowledgeId, Map<String, Object> metadataFilters,
                                                 int size) throws Exception {
@@ -588,16 +507,6 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return vectorSearch(query, DEFAULT_VECTOR_TOP_K, DEFAULT_ACCEPT_ALL_THRESHOLD, null);
     }
 
-    /**
-     * 处理 `vector Search` 对应逻辑。
-     *
-     * @param query query 参数。
-     * @param topK topK 参数。
-     * @param similarityThreshold similarityThreshold 参数。
-     * @param filterExpression filterExpression 参数。
-     * @return 返回处理结果。
-     * @throws Exception 异常信息。
-     */
     @Override
     public List<EsDocumentChunk> vectorSearch(String query, int topK, double similarityThreshold, String filterExpression)
             throws Exception {
@@ -606,15 +515,6 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
                 .toList();
     }
 
-    /**
-     * 处理 `vector Search` 对应逻辑。
-     *
-     * @param userId userId 参数。
-     * @param knowledgeId knowledgeId 参数。
-     * @param query query 参数。
-     * @return 返回处理结果。
-     * @throws Exception 异常信息。
-     */
     @Override
     public List<EsDocumentChunk> vectorSearch(Long userId, Long knowledgeId, String query) throws Exception {
         return vectorSearch(userId, knowledgeId, query, DEFAULT_VECTOR_TOP_K, DEFAULT_ACCEPT_ALL_THRESHOLD);
@@ -1196,13 +1096,7 @@ public class KnowledgeServiceImpl extends ServiceImpl<KnowledgeMapper, Knowledge
         return result;
     }
 
-    /**
-     * 删除 `delete Document Index` 对应内容。
-     *
-     * @param document document 参数。
-     * @throws Exception 异常信息。
-     */
-    private void deleteDocumentIndex(com.shenchen.cloudcoldagent.model.entity.Document document) throws Exception {
+    private void deleteDocumentIndex(com.shenchen.cloudcoldagent.model.entity.knowledge.Document document) throws Exception {
         if (document == null) {
             return;
         }

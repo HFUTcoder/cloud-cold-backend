@@ -1,6 +1,6 @@
 package com.shenchen.cloudcoldagent.service.chat;
 
-import com.shenchen.cloudcoldagent.model.vo.RetrievedKnowledgeImage;
+import com.shenchen.cloudcoldagent.model.vo.agent.RetrievedKnowledgeImage;
 
 import java.util.List;
 
@@ -9,26 +9,12 @@ import java.util.List;
  */
 public interface ChatMemoryPendingImageBindingService {
 
-    /**
-     * 注册 `register Pending Images` 对应内容。
-     *
-     * @param conversationId conversationId 参数。
-     * @param images images 参数。
-     */
     void registerPendingImages(String conversationId, List<RetrievedKnowledgeImage> images);
 
     /**
-     * 处理 `consume Pending Images` 对应逻辑。
-     *
-     * @param conversationId conversationId 参数。
-     * @return 返回处理结果。
+     * 读取并消费当前会话暂存的待绑定图片列表（读后即清）。
      */
     List<RetrievedKnowledgeImage> consumePendingImages(String conversationId);
 
-    /**
-     * 处理 `clear Pending Images` 对应逻辑。
-     *
-     * @param conversationId conversationId 参数。
-     */
     void clearPendingImages(String conversationId);
 }

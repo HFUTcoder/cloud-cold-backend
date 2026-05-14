@@ -26,21 +26,9 @@ public final class PlanExecuteResumeUtils {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-    /**
-     * 创建 `PlanExecuteResumeUtils` 实例。
-     */
     private PlanExecuteResumeUtils() {
     }
 
-    /**
-     * 构建 `build Context` 对应结果。
-     *
-     * @param state state 参数。
-     * @param currentPlan currentPlan 参数。
-     * @param currentTask currentTask 参数。
-     * @param runtimeSystemPrompt runtimeSystemPrompt 参数。
-     * @return 返回处理结果。
-     */
     public static Map<String, Object> buildContext(PlanExecuteAgent.OverallState state,
                                                    List<PlanTask> currentPlan,
                                                    PlanTask currentTask,
@@ -169,12 +157,6 @@ public final class PlanExecuteResumeUtils {
         return String.valueOf(value);
     }
 
-    /**
-     * 处理 `read Context` 对应逻辑。
-     *
-     * @param context context 参数。
-     * @return 返回处理结果。
-     */
     public static ResumeContext readContext(Map<String, Object> context) {
         if (context == null || !(context.get(CONTEXT_KEY) instanceof Map<?, ?> payload)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前 checkpoint 不包含 PlanExecute resume 上下文");
@@ -234,22 +216,10 @@ public final class PlanExecuteResumeUtils {
         }
     }
 
-    /**
-     * 处理 `string Value` 对应逻辑。
-     *
-     * @param value value 参数。
-     * @return 返回处理结果。
-     */
     private static String stringValue(Object value) {
         return value == null ? null : String.valueOf(value);
     }
 
-    /**
-     * 处理 `int Value` 对应逻辑。
-     *
-     * @param value value 参数。
-     * @return 返回处理结果。
-     */
     private static int intValue(Object value) {
         if (value instanceof Number number) {
             return number.intValue();

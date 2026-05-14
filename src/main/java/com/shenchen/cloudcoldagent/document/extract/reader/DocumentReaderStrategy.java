@@ -22,13 +22,6 @@ public interface DocumentReaderStrategy {
      */
     DocumentReadResult read(File file) throws IOException;
 
-    /**
-     * 处理 `read Documents` 对应逻辑。
-     *
-     * @param file file 参数。
-     * @return 返回处理结果。
-     * @throws IOException 异常信息。
-     */
     default List<Document> readDocuments(File file) throws IOException {
         return read(file).documents();
     }

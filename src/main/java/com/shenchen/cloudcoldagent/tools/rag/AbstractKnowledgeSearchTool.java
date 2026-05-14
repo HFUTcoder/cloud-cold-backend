@@ -1,10 +1,10 @@
 package com.shenchen.cloudcoldagent.tools.rag;
 
 import com.shenchen.cloudcoldagent.context.AgentRuntimeContext;
-import com.shenchen.cloudcoldagent.model.entity.ChatConversation;
+import com.shenchen.cloudcoldagent.model.entity.agent.ChatConversation;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.utils.ThrowUtils;
-import com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.EsDocumentChunk;
 import com.shenchen.cloudcoldagent.service.chat.ChatConversationService;
 import com.shenchen.cloudcoldagent.service.knowledge.KnowledgeService;
 import com.shenchen.cloudcoldagent.tools.BaseTool;
@@ -23,12 +23,6 @@ public abstract class AbstractKnowledgeSearchTool extends BaseTool {
 
     protected final ChatConversationService chatConversationService;
 
-    /**
-     * 创建 `AbstractKnowledgeSearchTool` 实例。
-     *
-     * @param knowledgeService knowledgeService 参数。
-     * @param chatConversationService chatConversationService 参数。
-     */
     protected AbstractKnowledgeSearchTool(KnowledgeService knowledgeService,
                                           ChatConversationService chatConversationService) {
         super(false);
@@ -36,31 +30,18 @@ public abstract class AbstractKnowledgeSearchTool extends BaseTool {
         this.chatConversationService = chatConversationService;
     }
 
-    /**
-     * 处理 `require Current User Id` 对应逻辑。
-     *
-     * @return 返回处理结果。
-     */
     protected Long requireCurrentUserId() {
         Long userId = AgentRuntimeContext.getCurrentUserId();
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.NOT_LOGIN_ERROR, "当前工具缺少用户上下文");
         return userId;
     }
 
-    /**
-     * 校验 `validate Query` 对应内容。
-     *
-     * @param query query 参数。
-     */
     protected void validateQuery(String query) {
         ThrowUtils.throwIf(query == null || query.isBlank(), ErrorCode.PARAMS_ERROR, "查询语句不能为空");
     }
 
     /**
-     * 解析 `resolve Knowledge Id` 对应结果。
-     *
-     * @param requestedKnowledgeId requestedKnowledgeId 参数。
-     * @return 返回处理结果。
+     * 解析知识库 ID：优先使用显式传入值，否则从当前会话绑定中获取。
      */
     protected Long resolveKnowledgeId(Long requestedKnowledgeId) {
         if (requestedKnowledgeId != null && requestedKnowledgeId > 0) {
@@ -77,15 +58,6 @@ public abstract class AbstractKnowledgeSearchTool extends BaseTool {
         return boundKnowledgeId;
     }
 
-    /**
-     * 处理 `format Search Results` 对应逻辑。
-     *
-     * @param retrievalMode retrievalMode 参数。
-     * @param knowledgeId knowledgeId 参数。
-     * @param query query 参数。
-     * @param chunks chunks 参数。
-     * @return 返回处理结果。
-     */
     protected String formatSearchResults(String retrievalMode, Long knowledgeId, String query, List<EsDocumentChunk> chunks) {
         if (chunks == null || chunks.isEmpty()) {
             return """
@@ -132,13 +104,6 @@ public abstract class AbstractKnowledgeSearchTool extends BaseTool {
         return sb.toString();
     }
 
-    /**
-     * 处理 `append Metadata Value` 对应逻辑。
-     *
-     * @param sb sb 参数。
-     * @param label label 参数。
-     * @param value value 参数。
-     */
     private void appendMetadataValue(StringBuilder sb, String label, Object value) {
         if (value == null) {
             return;
@@ -146,12 +111,6 @@ public abstract class AbstractKnowledgeSearchTool extends BaseTool {
         sb.append(label).append("：").append(value).append("\n");
     }
 
-    /**
-     * 处理 `preview Content` 对应逻辑。
-     *
-     * @param content content 参数。
-     * @return 返回处理结果。
-     */
     private String previewContent(String content) {
         if (content == null || content.isBlank()) {
             return "无";
@@ -160,23 +119,10 @@ public abstract class AbstractKnowledgeSearchTool extends BaseTool {
         return truncateText(normalized, DEFAULT_CONTENT_PREVIEW_LIMIT);
     }
 
-    /**
-     * 处理 `first Non Null` 对应逻辑。
-     *
-     * @param first first 参数。
-     * @param second second 参数。
-     * @return 返回处理结果。
-     */
     private Object firstNonNull(Object first, Object second) {
         return first == null ? second : first;
     }
 
-    /**
-     * 处理 `default Object Text` 对应逻辑。
-     *
-     * @param value value 参数。
-     * @return 返回处理结果。
-     */
     private String defaultObjectText(Object value) {
         return value == null ? "无" : defaultText(String.valueOf(value));
     }

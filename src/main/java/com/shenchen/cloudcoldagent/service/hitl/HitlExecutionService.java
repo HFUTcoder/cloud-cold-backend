@@ -7,12 +7,5 @@ import java.util.Set;
  */
 public interface HitlExecutionService {
 
-    /**
-     * 判断 `is Enabled` 条件是否成立。
-     *
-     * @param conversationId conversationId 参数。
-     * @param interceptToolNames interceptToolNames 参数。
-     * @return 返回处理结果。
-     */
     boolean isEnabled(String conversationId, Set<String> interceptToolNames);
 }

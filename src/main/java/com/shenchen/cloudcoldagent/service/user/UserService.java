@@ -3,9 +3,9 @@ package com.shenchen.cloudcoldagent.service.user;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.service.IService;
 import com.shenchen.cloudcoldagent.model.dto.user.UserQueryRequest;
-import com.shenchen.cloudcoldagent.model.entity.User;
-import com.shenchen.cloudcoldagent.model.vo.LoginUserVO;
-import com.shenchen.cloudcoldagent.model.vo.UserVO;
+import com.shenchen.cloudcoldagent.model.entity.user.User;
+import com.shenchen.cloudcoldagent.model.vo.user.LoginUserVO;
+import com.shenchen.cloudcoldagent.model.vo.user.UserVO;
 import jakarta.servlet.http.HttpServletRequest;
 
 import java.util.List;

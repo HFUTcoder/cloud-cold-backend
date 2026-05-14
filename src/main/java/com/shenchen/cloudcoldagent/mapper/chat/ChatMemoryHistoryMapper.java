@@ -1,7 +1,7 @@
 package com.shenchen.cloudcoldagent.mapper.chat;
 
 import com.mybatisflex.core.BaseMapper;
-import com.shenchen.cloudcoldagent.model.entity.ChatMemoryHistory;
+import com.shenchen.cloudcoldagent.model.entity.agent.ChatMemoryHistory;
 import org.apache.ibatis.annotations.Select;
 
 import java.util.List;

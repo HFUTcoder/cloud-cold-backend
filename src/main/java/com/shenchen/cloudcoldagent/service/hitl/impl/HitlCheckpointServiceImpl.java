@@ -9,9 +9,9 @@ import com.shenchen.cloudcoldagent.enums.HitlCheckpointStatusEnum;
 import com.shenchen.cloudcoldagent.model.entity.record.hitl.AgentInterrupted;
 import com.shenchen.cloudcoldagent.model.entity.record.hitl.PendingToolCall;
 import com.shenchen.cloudcoldagent.mapper.hitl.HitlCheckpointMapper;
-import com.shenchen.cloudcoldagent.model.entity.ChatConversation;
-import com.shenchen.cloudcoldagent.model.entity.HitlCheckpoint;
-import com.shenchen.cloudcoldagent.model.vo.HitlCheckpointVO;
+import com.shenchen.cloudcoldagent.model.entity.agent.ChatConversation;
+import com.shenchen.cloudcoldagent.model.entity.hitl.HitlCheckpoint;
+import com.shenchen.cloudcoldagent.model.vo.hitl.HitlCheckpointVO;
 import com.shenchen.cloudcoldagent.service.chat.ChatConversationService;
 import com.shenchen.cloudcoldagent.service.hitl.HitlCheckpointService;
 import com.shenchen.cloudcoldagent.utils.HitlSerializationUtils;
@@ -434,12 +434,6 @@ public class HitlCheckpointServiceImpl extends ServiceImpl<HitlCheckpointMapper,
         return toVO(checkpoint);
     }
 
-    /**
-     * 删除 `delete By Conversation Id` 对应内容。
-     *
-     * @param conversationId conversationId 参数。
-     * @return 返回处理结果。
-     */
     @Override
     public boolean deleteByConversationId(String conversationId) {
         String normalizedConversationId = validateConversation(conversationId);
@@ -473,10 +467,7 @@ public class HitlCheckpointServiceImpl extends ServiceImpl<HitlCheckpointMapper,
     }
 
     /**
-     * 校验 `validate Conversation` 对应内容。
-     *
-     * @param conversationId conversationId 参数。
-     * @return 返回处理结果。
+     * 校验会话存在性并返回规范化后的 conversationId。
      */
     private String validateConversation(String conversationId) {
         if (conversationId == null || conversationId.isBlank()) {
@@ -491,12 +482,6 @@ public class HitlCheckpointServiceImpl extends ServiceImpl<HitlCheckpointMapper,
         return conversation.getConversationId();
     }
 
-    /**
-     * 校验 `validate Checkpoint Owner` 对应内容。
-     *
-     * @param userId userId 参数。
-     * @param checkpoint checkpoint 参数。
-     */
     private void validateCheckpointOwner(Long userId, HitlCheckpoint checkpoint) {
         if (checkpoint == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "HITL checkpoint 不存在");
@@ -504,12 +489,6 @@ public class HitlCheckpointServiceImpl extends ServiceImpl<HitlCheckpointMapper,
         validateConversationOwner(userId, checkpoint.getConversationId());
     }
 
-    /**
-     * 校验 `validate Conversation Owner` 对应内容。
-     *
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     */
     private void validateConversationOwner(Long userId, String conversationId) {
         if (userId == null || userId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "userId 不合法");

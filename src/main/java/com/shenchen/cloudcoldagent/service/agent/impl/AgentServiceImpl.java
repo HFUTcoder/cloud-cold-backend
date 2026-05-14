@@ -2,6 +2,7 @@ package com.shenchen.cloudcoldagent.service.agent.impl;
 
 import com.shenchen.cloudcoldagent.agent.PlanExecuteAgent;
 import com.shenchen.cloudcoldagent.agent.SimpleReactAgent;
+import com.shenchen.cloudcoldagent.agent.multiagent.CoordinatorAgent;
 import com.shenchen.cloudcoldagent.common.AgentStreamEventFactory;
 import com.shenchen.cloudcoldagent.config.properties.AgentProperties;
 import com.shenchen.cloudcoldagent.config.properties.HitlProperties;
@@ -9,9 +10,10 @@ import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.model.dto.agent.AgentCallRequest;
 import com.shenchen.cloudcoldagent.enums.AgentModeEnum;
+import com.shenchen.cloudcoldagent.model.entity.agent.ChatConversation;
 import com.shenchen.cloudcoldagent.model.entity.record.agent.knowledge.KnowledgePreprocessResult;
-import com.shenchen.cloudcoldagent.model.vo.HitlCheckpointVO;
-import com.shenchen.cloudcoldagent.model.vo.AgentStreamEvent;
+import com.shenchen.cloudcoldagent.model.vo.hitl.HitlCheckpointVO;
+import com.shenchen.cloudcoldagent.model.vo.agent.AgentStreamEvent;
 import com.shenchen.cloudcoldagent.prompts.KnowledgePrompts;
 import com.shenchen.cloudcoldagent.prompts.SkillWorkflowPrompts;
 import com.shenchen.cloudcoldagent.service.agent.AgentService;
@@ -22,7 +24,6 @@ import com.shenchen.cloudcoldagent.service.hitl.HitlResumeService;
 import com.shenchen.cloudcoldagent.service.chat.ChatMemoryPendingImageBindingService;
 import com.shenchen.cloudcoldagent.service.knowledge.KnowledgePreprocessService;
 import com.shenchen.cloudcoldagent.service.skill.SkillService;
-import com.shenchen.cloudcoldagent.service.chat.UserConversationRelationService;
 import com.shenchen.cloudcoldagent.service.usermemory.UserLongTermMemoryPreprocessService;
 import com.shenchen.cloudcoldagent.workflow.skill.service.SkillWorkflowService;
 import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemoryPreprocessResult;
@@ -35,11 +36,10 @@ import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.ai.chat.memory.ChatMemoryRepository;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
-import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.ObjectProvider;
+
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -83,11 +83,11 @@ public class AgentServiceImpl implements AgentService {
 
     private final SkillService skillService;
 
-    private final UserConversationRelationService userConversationRelationService;
-
     private final ObjectProvider<Advisor> advisorProvider;
 
     private final ToolCallback[] commonToolCallbacks;
+
+    private final ToolCallback[] coordinatorTools;
 
     private final Executor agentToolTaskExecutor;
 
@@ -100,6 +100,8 @@ public class AgentServiceImpl implements AgentService {
     private SimpleReactAgent reactAgent;
 
     private PlanExecuteAgent planExecuteAgent;
+
+    private CoordinatorAgent coordinatorAgent;
 
     /**
      * 注入 Agent 主链路运行所需的依赖。
@@ -117,7 +119,6 @@ public class AgentServiceImpl implements AgentService {
      * @param knowledgePreprocessService 知识库预检索服务。
      * @param userLongTermMemoryPreprocessService 长期记忆预处理服务。
      * @param skillService skill 业务服务。
-     * @param userConversationRelationService 用户会话归属服务。
      * @param advisorProvider advisor 提供器。
      * @param commonToolCallbacks 主工具池。
      * @param agentToolTaskExecutor 代理工具调用线程池。
@@ -136,9 +137,9 @@ public class AgentServiceImpl implements AgentService {
                             KnowledgePreprocessService knowledgePreprocessService,
                             UserLongTermMemoryPreprocessService userLongTermMemoryPreprocessService,
                             SkillService skillService,
-                            UserConversationRelationService userConversationRelationService,
                             ObjectProvider<Advisor> advisorProvider,
                             @Qualifier("commonTools") ToolCallback[] commonToolCallbacks,
+                            @Qualifier("coordinatorTools") ToolCallback[] coordinatorTools,
                             @Qualifier("agentToolTaskExecutor") Executor agentToolTaskExecutor,
                             @Qualifier("virtualThreadExecutor") Executor virtualThreadExecutor) {
         this.openAiChatModel = openAiChatModel;
@@ -154,9 +155,9 @@ public class AgentServiceImpl implements AgentService {
         this.knowledgePreprocessService = knowledgePreprocessService;
         this.userLongTermMemoryPreprocessService = userLongTermMemoryPreprocessService;
         this.skillService = skillService;
-        this.userConversationRelationService = userConversationRelationService;
         this.advisorProvider = advisorProvider;
         this.commonToolCallbacks = commonToolCallbacks;
+        this.coordinatorTools = coordinatorTools;
         this.agentToolTaskExecutor = agentToolTaskExecutor;
         this.virtualThreadExecutor = virtualThreadExecutor;
     }
@@ -171,7 +172,7 @@ public class AgentServiceImpl implements AgentService {
                 .chatMemoryRepository(chatMemoryRepository)
                 .maxMessages(agentProperties.getMemory().getMaxMessages())
                 .build();
-        reactAgent = SimpleReactAgent.builder()
+        reactAgent = SimpleReactAgent.builder(agentToolTaskExecutor, virtualThreadExecutor)
                 .name(agentProperties.getReact().getName())
                 .chatModel(openAiChatModel)
                 .tools(commonToolCallbacks)
@@ -179,12 +180,14 @@ public class AgentServiceImpl implements AgentService {
                 .chatMemory(chatMemory)
                 .maxRounds(agentProperties.getReact().getMaxRounds())
                 .toolConcurrency(agentProperties.getReact().getToolConcurrency())
-                .toolExecutor(agentToolTaskExecutor)
-                .virtualThreadExecutor(virtualThreadExecutor)
                 .systemPrompt(agentProperties.getReact().getSystemPrompt())
                 .build();
-        planExecuteAgent = PlanExecuteAgent.builder()
+        planExecuteAgent = PlanExecuteAgent.builder(
+                        chatMemory, hitlExecutionService, hitlCheckpointService, hitlResumeService,
+                        skillService, agentToolTaskExecutor, virtualThreadExecutor)
+                .name(agentProperties.getPlan().getName())
                 .agentType(agentProperties.getPlan().getAgentType())
+                .systemPrompt(agentProperties.getPlan().getSystemPrompt())
                 .timezone(agentProperties.getTimezone())
                 .toolBatchTimeoutSeconds(agentProperties.getPlan().getToolBatchTimeoutSeconds())
                 .chatModel(openAiChatModel)
@@ -192,19 +195,24 @@ public class AgentServiceImpl implements AgentService {
                 .advisors(allAdvisors)
                 .maxRounds(agentProperties.getPlan().getMaxRounds())
                 .maxToolRetries(agentProperties.getPlan().getMaxToolRetries())
-                .chatMemory(chatMemory)
                 .contextCharLimit(agentProperties.getPlan().getContextCharLimit())
                 .toolConcurrency(agentProperties.getPlan().getToolConcurrency())
-                .hitlExecutionService(hitlExecutionService)
-                .hitlCheckpointService(hitlCheckpointService)
-                .hitlResumeService(hitlResumeService)
-                .skillService(skillService)
                 .hitlInterceptToolNames(resolveHitlInterceptToolNames())
-                .toolExecutor(agentToolTaskExecutor)
-                .virtualThreadExecutor(virtualThreadExecutor)
+                .build();
+        coordinatorAgent = CoordinatorAgent.builder(
+                        hitlExecutionService, hitlCheckpointService, hitlResumeService,
+                        skillService, agentToolTaskExecutor, virtualThreadExecutor)
+                .name(agentProperties.getCoordinator().getName())
+                .chatModel(openAiChatModel)
+                .tools(coordinatorTools)
+                .advisors(allAdvisors)
+                .chatMemory(chatMemory)
+                .systemPrompt(agentProperties.getCoordinator().getSystemPrompt())
+                .maxRounds(agentProperties.getCoordinator().getMaxRounds())
+                .contextCharLimit(agentProperties.getCoordinator().getContextCharLimit())
+                .toolConcurrency(agentProperties.getCoordinator().getToolConcurrency())
                 .build();
     }
-
 
     /**
      * 执行一次完整的 Agent 调用主链路，包含会话校验、skill 预处理、知识库预检索、长期记忆召回和具体 Agent 路由。
@@ -246,7 +254,11 @@ public class AgentServiceImpl implements AgentService {
         log.info("准备路由到具体智能体，conversationId={}, mode={}, targetAgent={}, effectiveQuestionLength={}, knowledgePreprocessTriggered={}, knowledgeHitCount={}",
                 conversationId,
                 mode.getValue(),
-                (mode == AgentModeEnum.FAST ? agentProperties.getReact().getName() : agentProperties.getPlan().getAgentType()),
+                switch (mode) {
+                    case FAST -> agentProperties.getReact().getName();
+                    case THINKING -> agentProperties.getPlan().getAgentType();
+                    case EXPERT -> coordinatorAgent != null ? "CoordinatorAgent" : "PlanExecuteAgent(fallback)";
+                },
                 effectiveQuestion == null ? 0 : effectiveQuestion.length(),
                 knowledgePreprocessResult.retrievalTriggered(),
                 knowledgePreprocessResult.retrievedChunks() == null ? 0 : knowledgePreprocessResult.retrievedChunks().size());
@@ -269,24 +281,17 @@ public class AgentServiceImpl implements AgentService {
                 conversationId,
                 knowledgePreprocessResult
         );
-        Flux<AgentStreamEvent> agentFlux;
+        List<SkillRuntimeContext> skillContexts = workflowResult == null
+                ? List.of()
+                : workflowResult.getSelectedSkillContexts();
 
-        switch (mode) {
-            case FAST:
-                agentFlux = reactAgent.stream(userId, conversationId, effectiveQuestion, runtimeSystemPrompt, question);
-                break;
-            case THINKING:
-            case EXPERT:
-                List<SkillRuntimeContext> skillContexts = workflowResult == null
-                        ? List.of()
-                        : workflowResult.getSelectedSkillContexts();
-                agentFlux = planExecuteAgent.stream(userId, conversationId, effectiveQuestion,
-                        runtimeSystemPrompt, question, skillContexts);
-                break;
-            default:
-                agentFlux = reactAgent.stream(userId, conversationId, effectiveQuestion, runtimeSystemPrompt, question);
-                break;
-        }
+        Flux<AgentStreamEvent> agentFlux = switch (mode) {
+            case FAST -> reactAgent.stream(userId, conversationId, effectiveQuestion, runtimeSystemPrompt, question);
+            case THINKING -> planExecuteAgent.stream(userId, conversationId, effectiveQuestion,
+                    runtimeSystemPrompt, question, skillContexts);
+            case EXPERT -> coordinatorAgent.stream(userId, conversationId, effectiveQuestion,
+                    runtimeSystemPrompt, question, skillContexts);
+        };
         return preAgentFlux == null ? agentFlux : Flux.concat(preAgentFlux, agentFlux);
     }
 
@@ -312,6 +317,9 @@ public class AgentServiceImpl implements AgentService {
                 agentType);
         if (agentProperties.getPlan().getAgentType().equals(agentType) || agentType == null || agentType.isBlank()) {
             return planExecuteAgent.resume(interruptId, userId);
+        }
+        if ("CoordinatorAgent".equals(agentType) && coordinatorAgent != null) {
+            return coordinatorAgent.resume(interruptId, userId);
         }
         throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前 agentType 暂不支持 resume: " + agentType);
     }
@@ -350,7 +358,7 @@ public class AgentServiceImpl implements AgentService {
      * @param selectedSkillContexts skill 工作流选出的上下文。
      * @return 合并后的运行时 system prompt；若无内容则返回 null。
      */
-    private String buildRuntimeSystemPrompt(com.shenchen.cloudcoldagent.model.entity.ChatConversation conversation,
+    private String buildRuntimeSystemPrompt(ChatConversation conversation,
                                             String longTermMemoryPrompt,
                                             List<SkillRuntimeContext> selectedSkillContexts) {
         List<String> segments = new ArrayList<>();

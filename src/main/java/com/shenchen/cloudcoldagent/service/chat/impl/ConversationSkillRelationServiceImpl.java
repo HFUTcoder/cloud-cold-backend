@@ -5,7 +5,7 @@ import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.mapper.chat.ConversationSkillRelationMapper;
-import com.shenchen.cloudcoldagent.model.entity.ConversationSkillRelation;
+import com.shenchen.cloudcoldagent.model.entity.agent.ConversationSkillRelation;
 import com.shenchen.cloudcoldagent.service.chat.ConversationSkillRelationService;
 import org.springframework.stereotype.Service;
 
@@ -117,22 +117,12 @@ public class ConversationSkillRelationServiceImpl
         ) > 0;
     }
 
-    /**
-     * 校验 `validate User Id` 对应内容。
-     *
-     * @param userId userId 参数。
-     */
     private void validateUserId(Long userId) {
         if (userId == null || userId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "userId 不合法");
         }
     }
 
-    /**
-     * 校验 `validate Conversation Id` 对应内容。
-     *
-     * @param conversationId conversationId 参数。
-     */
     private void validateConversationId(String conversationId) {
         if (conversationId == null || conversationId.isBlank()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "conversationId 不能为空");

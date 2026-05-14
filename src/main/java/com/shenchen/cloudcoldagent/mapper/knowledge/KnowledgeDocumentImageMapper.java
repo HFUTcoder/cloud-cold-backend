@@ -1,7 +1,7 @@
 package com.shenchen.cloudcoldagent.mapper.knowledge;
 
 import com.mybatisflex.core.BaseMapper;
-import com.shenchen.cloudcoldagent.model.entity.KnowledgeDocumentImage;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.KnowledgeDocumentImage;
 
 /**
  * `KnowledgeDocumentImageMapper` 接口定义。

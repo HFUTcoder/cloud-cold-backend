@@ -7,12 +7,7 @@ package com.shenchen.cloudcoldagent.limiter;
 public interface RateLimiter {
 
     /**
-     * 处理 `try Acquire` 对应逻辑。
-     *
-     * @param key key 参数。
-     * @param limit limit 参数。
-     * @param windowSize windowSize 参数。
-     * @return 返回处理结果。
+     * 尝试获取令牌，基于 Redis 滑动窗口限流。
      */
-    public Boolean tryAcquire(String key, int limit, int windowSize);
+    Boolean tryAcquire(String key, int limit, int windowSize);
 }

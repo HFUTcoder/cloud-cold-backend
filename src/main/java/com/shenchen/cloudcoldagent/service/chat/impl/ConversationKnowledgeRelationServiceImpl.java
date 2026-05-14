@@ -5,7 +5,7 @@ import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.shenchen.cloudcoldagent.exception.BusinessException;
 import com.shenchen.cloudcoldagent.exception.ErrorCode;
 import com.shenchen.cloudcoldagent.mapper.chat.ConversationKnowledgeRelationMapper;
-import com.shenchen.cloudcoldagent.model.entity.ConversationKnowledgeRelation;
+import com.shenchen.cloudcoldagent.model.entity.agent.ConversationKnowledgeRelation;
 import com.shenchen.cloudcoldagent.service.chat.ConversationKnowledgeRelationService;
 import org.springframework.stereotype.Service;
 
@@ -107,33 +107,18 @@ public class ConversationKnowledgeRelationServiceImpl
         ) > 0;
     }
 
-    /**
-     * 校验 `validate User Id` 对应内容。
-     *
-     * @param userId userId 参数。
-     */
     private void validateUserId(Long userId) {
         if (userId == null || userId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "userId 不合法");
         }
     }
 
-    /**
-     * 校验 `validate Conversation Id` 对应内容。
-     *
-     * @param conversationId conversationId 参数。
-     */
     private void validateConversationId(String conversationId) {
         if (conversationId == null || conversationId.isBlank()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "conversationId 不能为空");
         }
     }
 
-    /**
-     * 校验 `validate Knowledge Id` 对应内容。
-     *
-     * @param knowledgeId knowledgeId 参数。
-     */
     private void validateKnowledgeId(Long knowledgeId) {
         if (knowledgeId == null || knowledgeId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "knowledgeId 不合法");

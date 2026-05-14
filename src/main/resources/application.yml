@@ -97,7 +97,7 @@ springdoc:
   group-configs:
     - group: 'default'
       paths-to-match: '/**'
-      packages-to-scan: com.shenchen.cloudcoldagent.controller,com.shenchen.cloudcoldagent.multiagent
+      packages-to-scan: com.shenchen.cloudcoldagent.controller
 
 knife4j:
   enable: true
@@ -123,19 +123,6 @@ skills:
 
 # ---------- cloudcold 业务配置 ----------
 cloudcold:
-  # Agent 配置
-  agent:
-    memory:
-      max-messages: 20
-    react:
-      name: ReactAgent
-      max-rounds: 5
-    plan:
-      agent-type: PlanExecuteAgent
-      max-rounds: 5
-      max-tool-retries: 5
-      context-char-limit: 5000
-      tool-concurrency: 3
   # 文件上传限制
   upload:
     max-file-size: 100MB

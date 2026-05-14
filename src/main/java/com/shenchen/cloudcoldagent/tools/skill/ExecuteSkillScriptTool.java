@@ -1,6 +1,6 @@
 package com.shenchen.cloudcoldagent.tools.skill;
 
-import com.shenchen.cloudcoldagent.model.vo.SkillScriptExecutionVO;
+import com.shenchen.cloudcoldagent.model.vo.skill.SkillScriptExecutionVO;
 import com.shenchen.cloudcoldagent.service.skill.SkillService;
 import com.shenchen.cloudcoldagent.tools.BaseTool;
 import org.springframework.ai.tool.annotation.Tool;

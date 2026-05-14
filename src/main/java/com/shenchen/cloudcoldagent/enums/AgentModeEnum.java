@@ -20,33 +20,16 @@ public enum AgentModeEnum {
 
     private final String value;
 
-    /**
-     * 创建 `AgentModeEnum` 实例。
-     *
-     * @param text text 参数。
-     * @param value value 参数。
-     */
     AgentModeEnum(String text, String value) {
         this.text = text;
         this.value = value;
     }
 
-    /**
-     * 获取 `get Value` 对应结果。
-     *
-     * @return 返回处理结果。
-     */
     @JsonValue
     public String getValue() {
         return value;
     }
 
-    /**
-     * 处理 `from Value` 对应逻辑。
-     *
-     * @param value value 参数。
-     * @return 返回处理结果。
-     */
     @JsonCreator
     public static AgentModeEnum fromValue(String value) {
         if (value == null || value.isBlank()) {

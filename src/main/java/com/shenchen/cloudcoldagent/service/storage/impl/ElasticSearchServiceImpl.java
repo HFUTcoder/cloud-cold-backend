@@ -6,11 +6,12 @@ import co.elastic.clients.elasticsearch._types.Refresh;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch.core.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.shenchen.cloudcoldagent.model.entity.EsDocumentChunk;
+import com.shenchen.cloudcoldagent.model.entity.knowledge.EsDocumentChunk;
 import com.shenchen.cloudcoldagent.service.storage.ElasticSearchService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.ai.vectorstore.elasticsearch.ElasticsearchVectorStore;
 import org.springframework.ai.vectorstore.filter.Filter;
 import org.springframework.stereotype.Service;
@@ -49,7 +50,7 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
      * @param vectorStore 向量存储实现。
      */
     public ElasticSearchServiceImpl(ElasticsearchClient client,
-                                     @org.springframework.beans.factory.annotation.Qualifier("ragVectorStore") VectorStore vectorStore) {
+                                     @Qualifier("ragVectorStore") VectorStore vectorStore) {
         this.client = client;
         this.vectorStore = vectorStore;
     }
@@ -110,12 +111,6 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         }
     }
 
-    /**
-     * 删除 `delete By Ids` 对应内容。
-     *
-     * @param ids ids 参数。
-     * @throws Exception 异常信息。
-     */
     @Override
     public void deleteByIds(List<String> ids) throws Exception {
         if (ids == null || ids.isEmpty()) {
@@ -149,12 +144,6 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         }
     }
 
-    /**
-     * 删除 `delete By Document Id` 对应内容。
-     *
-     * @param documentId documentId 参数。
-     * @throws Exception 异常信息。
-     */
     @Override
     public void deleteByDocumentId(Long documentId) throws Exception {
         if (documentId == null || documentId <= 0) {
@@ -173,12 +162,6 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         ));
     }
 
-    /**
-     * 删除 `delete By Source` 对应内容。
-     *
-     * @param source source 参数。
-     * @throws Exception 异常信息。
-     */
     @Override
     public void deleteBySource(String source) throws Exception {
         if (source == null || source.isBlank()) {
@@ -197,17 +180,11 @@ public class ElasticSearchServiceImpl implements ElasticSearchService {
         ));
     }
 
-    /**
-     * 中文检索 - ik_max_word 建库 + ik_smart 检索
-     */
     @Override
     public List<EsDocumentChunk> searchByKeyword(String keyword) throws Exception {
         return searchByKeyword(keyword, 5, false);
     }
 
-    /**
-     * 中文检索：ik_max_word / ik_smart 切换
-     */
     @Override
     public List<EsDocumentChunk> searchByKeyword(String keyword, int size, boolean useSmartAnalyzer) throws Exception {
         return searchByKeyword(keyword, size, useSmartAnalyzer, Collections.emptyMap());

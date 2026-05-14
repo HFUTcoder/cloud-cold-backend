@@ -12,12 +12,6 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class RateLimiterConfiguration {
 
-    /**
-     * 处理 `sliding Window Rate Limiter` 对应逻辑。
-     *
-     * @param redisson redisson 参数。
-     * @return 返回处理结果。
-     */
     @Bean
     public RateLimiter slidingWindowRateLimiter(RedissonClient redisson) {
         return new SlidingWindowRateLimiter(redisson);

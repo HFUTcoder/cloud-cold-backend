@@ -8,7 +8,7 @@ import com.shenchen.cloudcoldagent.model.entity.record.hitl.AgentInterrupted;
 import com.shenchen.cloudcoldagent.model.entity.record.hitl.HitlResumeRequest;
 import com.shenchen.cloudcoldagent.model.entity.record.hitl.HitlResumeResult;
 import com.shenchen.cloudcoldagent.model.entity.record.hitl.PendingToolCall;
-import com.shenchen.cloudcoldagent.model.vo.HitlCheckpointVO;
+import com.shenchen.cloudcoldagent.model.vo.hitl.HitlCheckpointVO;
 import com.shenchen.cloudcoldagent.service.hitl.HitlCheckpointService;
 import com.shenchen.cloudcoldagent.service.hitl.HitlResumeService;
 import com.shenchen.cloudcoldagent.utils.JsonArgumentUtils;
@@ -153,15 +153,7 @@ public class HitlResumeServiceImpl implements HitlResumeService {
     }
 
     /**
-     * 执行 `execute Tool` 对应逻辑。
-     *
-     * @param toolName toolName 参数。
-     * @param toolId toolId 参数。
-     * @param rawArguments rawArguments 参数。
-     * @param tools tools 参数。
-     * @param userId userId 参数。
-     * @param conversationId conversationId 参数。
-     * @return 返回处理结果。
+     * 按批准的参数实际调用目标工具，并返回执行结果 JSON。
      */
     private String executeTool(String toolName,
                                String toolId,
@@ -197,13 +189,6 @@ public class HitlResumeServiceImpl implements HitlResumeService {
         }
     }
 
-    /**
-     * 查找 `find Tool` 对应结果。
-     *
-     * @param tools tools 参数。
-     * @param toolName toolName 参数。
-     * @return 返回处理结果。
-     */
     private ToolCallback findTool(List<ToolCallback> tools, String toolName) {
         if (tools == null || StringUtils.isBlank(toolName)) {
             return null;
