@@ -5,6 +5,7 @@ import com.shenchen.cloudcoldagent.config.properties.SearchProperties;
 import com.shenchen.cloudcoldagent.tools.BaseTool;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -17,7 +18,8 @@ public class SearchTool extends BaseTool {
 
     private final SearchService searchService;
 
-    public SearchTool(SearchService searchService, SearchProperties searchProperties) {
+    public SearchTool(SearchProperties searchProperties,
+                      @Autowired(required = false) SearchService searchService) {
         super(searchProperties.getMock().isEnabled());
         this.searchService = searchService;
     }
@@ -33,6 +35,10 @@ public class SearchTool extends BaseTool {
             String mockResult = mockSearchResult(query.trim());
             logToolMock(TOOL_NAME, query.trim(), mockResult);
             return mockResult;
+        }
+
+        if (searchService == null) {
+            return "搜索服务未配置，请设置 tavilysearch.api-key 或启用 mock 模式";
         }
 
         try {
