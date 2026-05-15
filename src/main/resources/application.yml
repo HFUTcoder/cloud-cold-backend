@@ -127,10 +127,6 @@ cloudcold:
   upload:
     max-file-size: 100MB
     max-request-size: 100MB
-  # 搜索 mock（开发环境可用；生产环境关闭）
-  search:
-    mock:
-      enabled: true
   # PDF 多模态识别（用于知识库入库时的图片描述生成）
   pdf:
     multimodal:
