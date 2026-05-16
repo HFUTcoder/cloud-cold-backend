@@ -29,6 +29,7 @@ import com.shenchen.cloudcoldagent.workflow.skill.service.SkillWorkflowService;
 import com.shenchen.cloudcoldagent.model.entity.usermemory.UserLongTermMemoryPreprocessResult;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillRuntimeContext;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillWorkflowResult;
+import com.shenchen.cloudcoldagent.utils.ToolDescriptionRenderer;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -45,6 +46,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -88,6 +90,8 @@ public class AgentServiceImpl implements AgentService {
     private final ToolCallback[] commonToolCallbacks;
 
     private final ToolCallback[] coordinatorTools;
+
+    private final ObjectProvider<ToolCallback[]> workerToolsProvider;
 
     private final Executor agentToolTaskExecutor;
 
@@ -140,6 +144,7 @@ public class AgentServiceImpl implements AgentService {
                             ObjectProvider<Advisor> advisorProvider,
                             @Qualifier("commonTools") ToolCallback[] commonToolCallbacks,
                             @Qualifier("coordinatorTools") ToolCallback[] coordinatorTools,
+                            @Qualifier("workerTools") ObjectProvider<ToolCallback[]> workerToolsProvider,
                             @Qualifier("agentToolTaskExecutor") Executor agentToolTaskExecutor,
                             @Qualifier("virtualThreadExecutor") Executor virtualThreadExecutor) {
         this.openAiChatModel = openAiChatModel;
@@ -158,6 +163,7 @@ public class AgentServiceImpl implements AgentService {
         this.advisorProvider = advisorProvider;
         this.commonToolCallbacks = commonToolCallbacks;
         this.coordinatorTools = coordinatorTools;
+        this.workerToolsProvider = workerToolsProvider;
         this.agentToolTaskExecutor = agentToolTaskExecutor;
         this.virtualThreadExecutor = virtualThreadExecutor;
     }
@@ -199,6 +205,10 @@ public class AgentServiceImpl implements AgentService {
                 .toolConcurrency(agentProperties.getPlan().getToolConcurrency())
                 .hitlInterceptToolNames(resolveHitlInterceptToolNames())
                 .build();
+        ToolCallback[] workerTools = workerToolsProvider.getIfAvailable();
+        String workerCapabilities = ToolDescriptionRenderer.renderWorkerCapabilities(
+                workerTools != null ? Arrays.asList(workerTools) : List.of());
+        log.info("CoordinatorAgent worker capabilities: {}", workerCapabilities);
         coordinatorAgent = CoordinatorAgent.builder(
                         hitlExecutionService, hitlCheckpointService, hitlResumeService,
                         skillService, agentToolTaskExecutor, virtualThreadExecutor)
@@ -211,6 +221,7 @@ public class AgentServiceImpl implements AgentService {
                 .maxRounds(agentProperties.getCoordinator().getMaxRounds())
                 .contextCharLimit(agentProperties.getCoordinator().getContextCharLimit())
                 .toolConcurrency(agentProperties.getCoordinator().getToolConcurrency())
+                .workerCapabilities(workerCapabilities)
                 .build();
     }
 

@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class ListSkillResourcesTool extends BaseTool {
 
-    private static final String TOOL_NAME = "list_skill_resources";
+    public static final String TOOL_NAME = "list_skill_resources";
 
     private final SkillService skillService;
 
@@ -22,7 +22,7 @@ public class ListSkillResourcesTool extends BaseTool {
         this.skillService = skillService;
     }
 
-    @Tool(name = "list_skill_resources", description = "列出某个 skill 下当前可读取的资源清单。 当你不知道 references 或 scripts 中具体有哪些文件时，先调用此工具，不要猜文件名。")
+    @Tool(name = TOOL_NAME, description = "列出某个 skill 下当前可读取的资源清单。 当你不知道 references 或 scripts 中具体有哪些文件时，先调用此工具，不要猜文件名。")
     public String listSkillResources(@ToolParam(description = "skill 名称") String skillName) {
         logToolStart(TOOL_NAME, "skillName", skillName);
         try {

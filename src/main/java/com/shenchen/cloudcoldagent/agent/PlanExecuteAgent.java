@@ -23,6 +23,7 @@ import com.shenchen.cloudcoldagent.service.skill.SkillService;
 import com.shenchen.cloudcoldagent.utils.PlanExecuteResumeUtils;
 import com.shenchen.cloudcoldagent.utils.JsonArgumentUtils;
 import com.shenchen.cloudcoldagent.utils.JsonUtil;
+import com.shenchen.cloudcoldagent.tools.skill.ExecuteSkillScriptTool;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillArgumentSpec;
 import com.shenchen.cloudcoldagent.workflow.skill.state.SkillRuntimeContext;
 import lombok.Getter;
@@ -46,6 +47,7 @@ import org.springframework.util.CollectionUtils;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
@@ -484,13 +486,15 @@ public class PlanExecuteAgent extends BaseAgent {
             addUserMemory(conversationId, memoryQuestion == null ? question : memoryQuestion);
         }
 
-        Sinks.Many<AgentStreamEvent> sink = Sinks.many().unicast().onBackpressureBuffer();
+        Sinks.Many<AgentStreamEvent> sink = Sinks.many().multicast().onBackpressureBuffer();
         AtomicBoolean hasSentFinalResult = new AtomicBoolean(false);
         AtomicBoolean interruptedByHitl = new AtomicBoolean(false);
         hasSentFinalResult.set(false);
 
         // 收集最终答案，存储memory
         StringBuilder finalAnswerBuffer = new StringBuilder();
+
+        state.setEmitter(event -> sink.emitNext(event, Sinks.EmitFailureHandler.busyLooping(Duration.ofSeconds(10))));
 
         virtualThreadExecutor.execute(() -> {
             try {
@@ -508,6 +512,7 @@ public class PlanExecuteAgent extends BaseAgent {
                             plan.size(),
                             summarizePlan(plan));
                     emitStep(sink, state.getConversationId(), "plan", "Execution Plan", renderPlanForDisplay(plan));
+                    emitMultiAgentPlan(sink, state.getConversationId(), plan);
 
                     if (plan.isEmpty()) {
                         log.info("本轮未生成可执行任务，直接进入总结阶段。conversationId={}, round={}",
@@ -593,6 +598,21 @@ public class PlanExecuteAgent extends BaseAgent {
             return;
         }
         sink.tryEmitNext(AgentStreamEventFactory.thinkingStep(conversationId, type, title, content));
+    }
+
+    /**
+     * 发送多智能体计划事件，将 PlanTask 列表序列化为 JSON 供前端 MultiAgentPanel 渲染。
+     */
+    private void emitMultiAgentPlan(Sinks.Many<AgentStreamEvent> sink, String conversationId, List<PlanTask> plan) {
+        if (sink == null || plan == null || plan.isEmpty()) {
+            return;
+        }
+        try {
+            String planData = PLAN_OBJECT_MAPPER.writeValueAsString(plan);
+            sink.tryEmitNext(AgentStreamEventFactory.multiAgentPlan(conversationId, planData));
+        } catch (Exception e) {
+            log.warn("序列化 plan 数据失败: {}", e.getMessage());
+        }
     }
 
     /**
@@ -1181,7 +1201,7 @@ public class PlanExecuteAgent extends BaseAgent {
      * @return 恢复执行后的事件流。
      */
     private Flux<AgentStreamEvent> resumeInternal(String interruptId, Long userId) {
-        Sinks.Many<AgentStreamEvent> sink = Sinks.many().unicast().onBackpressureBuffer();
+        Sinks.Many<AgentStreamEvent> sink = Sinks.many().multicast().onBackpressureBuffer();
         AtomicBoolean hasSentFinalResult = new AtomicBoolean(false);
         AtomicBoolean interruptedByHitl = new AtomicBoolean(false);
         StringBuilder finalAnswerBuffer = new StringBuilder();
@@ -1191,6 +1211,7 @@ public class PlanExecuteAgent extends BaseAgent {
                 HitlCheckpointVO checkpoint = hitlCheckpointService.getByInterruptId(interruptId);
                 ResumeContext resumeContext = PlanExecuteResumeUtils.readContext(checkpoint.getContext());
                 OverallState state = restoreResumeState(userId, checkpoint.getConversationId(), resumeContext);
+                state.setEmitter(event -> sink.emitNext(event, Sinks.EmitFailureHandler.busyLooping(Duration.ofSeconds(10))));
                 String runtimeSystemPrompt = resumeContext.runtimeSystemPrompt();
                 emitStep(sink, state.getConversationId(), "resume", "Resume", "正在恢复上次被 HITL 中断的执行链...");
 
@@ -1273,6 +1294,7 @@ public class PlanExecuteAgent extends BaseAgent {
                             plan.size(),
                             summarizePlan(plan));
                     emitStep(sink, state.getConversationId(), "plan", "Execution Plan", renderPlanForDisplay(plan));
+                    emitMultiAgentPlan(sink, state.getConversationId(), plan);
 
                     if (plan.isEmpty()) {
                         log.info("恢复执行阶段未生成可执行任务，直接进入总结。conversationId={}, interruptId={}, round={}",
@@ -1563,7 +1585,8 @@ public class PlanExecuteAgent extends BaseAgent {
             String result;
             try (AgentRuntimeContext.Scope ignored = AgentRuntimeContext.open(
                     state == null ? null : state.getUserId(),
-                    state == null ? null : state.getConversationId())) {
+                    state == null ? null : state.getConversationId(),
+                    state == null ? null : state.getEmitter())) {
                 result = String.valueOf(callback.call(argsJson));
             }
             return new TaskResult(effectiveTask.id(), true, false, result, null, null);
@@ -1593,7 +1616,7 @@ public class PlanExecuteAgent extends BaseAgent {
         if (task == null || StringUtils.isBlank(task.toolName())) {
             return Map.of();
         }
-        if (!JsonArgumentUtils.EXECUTE_SKILL_SCRIPT_TOOL.equals(task.toolName())) {
+        if (!ExecuteSkillScriptTool.TOOL_NAME.equals(task.toolName())) {
             return Map.of();
         }
 
@@ -1711,7 +1734,7 @@ public class PlanExecuteAgent extends BaseAgent {
 
     /** 为 execute_skill_script 工具补充 argumentSpecs 字段，供 HITL 前端渲染参数编辑表单。 */
     private String enrichHitlArgumentsJson(String toolName, String argumentsJson) {
-        if (!JsonArgumentUtils.EXECUTE_SKILL_SCRIPT_TOOL.equals(toolName) || StringUtils.isBlank(argumentsJson) || skillService == null) {
+        if (!ExecuteSkillScriptTool.TOOL_NAME.equals(toolName) || StringUtils.isBlank(argumentsJson) || skillService == null) {
             return argumentsJson;
         }
         try {
@@ -2096,11 +2119,20 @@ public class PlanExecuteAgent extends BaseAgent {
         private volatile HitlCheckpointVO interruptedCheckpoint;
         private volatile CritiqueResult lastCritique;
         private final AtomicInteger round = new AtomicInteger(0);
+        private volatile AgentRuntimeContext.MultiAgentEventEmitter emitter;
 
         public OverallState(Long userId, String conversationId, String question) {
             this.userId = userId;
             this.question = question;
             this.conversationId = conversationId;
+        }
+
+        public void setEmitter(AgentRuntimeContext.MultiAgentEventEmitter emitter) {
+            this.emitter = emitter;
+        }
+
+        public AgentRuntimeContext.MultiAgentEventEmitter getEmitter() {
+            return emitter;
         }
 
         public void nextRound() {

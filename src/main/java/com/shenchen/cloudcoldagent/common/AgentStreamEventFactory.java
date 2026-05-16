@@ -83,6 +83,41 @@ public final class AgentStreamEventFactory {
                 new AgentStreamEventData.KnowledgeRetrieval(safeImages, safeImages.size()));
     }
 
+    /**
+     * 多智能体计划事件。
+     */
+    public static AgentStreamEvent multiAgentPlan(String conversationId, String planData) {
+        return build("multi_agent", conversationId, null,
+                new AgentStreamEventData.MultiAgentStep("plan", null, null, null, null, null, null, planData));
+    }
+
+    /**
+     * 多智能体 Worker 启动事件。
+     */
+    public static AgentStreamEvent multiAgentWorkerStart(String conversationId, String workerId,
+                                                          String taskId, String description) {
+        return build("multi_agent", conversationId, null,
+                new AgentStreamEventData.MultiAgentStep("worker_start", workerId, taskId, description, null, null, null, null));
+    }
+
+    /**
+     * 多智能体 Worker 流式输出事件。
+     */
+    public static AgentStreamEvent multiAgentWorkerDelta(String conversationId, String workerId,
+                                                          String taskId, String content) {
+        return build("multi_agent", conversationId, null,
+                new AgentStreamEventData.MultiAgentStep("worker_delta", workerId, taskId, null, content, null, null, null));
+    }
+
+    /**
+     * 多智能体 Worker 完成事件。
+     */
+    public static AgentStreamEvent multiAgentWorkerResult(String conversationId, String workerId,
+                                                           String taskId, String summary, boolean success) {
+        return build("multi_agent", conversationId, null,
+                new AgentStreamEventData.MultiAgentStep("worker_result", workerId, taskId, null, null, summary, success, null));
+    }
+
     private static AgentStreamEvent build(String eventType,
                                           String conversationId,
                                           String interruptId,

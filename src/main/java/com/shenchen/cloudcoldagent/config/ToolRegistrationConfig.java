@@ -54,8 +54,9 @@ public class ToolRegistrationConfig {
      */
     @Bean("workerTools")
     @ConditionalOnProperty(prefix = "cloudcold.multiagent.coordinator", name = "enabled", havingValue = "true")
-    public ToolCallback[] workerTools(SearchTool searchTool) {
-        return ToolCallbacks.from(searchTool);
+    public ToolCallback[] workerTools(SearchTool searchTool,
+                                      ExecuteSkillScriptTool executeSkillScriptTool) {
+        return ToolCallbacks.from(searchTool, executeSkillScriptTool);
     }
 
 }

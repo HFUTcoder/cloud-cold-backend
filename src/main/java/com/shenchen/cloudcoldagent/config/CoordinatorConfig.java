@@ -31,7 +31,7 @@ public class CoordinatorConfig {
     private boolean enabled = false;
 
     /** Worker 池最大容量 */
-    private int maxWorkers = 5;
+    private int maxWorkers = 6;
 
     /** 每个 Worker 最大推理轮次 */
     private int maxRoundsPerWorker = 5;
@@ -40,7 +40,7 @@ public class CoordinatorConfig {
     private int maxCoordinatorRounds = 5;
 
     /** Worker 池最小容量（预创建数量） */
-    private int minWorkers = 2;
+    private int minWorkers = 6;
 
     @Bean
     @ConditionalOnProperty(prefix = "cloudcold.multiagent.coordinator", name = "enabled", havingValue = "true")

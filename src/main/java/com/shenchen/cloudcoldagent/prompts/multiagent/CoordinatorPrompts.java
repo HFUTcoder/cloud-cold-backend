@@ -72,12 +72,6 @@ public final class CoordinatorPrompts {
     public static final String CRITIQUE_PROMPT_SIMPLE = """
             你是协调者的评估专家。请评估当前任务执行结果是否满足用户需求。
 
-            ## 用户问题
-            {question}
-
-            ## 执行结果
-            {results}
-
             ## 评估标准
             1. 结果是否完整回答了用户问题
             2. 信息是否准确、有实质内容
@@ -148,14 +142,22 @@ public final class CoordinatorPrompts {
      * <p>
      * 用于注入 PlanExecuteAgent，使其 plan/critique/summarize/compress 阶段
      * 使用 Coordinator 专属的中文 prompt 模板，而非通用的 PlanExecutePrompts。
+     *
+     * @param workerCapabilities Worker 持有的工具能力描述文本，注入 plan prompt 供协调者了解子 Agent 能力范围
      */
-    public static PlanExecuteAgent.PromptProvider createPromptProvider() {
+    public static PlanExecuteAgent.PromptProvider createPromptProvider(String workerCapabilities) {
+        String effectiveWorkerCaps = workerCapabilities != null && !workerCapabilities.isBlank()
+                ? workerCapabilities : "";
         return new PlanExecuteAgent.PromptProvider() {
             @Override
             public String buildPlanPrompt(LocalDateTime now, int round, String skillContext,
                                           String executedTaskHistory, String outputFormat) {
+                String toolContext = skillContext != null && !skillContext.isBlank() ? skillContext : "无";
+                if (!effectiveWorkerCaps.isEmpty()) {
+                    toolContext = effectiveWorkerCaps + "\n\n" + toolContext;
+                }
                 return String.format(PLAN_PROMPT_SIMPLE,
-                        skillContext != null && !skillContext.isBlank() ? skillContext : "无",
+                        toolContext,
                         executedTaskHistory != null && !executedTaskHistory.isBlank() ? executedTaskHistory : "无",
                         outputFormat != null ? outputFormat : "");
             }

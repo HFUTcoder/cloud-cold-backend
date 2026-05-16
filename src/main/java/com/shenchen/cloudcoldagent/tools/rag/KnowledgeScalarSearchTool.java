@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class KnowledgeScalarSearchTool extends AbstractKnowledgeSearchTool {
 
-    private static final String TOOL_NAME = "knowledge_scalar_search";
+    public static final String TOOL_NAME = "knowledge_scalar_search";
 
     public KnowledgeScalarSearchTool(KnowledgeService knowledgeService,
                                      ChatConversationService chatConversationService) {

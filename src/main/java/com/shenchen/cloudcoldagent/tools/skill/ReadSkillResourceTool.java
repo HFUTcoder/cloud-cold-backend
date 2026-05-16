@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class ReadSkillResourceTool extends BaseTool {
 
-    private static final String TOOL_NAME = "read_skill_resource";
+    public static final String TOOL_NAME = "read_skill_resource";
 
     private final SkillService skillService;
 
@@ -22,7 +22,7 @@ public class ReadSkillResourceTool extends BaseTool {
         this.skillService = skillService;
     }
 
-    @Tool(name = "read_skill_resource", description = "读取 skill 内部某个具体资源的内容，可按需读取 references 或 scripts 下的文件，也支持按行范围读取。")
+    @Tool(name = TOOL_NAME, description = "读取 skill 内部某个具体资源的内容，可按需读取 references 或 scripts 下的文件，也支持按行范围读取。")
     public String readSkillResource(@ToolParam(description = "skill 名称") String skillName,
                                     @ToolParam(description = "资源类型，仅支持 main/reference/script") String resourceType,
                                     @ToolParam(description = "资源相对路径；当 resourceType=main 时可传空，否则必须传 references/... 或 scripts/...") String resourcePath,

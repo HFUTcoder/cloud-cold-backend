@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class KnowledgeHybridSearchTool extends AbstractKnowledgeSearchTool {
 
-    private static final String TOOL_NAME = "knowledge_hybrid_search";
+    public static final String TOOL_NAME = "knowledge_hybrid_search";
 
     public KnowledgeHybridSearchTool(KnowledgeService knowledgeService,
                                      ChatConversationService chatConversationService) {

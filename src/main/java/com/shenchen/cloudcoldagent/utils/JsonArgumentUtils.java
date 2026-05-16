@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shenchen.cloudcoldagent.model.entity.record.support.NormalizationResult;
+import com.shenchen.cloudcoldagent.tools.skill.ExecuteSkillScriptTool;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -14,7 +15,6 @@ import java.util.Map;
 public final class JsonArgumentUtils {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    public static final String EXECUTE_SKILL_SCRIPT_TOOL = "execute_skill_script";
 
     private JsonArgumentUtils() {
     }
@@ -60,7 +60,7 @@ public final class JsonArgumentUtils {
         Map<String, Object> normalizedArguments = rawArguments == null
                 ? new LinkedHashMap<>()
                 : new LinkedHashMap<>(rawArguments);
-        if (!EXECUTE_SKILL_SCRIPT_TOOL.equals(toolName)) {
+        if (!ExecuteSkillScriptTool.TOOL_NAME.equals(toolName)) {
             return normalizedArguments;
         }
 
@@ -139,7 +139,7 @@ public final class JsonArgumentUtils {
     }
 
     public static String validateStructuredToolArguments(String toolName, Map<String, Object> arguments) {
-        if (!EXECUTE_SKILL_SCRIPT_TOOL.equals(toolName)) {
+        if (!ExecuteSkillScriptTool.TOOL_NAME.equals(toolName)) {
             return null;
         }
         if (arguments == null || arguments.isEmpty()) {

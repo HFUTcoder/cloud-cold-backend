@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class ReadSkillTool extends BaseTool {
 
-    private static final String TOOL_NAME = "read_skill";
+    public static final String TOOL_NAME = "read_skill";
 
     private final SkillRegistry skillRegistry;
     private final SkillService skillService;
@@ -25,7 +25,7 @@ public class ReadSkillTool extends BaseTool {
         this.skillService = skillService;
     }
 
-    @Tool(name = "read_skill", description = "读取某个 skill 的完整内容，并附带该 skill 当前可用的 references/scripts 资源清单。当你需要使用某个 skill 的详细说明、步骤、约束或真实脚本路径时，优先调用此工具。")
+    @Tool(name = TOOL_NAME, description = "读取某个 skill 的完整内容，并附带该 skill 当前可用的 references/scripts 资源清单。当你需要使用某个 skill 的详细说明、步骤、约束或真实脚本路径时，优先调用此工具。")
     public String readSkill(@ToolParam(description = "skill 名称") String skillName) {
         logToolStart(TOOL_NAME, "skillName", skillName);
         if (skillName == null || skillName.isBlank()) {

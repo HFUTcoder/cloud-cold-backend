@@ -1,7 +1,9 @@
 package com.shenchen.cloudcoldagent.context;
 
+import com.shenchen.cloudcoldagent.model.vo.agent.AgentStreamEvent;
+
 /**
- * Agent 运行时上下文，供工具在执行期间读取当前用户与会话作用域。
+ * Agent 运行时上下文，供工具在执行期间读取当前用户、会话作用域以及多智能体事件发射器。
  */
 public final class AgentRuntimeContext {
 
@@ -11,11 +13,26 @@ public final class AgentRuntimeContext {
     }
 
     /**
+     * 多智能体事件发射器，供 Worker 在执行期间向前端推送实时事件。
+     */
+    @FunctionalInterface
+    public interface MultiAgentEventEmitter {
+        void emit(AgentStreamEvent event);
+    }
+
+    /**
      * 在当前线程绑定用户和会话上下文，返回可自动关闭的 Scope。
      */
     public static Scope open(Long userId, String conversationId) {
+        return open(userId, conversationId, null);
+    }
+
+    /**
+     * 在当前线程绑定用户、会话上下文和多智能体事件发射器，返回可自动关闭的 Scope。
+     */
+    public static Scope open(Long userId, String conversationId, MultiAgentEventEmitter emitter) {
         AgentExecutionContext previous = CONTEXT_HOLDER.get();
-        CONTEXT_HOLDER.set(new AgentExecutionContext(userId, conversationId));
+        CONTEXT_HOLDER.set(new AgentExecutionContext(userId, conversationId, emitter));
         return new Scope(previous);
     }
 
@@ -27,6 +44,11 @@ public final class AgentRuntimeContext {
     public static String getCurrentConversationId() {
         AgentExecutionContext context = CONTEXT_HOLDER.get();
         return context == null ? null : context.conversationId();
+    }
+
+    public static MultiAgentEventEmitter getCurrentEmitter() {
+        AgentExecutionContext context = CONTEXT_HOLDER.get();
+        return context == null ? null : context.emitter();
     }
 
     /**
@@ -53,6 +75,6 @@ public final class AgentRuntimeContext {
     /**
      * `AgentExecutionContext` 记录对象。
      */
-    private record AgentExecutionContext(Long userId, String conversationId) {
+    private record AgentExecutionContext(Long userId, String conversationId, MultiAgentEventEmitter emitter) {
     }
 }

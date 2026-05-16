@@ -42,6 +42,7 @@ public class CoordinatorAgent extends BaseAgent {
                             int contextCharLimit,
                             int toolConcurrency,
                             ChatMemory chatMemory,
+                            String workerCapabilities,
                             HitlExecutionService hitlExecutionService,
                             HitlCheckpointService hitlCheckpointService,
                             HitlResumeService hitlResumeService,
@@ -60,8 +61,7 @@ public class CoordinatorAgent extends BaseAgent {
                 .tools(tools)
                 .advisors(advisors)
                 .systemPrompt(buildCombinedSystemPrompt(systemPrompt))
-                .promptProvider(CoordinatorPrompts.createPromptProvider())
-                .extensionTools(tools)
+                .promptProvider(CoordinatorPrompts.createPromptProvider(workerCapabilities))
                 .maxRounds(maxRounds)
                 .contextCharLimit(contextCharLimit)
                 .toolConcurrency(toolConcurrency)
@@ -138,6 +138,7 @@ public class CoordinatorAgent extends BaseAgent {
         private int contextCharLimit = 10000;
         private int toolConcurrency = 3;
         private ChatMemory chatMemory;
+        private String workerCapabilities;
 
         private Builder(HitlExecutionService hitlExecutionService,
                         HitlCheckpointService hitlCheckpointService,
@@ -203,12 +204,17 @@ public class CoordinatorAgent extends BaseAgent {
             return this;
         }
 
+        public Builder workerCapabilities(String workerCapabilities) {
+            this.workerCapabilities = workerCapabilities;
+            return this;
+        }
+
         public CoordinatorAgent build() {
             Objects.requireNonNull(chatModel, "chatModel must not be null");
             Objects.requireNonNull(toolExecutor, "toolExecutor must not be null");
             Objects.requireNonNull(virtualThreadExecutor, "virtualThreadExecutor must not be null");
             return new CoordinatorAgent(name, chatModel, tools, advisors, systemPrompt,
-                    maxRounds, contextCharLimit, toolConcurrency, chatMemory,
+                    maxRounds, contextCharLimit, toolConcurrency, chatMemory, workerCapabilities,
                     hitlExecutionService, hitlCheckpointService,
                     hitlResumeService, skillService, toolExecutor, virtualThreadExecutor);
         }

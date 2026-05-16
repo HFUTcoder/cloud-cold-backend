@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class WorkerDispatchTool extends BaseTool {
 
-    private static final String TOOL_NAME = "dispatch_to_worker";
+    public static final String TOOL_NAME = "dispatch_to_worker";
 
     private final WorkerPool workerPool;
 
@@ -37,10 +37,10 @@ public class WorkerDispatchTool extends BaseTool {
      * @param taskDescription 任务的详细描述。
      * @return Worker 执行结果。
      */
-    @Tool(name = "dispatch_to_worker", description = """
-            将子任务派发给 Worker 执行。Worker 会使用搜索工具获取信息并完成任务。
-            适用场景：需要调研、搜索、分析信息的任务。
-            参数 taskDescription 应该是详细的任务描述，包含具体要调研的内容。
+    @Tool(name = TOOL_NAME, description = """
+            将子任务派发给 Worker 执行。Worker 会自主调用其持有的工具完成任务并返回结果。
+            taskDescription 需写清楚任务的目标和要求，便于 Worker 独立完成。
+            有多个独立子任务时，分别调用本工具即可并行执行。
             """)
     public String dispatchToWorker(
             @ToolParam(description = "任务的详细描述，包含具体要调研的内容") String taskDescription) {

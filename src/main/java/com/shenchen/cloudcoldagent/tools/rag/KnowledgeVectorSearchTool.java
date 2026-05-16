@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class KnowledgeVectorSearchTool extends AbstractKnowledgeSearchTool {
 
-    private static final String TOOL_NAME = "knowledge_vector_search";
+    public static final String TOOL_NAME = "knowledge_vector_search";
 
     public KnowledgeVectorSearchTool(KnowledgeService knowledgeService,
                                      ChatConversationService chatConversationService) {

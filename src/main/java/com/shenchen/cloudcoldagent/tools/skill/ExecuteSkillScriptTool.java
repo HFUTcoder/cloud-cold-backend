@@ -15,7 +15,7 @@ import java.util.Map;
 @Component
 public class ExecuteSkillScriptTool extends BaseTool {
 
-    private static final String TOOL_NAME = "execute_skill_script";
+    public static final String TOOL_NAME = "execute_skill_script";
 
     private final SkillService skillService;
 
@@ -37,7 +37,7 @@ public class ExecuteSkillScriptTool extends BaseTool {
      * @param arguments 脚本执行参数。
      * @return 供 Agent 消费的格式化执行结果。
      */
-    @Tool(name = "execute_skill_script", description = "执行某个 skill 在 scripts 目录下的固定脚本。skillName、scriptPath 和 arguments 应优先来自前置 skill workflow 注入的完整 SKILL.md 与 execution hints。")
+    @Tool(name = TOOL_NAME, description = "执行某个 skill 在 scripts 目录下的固定脚本。skillName、scriptPath 和 arguments 应优先来自前置 skill workflow 注入的完整 SKILL.md 与 execution hints。")
     public String executeSkillScript(@ToolParam(description = "skill 名称") String skillName,
                                      @ToolParam(description = "脚本相对路径，必须是该 skill 真实存在的 scripts/... 路径") String scriptPath,
                                      @ToolParam(description = "脚本参数，使用结构化 JSON 对象，例如 {\"key\":\"value\"}") Map<String, Object> arguments) {

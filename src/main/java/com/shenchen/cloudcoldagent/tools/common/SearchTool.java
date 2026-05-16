@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class SearchTool extends BaseTool {
 
-    private static final String TOOL_NAME = "search";
+    public static final String TOOL_NAME = "search";
 
     private final SearchService searchService;
 
@@ -24,7 +24,7 @@ public class SearchTool extends BaseTool {
         this.searchService = searchService;
     }
 
-    @Tool(name = "search", description = "联网搜索工具，用于检索最新网页信息")
+    @Tool(name = TOOL_NAME, description = "联网搜索工具，用于检索最新网页信息")
     public String search(@ToolParam(description = "查询语句") String query) {
         logToolStart(TOOL_NAME, "query", query);
         if (query == null || query.isBlank()) {

@@ -16,7 +16,8 @@ public sealed interface AgentStreamEventData extends Serializable
                 AgentStreamEventData.ThinkingStep,
                 AgentStreamEventData.Error,
                 AgentStreamEventData.HitlInterrupt,
-                AgentStreamEventData.KnowledgeRetrieval {
+                AgentStreamEventData.KnowledgeRetrieval,
+                AgentStreamEventData.MultiAgentStep {
 
     /**
      * 助手增量文本（assistant_delta / final_answer 共用 content 结构）。
@@ -47,6 +48,23 @@ public sealed interface AgentStreamEventData extends Serializable
      */
     record HitlInterrupt(String agentType, List<PendingToolCall> pendingToolCalls, String status)
             implements AgentStreamEventData {
+    }
+
+    /**
+     * 多智能体协作事件。
+     *
+     * @param event 子事件类型：plan / worker_start / worker_delta / worker_result
+     * @param workerId Worker 标识
+     * @param taskId 任务标识
+     * @param description 任务描述
+     * @param content 流式输出内容
+     * @param summary 结果摘要
+     * @param success 是否成功
+     * @param planData 计划数据（JSON 字符串，仅 plan 事件）
+     */
+    record MultiAgentStep(String event, String workerId, String taskId,
+                          String description, String content, String summary,
+                          Boolean success, String planData) implements AgentStreamEventData {
     }
 
     /**
